@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getnet • Atendimento Inteligente Multi-Agente</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout" id="app-layout">
+    <!-- Top System Header -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="brand-badge">
+          <span class="brand-get">get</span><span class="brand-net">net</span>
+        </div>
+        <span class="nav-divider"></span>
+        <div class="brand-title">
+          <span class="system-name">Atendimento Conversacional IA</span>
+          <span class="system-sub">Multi-Agent Support Architecture</span>
+        </div>
+      </div>
+
+      <div class="nav-controls">
+        <!-- Scenarios Dropdown Menu Button (Separated from chat canvas) -->
+        <div class="menu-dropdown-wrapper">
+          <button type="button" class="ctrl-btn highlight-btn" id="scenarios-menu-btn" title="Ver os 10 cenários de teste oficiais">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            <span>Cenários do Teste</span>
+            <span class="menu-badge">10</span>
+            <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+
+          <!-- Dropdown Popover Container -->
+          <div class="scenarios-dropdown" id="scenarios-dropdown">
+            <div class="dropdown-header">
+              <span class="dropdown-title">Selecione um cenário para testar:</span>
+              <span class="dropdown-subtitle">Perguntas oficiais do desafio técnico da Getnet</span>
+            </div>
+            <div class="dropdown-items-grid" id="scenarios-list">
+              <!-- Dynamically populated from /api/scenarios -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Mobile Simulator Toggle -->
+        <button type="button" class="ctrl-btn" id="mobile-toggle" title="Alternar entre modo Desktop e Celular">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+          <span id="mobile-toggle-text">Simular Celular</span>
+        </button>
+
+        <!-- Light / Dark Theme Switcher -->
+        <button type="button" class="ctrl-btn icon-btn" id="theme-toggle" title="Alternar entre modo Claro e Escuro">
+          <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+
+        <!-- User Profile Pill -->
+        <div class="user-pill" title="ID de autenticação do cliente credenciado">
+          <span class="user-icon">👤</span>
+          <span class="user-title">Cliente:</span>
+          <input type="text" id="user-id-input" value="cliente1988" spellcheck="false">
+        </div>
+      </div>
+    </header>
+
+    <!-- Workspace Split -->
+    <main class="workspace">
+      <!-- Left: Chat Viewport -->
+      <section class="chat-viewport" id="chat-viewport">
+        <!-- Phone Frame Wrapper -->
+        <div class="phone-frame-wrapper" id="phone-frame-wrapper">
+          
+          <!-- Phone Bezel Header (Only in Mobile Mode) -->
+          <div class="phone-status-bar" id="phone-status-bar">
+            <span class="phone-time">09:41</span>
+            <div class="phone-dynamic-island"></div>
+            <div class="phone-icons">
+              <span>5G</span>
+              <span class="battery-icon">100%</span>
+            </div>
+          </div>
+
+          <!-- Chat Window -->
+          <div class="chatbot-container">
+            <!-- Contact Header (Getnet Official) -->
+            <div class="chat-contact-header">
+              <div class="contact-info">
+                <div class="contact-avatar">
+                  <span>GN</span>
+                  <div class="verified-badge" title="Canal Oficial Verificado">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                  </div>
+                </div>
+                <div class="contact-meta">
+                  <div class="contact-name">
+                    <span>Getnet Atendimento</span>
+                    <span class="brand-verified-tag">Oficial</span>
+                  </div>
+                  <div class="contact-status">
+                    <span class="online-bullet"></span>
+                    <span>online • Suporte Inteligente Multi-Agente</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="contact-actions">
+                <button type="button" class="header-action-btn" id="quick-scenario-shortcut-btn" title="Abrir menu de cenários rápidos">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Chat Stream (Pure Conversational Canvas) -->
+            <div class="chat-stream" id="chat-stream">
+              <!-- Welcome Bot Message -->
+              <div class="msg-bubble assistant">
+                <div class="msg-body">
+                  <div class="msg-meta">
+                    <span class="agent-tag orchestrator">Getnet IA</span>
+                    <span class="msg-timestamp">Hoje 09:41</span>
+                  </div>
+                  <div class="msg-text">
+                    <p>Olá! Bem-vindo ao canal oficial da <strong>Getnet</strong>. 👋</p>
+                    <p>Sou o assistente de inteligência artificial conectado aos sistemas de extrato, liquidação, telemetria de maquininhas e catálogo de produtos.</p>
+                    <p>Para testar as perguntas do desafio, você pode abrir o menu <strong>Cenários do Teste</strong> no topo ou digitar sua dúvida abaixo.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Input Footer -->
+            <div class="chat-footer">
+              <form id="chat-form" class="input-form">
+                <div class="conversational-input-bar">
+                  <textarea id="message-input" placeholder="Digite sua mensagem..." rows="1" required></textarea>
+                  
+                  <button type="submit" id="send-btn" class="send-action-btn" title="Enviar mensagem">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  </button>
+                </div>
+                <div class="input-subtext">
+                  <span>Enter envia · Shift+Enter quebra linha</span>
+                  <span class="powered-by">Multi-Agent Engine • <strong>Google Gemini</strong></span>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Observability Trace Inspector -->
+      <aside class="observability-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <span>Observabilidade Multi-Agente</span>
+          </div>
+          <span class="latency-badge" id="trace-latency">0.0 ms</span>
+        </div>
+
+        <!-- Metric KPI Cards -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <span class="kpi-label">Agente Acionado</span>
+            <span class="kpi-value highlight" id="metric-agent">—</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Ferramentas (Tools)</span>
+            <span class="kpi-value" id="metric-tools">Nenhuma</span>
+          </div>
+          <div class="kpi-card">
+            <span class="kpi-label">Fontes RAG / Web</span>
+            <span class="kpi-value" id="metric-sources">Nenhuma</span>
+          </div>
+        </div>
+
+        <!-- Timeline of Steps -->
+        <div class="timeline-wrapper">
+          <div class="timeline-title">
+            <span>Rastro de Decisão dos Agentes</span>
+            <span class="timeline-count" id="timeline-step-count">0 passos</span>
+          </div>
+          <div class="timeline-track" id="timeline-steps">
+            <div class="timeline-empty-state">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+              <p>Envie uma mensagem ou selecione um cenário no menu superior para visualizar a árvore de decisão da IA em tempo real.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw JSON Inspector Drawer -->
+        <div class="raw-inspector-drawer">
+          <details>
+            <summary>Inspecionar Payload JSON Bruto da API</summary>
+            <pre id="raw-json-viewer">// Aguardando requisição...</pre>
+          </details>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

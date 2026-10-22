@@ -1,0 +1,17 @@
+services:
+  getnet-agent-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: getnet_multiagent_service
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+    volumes:
+      - ./data:/app/data:ro
+    restart: unless-stopped

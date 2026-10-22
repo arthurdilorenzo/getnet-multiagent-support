@@ -1,0 +1,63 @@
+{
+  "customers": {
+    "cliente1988": {
+      "user_id": "cliente1988",
+      "company_name": "Di Lorenzo Café & Conveniência ME",
+      "cnpj": "28.491.802/0001-44",
+      "contact_person": "Arthur Di Lorenzo",
+      "account_plan": "Getnet Pro",
+      "antecipacao_automatica": true,
+      "domicilio_bancario": {
+        "banco": "Banco Santander (033)",
+        "agencia": "1234",
+        "conta_corrente": "98765-4",
+        "tipo_chave_pix": "CNPJ"
+      },
+      "terminals": [
+        {
+          "terminal_id": "GET-SMART-88219",
+          "model": "Get Smart (Android 5.5 Touch)",
+          "serial_number": "SN-99827361",
+          "status": "Online",
+          "connection_type": "4G Multi-operadora (Claro/Vivo)",
+          "signal_strength": "Instável (1/4 barras)",
+          "firmware_version": "v4.18.2",
+          "paper_roll": "OK (80%)"
+        }
+      ],
+      "sales_settlement": {
+        "yesterday_sales": {
+          "date": "2026-10-21",
+          "total_gross_brl": 1840.50,
+          "debit_brl": 620.00,
+          "credit_brl": 850.50,
+          "pix_brl": 370.00,
+          "net_payout_scheduled_today_brl": 1415.80,
+          "payout_status": "Programado para compensação hoje até as 18:00h",
+          "target_bank": "Banco Santander (033) Agência 1234 Conta 98765-4",
+          "pix_note": "As vendas Pix de R$ 370,00 foram liquidadas instantaneamente no momento da transação."
+        }
+      },
+      "recent_transactions": [
+        {
+          "transaction_id": "TXN-881920",
+          "timestamp": "2026-10-22 16:42:15",
+          "amount_brl": 150.00,
+          "card_brand": "Mastercard Final 4920",
+          "payment_method": "Crédito à vista",
+          "status": "RECUSADA",
+          "decline_code": "05",
+          "decline_reason": "Transação não autorizada pelo emissor do cartão (bloqueio de segurança ou limite temporário do cliente comprador).",
+          "action_required": "Solicitar ao cliente que verifique a autorização no aplicativo do banco emissor ou utilize outro cartão/Pix."
+        },
+        {
+          "transaction_id": "TXN-881919",
+          "timestamp": "2026-10-22 15:10:04",
+          "amount_brl": 45.00,
+          "card_brand": "Visa Débito",
+          "status": "APROVADA"
+        }
+      ]
+    }
+  }
+}

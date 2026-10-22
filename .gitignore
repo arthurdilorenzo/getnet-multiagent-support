@@ -1,0 +1,24 @@
+# Python Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment Variables & Secrets
+.env
+*.env.local
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Internal Project Notes
+AI_HARDCORE_ENGINEER_GETNET.md
+HANDOFF_GETNET_CHALLENGE.md
