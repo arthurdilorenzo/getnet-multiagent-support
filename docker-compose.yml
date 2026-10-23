@@ -8,7 +8,7 @@ services:
       - "8000:8000"
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
       - AUTH_API_KEY=${AUTH_API_KEY:?Provide a randomly generated AUTH_API_KEY (32+ characters)}
       - JWT_SECRET=${JWT_SECRET:?Provide an independent randomly generated JWT_SECRET (32+ characters)}
       - AUTH_ENFORCE_STRICT=true
@@ -19,7 +19,10 @@ services:
       - APP_ENV=production
       - LOG_LEVEL=INFO
     volumes:
-      - getnet_sqlite_state:/app/data
+      - getnet_sqlite_state:/app/state
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

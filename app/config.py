@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     # LLM & Embeddings Configuration
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
     GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
 
     # Server Configuration
@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     MAX_ORCHESTRATION_ITERATIONS: int = 4
     MAX_TOOL_TURNS: int = 4
     TOOL_TIMEOUT_SECONDS: float = 5.0
+    LLM_TIMEOUT_SECONDS: float = 20.0
+    REQUEST_TIMEOUT_SECONDS: float = 60.0
+    LLM_MAX_OUTPUT_TOKENS: int = 2048
+    LLM_REQUEST_TOKEN_BUDGET: int = 32000
+    MAX_MESSAGE_CHARACTERS: int = 8000
     RAG_MIN_RELEVANCE_THRESHOLD: float = 0.26
     RAG_TOP_K: int = 3
     MEMORY_WINDOW_MESSAGES: int = 8

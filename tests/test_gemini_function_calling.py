@@ -47,7 +47,12 @@ class Provider:
 def isolated_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key-never-sent")
     from app.tools import customer_tools
-    monkeypatch.setattr(customer_tools, "state_store", StateStore(tmp_path / "state.db"))
+    import importlib
+    from app.security import action_policy
+    store = StateStore(tmp_path / "state.db")
+    monkeypatch.setattr(customer_tools, "state_store", store)
+    monkeypatch.setattr(action_policy, "state_store", store)
+    monkeypatch.setattr(importlib.import_module("app.tools.registry"), "state_store", store)
     from app.observability.resilience import breaker_registry
     breaker_registry.reset_all()
     yield
@@ -141,7 +146,9 @@ def test_support_model_selects_real_tools_and_receives_dependent_results():
     out = CustomerSupportAgent(provider).run("Verifique a ocorrência Q7 e prossiga.", ctx(), session_id="sess-Q7")
     assert out.tools_called == ["get_customer_profile", "diagnose_terminal_issue"]
     assert all(r.success for r in out.tool_results)
-    assert out.response == "A ocorrência Q7 foi verificada com os dados retornados."
+    assert "GET-CLASSICA-10442" in out.response
+    assert "A ocorrência Q7 foi verificada com os dados retornados." not in out.response
+    assert out.evidence
     offered = declarations(provider.requests[0])
     assert set(offered) == {"get_sales_settlement", "diagnose_terminal_issue", "get_customer_profile", "execute_terminal_remote_action"}
     for declaration in offered.values():
@@ -234,17 +241,18 @@ def test_original_message_controls_authorization_even_if_router_subquery_invents
     assert out.abstained and out.tool_results[0].error_code == "ACTION_NOT_AUTHORIZED"
 
 
-def test_explicit_action_request_executes_via_registry_and_result_returns_to_model():
+def test_explicit_action_request_proposes_via_registry_and_result_returns_to_model():
     def observe(request):
         result = function_results(request)[-1].response
         assert result["success"]
-        assert result["data"]["status"] == "SCHEDULED_ON_TERMINAL"
-        return completion(text="Comando agendado no terminal.")
+        assert result["data"]["status"] == "PENDING_CONFIRMATION"
+        return completion(text="Comando agendado no terminal.")  # Untrusted false claim must be ignored.
     provider = Provider(completion(("execute_terminal_remote_action", {
         "terminal_id": "GET-SMART-88219", "action_type": "remote_reboot"})), observe)
     out = CustomerSupportAgent(provider).run("Reinicie remotamente minha máquina", ctx())
     assert not out.abstained
-    assert out.structured_data["execute_terminal_remote_action"]["action_id"].startswith("ACT-")
+    assert out.structured_data["execute_terminal_remote_action"]["proposal_id"].startswith("PROP-")
+    assert "Comando agendado no terminal." not in out.response
 
 
 def test_offline_planning_runs_only_without_configured_key(monkeypatch):

@@ -61,10 +61,14 @@
         </button>
 
         <!-- User Profile Pill -->
-        <div class="user-pill" title="ID de autenticação do cliente credenciado">
+        <div class="user-pill" title="Conta solicitada; a credencial valida a identidade">
           <span class="user-icon">👤</span>
           <span class="user-title">Cliente:</span>
           <input type="text" id="user-id-input" value="cliente1988" spellcheck="false">
+        </div>
+        <div class="user-pill" title="Token JWT do cliente. Mantido somente nesta página; não cole a chave Gemini nem a chave de operador.">
+          <label for="auth-token-input" class="user-title">Acesso:</label>
+          <input type="password" id="auth-token-input" placeholder="Token JWT do cliente" autocomplete="off" spellcheck="false">
         </div>
       </div>
     </header>

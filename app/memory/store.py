@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from contextlib import nullcontext
 import json
+import re
 from pathlib import Path
 import sqlite3
 import threading
+import unicodedata
 from typing import Any, Dict, List, Optional
 from app.config import settings
 from app.observability.logger import logger
@@ -102,6 +104,11 @@ class StateStore:
                 );
                 """
             )
+            # Additive migration: existing conversations remain readable after restart.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
+            for column in ("session_facts_json", "entities_json"):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT NOT NULL DEFAULT '{{}}'")
 
     @staticmethod
     def _now_iso() -> str:
@@ -193,11 +200,15 @@ class StateStore:
             )
 
             session_row = conn.execute(
-                "SELECT turn_count, rolling_summary, active_topic FROM sessions WHERE session_id = ?",
+                "SELECT * FROM sessions WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             new_turn_count = (session_row["turn_count"] if session_row else 0) + (1 if role == "user" else 0)
             topic_to_save = active_topic if active_topic is not None else (session_row["active_topic"] if session_row else "")
+            facts = json.loads(session_row["session_facts_json"] or "{}")
+            entities = json.loads(session_row["entities_json"] or "{}")
+            if role == "user":
+                self._extract_user_referents(masked_content, facts, entities)
 
             conn.execute(
                 """
@@ -205,14 +216,45 @@ class StateStore:
                 SET turn_count = ?,
                     last_agent = CASE WHEN ? != '' THEN ? ELSE last_agent END,
                     active_topic = CASE WHEN ? != '' THEN ? ELSE active_topic END,
+                    session_facts_json = ?, entities_json = ?,
                     updated_at = ?
                 WHERE session_id = ?
                 """,
-                (new_turn_count, agent_used, agent_used, topic_to_save, topic_to_save, now, session_id),
+                (new_turn_count, agent_used, agent_used, topic_to_save, topic_to_save,
+                 json.dumps(facts, ensure_ascii=False), json.dumps(entities, ensure_ascii=False), now, session_id),
             )
             self._maybe_compact_summary(conn, session_id)
             if connection is None:
                 conn.commit()
+
+    @staticmethod
+    def _extract_user_referents(content: str, facts: Dict[str, Any], entities: Dict[str, Any]) -> None:
+        """Keep literal, bounded reference slots, never instructions or inferred permissions."""
+        norm = "".join(c for c in unicodedata.normalize("NFD", content.lower()) if unicodedata.category(c) != "Mn")
+        products = []
+        for pattern, label in (
+            (r"\b(?:antecipacao|receivables? advance|anticipation)\b", "antecipação"),
+            (r"\bpix\b", "Pix"), (r"\bcrediario\b", "crediário"),
+            (r"\bget\s+classica\b", "Get Clássica"), (r"\bget\s+smart\b", "Get Smart"),
+            (r"\bget\s+tap\b", "Get Tap"), (r"\b(?:link de pagamento|payment link)\b", "link de pagamento"),
+            (r"\bget\s+conta\b", "Get Conta"),
+        ):
+            match = re.search(pattern, norm)
+            if match:
+                products.append((match.start(), label))
+        for _, product in sorted(products):
+            previous = entities.get("products", [])
+            entities["products"] = [p for p in previous if p != product][-11:] + [product]
+            facts["last_product"] = product
+            facts["last_subject"] = product
+        if len(products) >= 2:
+            facts["product_comparison"] = [product for _, product in sorted(products)][-2:]
+        terminals = re.findall(r"\bGET-[A-Z]+-\d+\b", content.upper())
+        if terminals:
+            entities["terminal_id"] = terminals[-1][:80]
+        code = re.search(r"\b(?:codigo|code|erro|error)\s*[:#]?\s*(\d{2,3})\b", norm)
+        if code:
+            entities["decline_code"] = code.group(1)
 
     def _maybe_compact_summary(self, conn: sqlite3.Connection, session_id: str) -> None:
         rows = conn.execute(
@@ -267,11 +309,51 @@ class StateStore:
             "user_id": user_id,
             "status": session.get("status", "active"),
             "rolling_summary": session.get("rolling_summary", ""),
+            "summary": session.get("rolling_summary", ""),
+            "session_facts": json.loads(session.get("session_facts_json", "{}") or "{}"),
+            "entities": json.loads(session.get("entities_json", "{}") or "{}"),
             "active_topic": session.get("active_topic", ""),
             "last_agent": session.get("last_agent", ""),
             "turn_count": session.get("turn_count", 0),
             "recent_messages": messages,
         }
+
+    def has_pending_human(self, session_id: str, user_id: str) -> bool:
+        """A paused session is scoped by its persisted owner, never its name."""
+        with self._lock, self._connect() as conn:
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(owner, user_id)
+            return conn.execute(
+                "SELECT 1 FROM escalation_tickets WHERE session_id = ? AND user_id = ? "
+                "AND status IN ('OPEN', 'CLAIMED', 'RESPONDED') LIMIT 1", (session_id, user_id),
+            ).fetchone() is not None
+
+    def remember_tool_referents(self, session_id: str, user_id: str, results: List[Dict[str, Any]]) -> None:
+        """Persist allowlisted slots from successful operational evidence, not model prose."""
+        updates: Dict[str, Any] = {}
+        for result in results:
+            if not result.get("success") or result.get("tool_name") != "diagnose_terminal_issue":
+                continue
+            data = result.get("data") or {}
+            terminal = data.get("terminal") or {}
+            terminal_id = terminal.get("terminal_id")
+            if isinstance(terminal_id, str) and re.fullmatch(r"GET-[A-Z]+-\d+", terminal_id):
+                updates["terminal_id"] = terminal_id[:80]
+            transaction = data.get("last_declined_transaction") or data.get("declined_transaction") or {}
+            code = transaction.get("decline_code") or data.get("decline_code")
+            if isinstance(code, (str, int)) and re.fullmatch(r"\d{2,3}", str(code)):
+                updates["decline_code"] = str(code)
+        if not updates:
+            return
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT user_id, entities_json FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(row, user_id)
+            entities = json.loads(row["entities_json"] or "{}")
+            entities.update(updates)
+            conn.execute("UPDATE sessions SET entities_json = ?, updated_at = ? WHERE session_id = ?",
+                         (json.dumps(entities, ensure_ascii=False), self._now_iso(), session_id))
+            conn.commit()
 
     def set_session_status(
         self, session_id: str, status: str, user_id: str, connection: Optional[sqlite3.Connection] = None

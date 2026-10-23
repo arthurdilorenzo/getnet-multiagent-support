@@ -63,8 +63,8 @@ def test_multi_terminal_selection_for_merchant():
     assert "Clássica" in res_classica.data["terminal"]["model"]
 
 
-def test_write_tool_remote_terminal_action_and_idempotency():
-    """Verify remote terminal action executes state change in SQLite and enforces idempotency key."""
+def test_write_tool_remote_terminal_proposal_and_idempotency():
+    """The model can persist one proposal; confirmation is a separate authenticated action."""
     import uuid
     ctx = SecurityContext(authenticated_user_id="cliente1988", role="merchant", auth_method="jwt")
     idem_key = f"test-idem-{uuid.uuid4().hex[:12]}"
@@ -81,7 +81,7 @@ def test_write_tool_remote_terminal_action_and_idempotency():
         security_context=ctx,
     )
     assert res1.success is True
-    assert res1.data["status"] == "SCHEDULED_ON_TERMINAL"
+    assert res1.data["status"] == "PENDING_CONFIRMATION"
     assert res1.idempotent_replay is False
 
     # Second execution with the exact same idempotency_key must return cached result without re-running
@@ -97,7 +97,7 @@ def test_write_tool_remote_terminal_action_and_idempotency():
         security_context=ctx,
     )
     assert res2.success is True
-    assert res2.data["action_id"] == res1.data["action_id"]
+    assert res2.data["proposal_id"] == res1.data["proposal_id"]
     assert res2.idempotent_replay is True
 
 

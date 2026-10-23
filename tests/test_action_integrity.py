@@ -17,6 +17,10 @@ from app.tools.registry import tool_registry
 def test_remote_action_rejects_foreign_or_unknown_terminal_without_writing(tmp_path, monkeypatch, user_id, terminal_id):
     store = StateStore(db_path=tmp_path / "action_test.db")
     monkeypatch.setattr(customer_tools, "state_store", store)
+    import importlib
+    from app.security import action_policy
+    monkeypatch.setattr(importlib.import_module("app.tools.registry"), "state_store", store)
+    monkeypatch.setattr(action_policy, "state_store", store)
     result = tool_registry.execute(
         "execute_terminal_remote_action",
         {"terminal_id": terminal_id, "action_type": "remote_reboot", "idempotency_key": "wrong-target"},

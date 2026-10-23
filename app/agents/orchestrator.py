@@ -1,4 +1,5 @@
 from collections import deque
+import re
 from typing import Any, Deque, Dict, List, Optional
 from google import genai
 from app.agents.customer_support_agent import CustomerSupportAgent
@@ -14,6 +15,7 @@ from app.observability.metrics import metrics_collector
 from app.observability.tracer import SystemTracer
 from app.schemas import ChatRequest, ChatResponse, Citation, PlanStep, SpecialistOutput
 from app.security.auth import SecurityContext
+from app.security.pii import PIIRedactor
 
 
 class MultiAgentOrchestrator:
@@ -33,9 +35,10 @@ class MultiAgentOrchestrator:
         self.gemini_client = None
         if settings.GEMINI_API_KEY:
             try:
-                self.gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+                self.gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY,
+                    http_options={"timeout": int(settings.LLM_TIMEOUT_SECONDS * 1000)})
             except Exception as exc:
-                logger.warning("gemini_client_init_failed", error=str(exc))
+                logger.warning("gemini_client_init_failed", error_type=type(exc).__name__)
 
         self.router = RouterAgent(gemini_client=self.gemini_client)
         self.knowledge_agent = KnowledgeAgent(gemini_client=self.gemini_client)
@@ -173,6 +176,10 @@ class MultiAgentOrchestrator:
         all_tools_called: List[str] = []
         all_sources: List[str] = []
         all_citations: List[Citation] = []
+        all_evidence: List[Dict[str, Any]] = []
+        action_proposals: List[Dict[str, Any]] = []
+        observations: List[Dict[str, Any]] = []
+        replan_failed = False
         escalated = False
         ticket_id: Optional[str] = None
         abstained_final = False
@@ -182,20 +189,25 @@ class MultiAgentOrchestrator:
             iteration += 1
             current_step = pending_steps.popleft()
             target_agent = current_step.target_agent
+            step_context = dict(conversation_context, specialist_observations=list(observations))
+            sub_query = self._resolve_dependent_query(current_step.sub_query, target_agent, observations)
 
             spec_output = self._delegate_to_specialist(
                 target_agent=target_agent,
-                sub_query=current_step.sub_query,
+                sub_query=sub_query,
                 authorization_message=request.message,
                 security_context=sec_ctx,
                 session_id=session_id,
-                conversation_context=conversation_context,
+                conversation_context=step_context,
                 accumulated_diagnostics=accumulated_diagnostics,
                 rationale=current_step.rationale,
                 tracer=tracer,
             )
 
             executed_outputs.append(spec_output)
+            observations.append(self._observation(spec_output))
+            state_store.remember_tool_referents(session_id, sec_ctx.authenticated_user_id,
+                                                [r.model_dump() for r in spec_output.tool_results])
             agents_executed.append(spec_output.agent_name)
             for t_name in spec_output.tools_called:
                 if t_name not in all_tools_called:
@@ -205,6 +217,16 @@ class MultiAgentOrchestrator:
                     all_sources.append(src)
             for cit in spec_output.citations:
                 all_citations.append(cit)
+            for evidence in spec_output.evidence:
+                masked = PIIRedactor.mask_structure(evidence)
+                if masked not in all_evidence:
+                    all_evidence.append(masked)
+            for result in spec_output.tool_results:
+                data = result.data or {}
+                if (result.success and result.tool_name == "execute_terminal_remote_action"
+                    and data.get("status") == "PENDING_CONFIRMATION" and data.get("proposal_id")):
+                    if not any(p.get("proposal_id") == data["proposal_id"] for p in action_proposals):
+                        action_proposals.append(PIIRedactor.mask_structure(data))
             if spec_output.structured_data:
                 accumulated_diagnostics[spec_output.agent_name] = spec_output.structured_data
 
@@ -213,13 +235,16 @@ class MultiAgentOrchestrator:
                 escalated = bool(ticket_id)
 
             # Observação e Replanejamento Dinâmico pelo Supervisor
-            self._observe_and_replan(
+            replan_failed = self._observe_and_replan(
                 spec_output=spec_output,
                 original_message=request.message,
                 pending_steps=pending_steps,
                 agents_executed=agents_executed,
+                user_id=sec_ctx.authenticated_user_id,
+                observations=observations,
+                conversation_context=conversation_context,
                 tracer=tracer,
-            )
+            ) or replan_failed
 
         # Condição de parada atingida
         tracer.add_step(
@@ -249,8 +274,10 @@ class MultiAgentOrchestrator:
             response_segments.append(executed_outputs[-1].response)
         if pending_steps:
             response_segments.append("O atendimento atingiu o limite de etapas. Parte do pedido ficou pendente; envie uma nova mensagem para continuar.")
+        if replan_failed:
+            response_segments.append("O replanejamento ficou indisponível. As consultas concluídas estão preservadas; parte do pedido pode estar pendente.")
 
-        abstained_final = bool(pending_steps or any(o.abstained for o in executed_outputs))
+        abstained_final = bool(pending_steps or replan_failed or any(o.abstained for o in executed_outputs))
         raw_final_response = "\n\n---\n\n".join(response_segments)
 
         # 5. Guardrail de Saída (Redaction de PII e prevenção de vazamentos)
@@ -318,6 +345,8 @@ class MultiAgentOrchestrator:
             sources=all_sources,
             citations=all_citations,
             token_usage=token_usage,
+            evidence=all_evidence,
+            action_proposals=action_proposals,
             trace=tracer.get_steps(),
             execution_time_ms=total_ms,
         )
@@ -425,45 +454,76 @@ class MultiAgentOrchestrator:
         )
         return out
 
-    @staticmethod
     def _observe_and_replan(
+        self,
         spec_output: SpecialistOutput,
         original_message: str,
         pending_steps: Deque[PlanStep],
         agents_executed: List[str],
+        user_id: str,
+        observations: List[Dict[str, Any]],
+        conversation_context: Dict[str, Any],
         tracer: SystemTracer,
-    ) -> None:
-        """
-        Inspeciona o resultado real do agente especialista e altera dinamicamente o plano
-        caso o diagnóstico revele falha crítica de hardware ou necessidade de transbordo.
-        """
-        scheduled_agents = {s.target_agent for s in pending_steps} | set(agents_executed)
+    ) -> bool:
+        """Bounded feedback planning; failures preserve every completed/partial result."""
+        if spec_output.agent_name == "HUMAN_ESCALATION_AGENT":
+            return False
+        failed_tools = any(not r.success for r in spec_output.tool_results)
+        # A completed support result can reveal a dependent query even without a failure.
+        if not (spec_output.requires_escalation or spec_output.abstained or failed_tools
+                or spec_output.agent_name == "CUSTOMER_SUPPORT_AGENT"):
+            return False
+        try:
+            plan = self.router.replan(original_message=original_message, user_id=user_id,
+                observations=observations, conversation_context=conversation_context, tracer=tracer)
+        except RouterPlanningError:
+            tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replanning_failed", status="abstained",
+                            details={"reason": "configured_provider_unavailable_or_invalid"})
+            return True
+        scheduled = {s.target_agent for s in pending_steps} | set(agents_executed)
+        for step in plan.plan_steps:
+            if step.target_agent in scheduled:
+                tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_no_progress", status="skipped",
+                                details={"target_agent": step.target_agent, "reason": "already_executed_or_pending"})
+                continue
+            if len(agents_executed) + len(pending_steps) >= settings.MAX_ORCHESTRATION_ITERATIONS:
+                # Keep one pending step so the final answer explicitly reports the limit.
+                if not pending_steps:
+                    pending_steps.append(step)
+                break
+            pending_steps.append(step)
+            scheduled.add(step.target_agent)
+            trigger = ("support_tool_detected_critical_escalation" if spec_output.requires_escalation
+                       else "operational_tool_failure" if failed_tools
+                       else "insufficient_evidence" if spec_output.abstained else "dependent_observation")
+            tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="dynamic_replan", details={
+                "trigger": trigger, "added_agent": step.target_agent, "reason": step.rationale,
+                "policy": "native" if settings.GEMINI_API_KEY else "explicit_offline_feedback"})
+        return False
 
-        # 1. Se o CustomerSupportAgent detectou falha crítica no resultado da tool (ex: hardware fault),
-        # o Supervisor replaneja dinamicamente adicionando o HumanEscalationAgent!
-        if (
-            spec_output.agent_name == "CUSTOMER_SUPPORT_AGENT"
-            and spec_output.requires_escalation
-            and "HUMAN_ESCALATION_AGENT" not in scheduled_agents
-        ):
-            reason = spec_output.escalation_reason or "Escalonamento dinâmico disparado pelo diagnóstico técnico."
-            pending_steps.append(
-                PlanStep(
-                    step_order=len(agents_executed) + 1,
-                    target_agent="HUMAN_ESCALATION_AGENT",
-                    sub_query=original_message,
-                    rationale=reason,
-                )
-            )
-            tracer.add_step(
-                agent="SUPERVISOR_ORCHESTRATOR",
-                action="dynamic_replan",
-                details={
-                    "trigger": "support_tool_detected_critical_escalation",
-                    "added_agent": "HUMAN_ESCALATION_AGENT",
-                    "reason": reason,
-                },
-            )
+    @staticmethod
+    def _observation(output: SpecialistOutput) -> Dict[str, Any]:
+        return PIIRedactor.mask_structure({
+            "agent_name": output.agent_name, "completed": True,
+            "response": output.response[:2000], "abstained": output.abstained,
+            "abstention_reason": output.abstention_reason,
+            "requires_escalation": output.requires_escalation, "escalation_reason": output.escalation_reason,
+            "structured_data": output.structured_data,
+            "tool_results": [r.model_dump() for r in output.tool_results], "evidence": output.evidence,
+        })
+
+    @staticmethod
+    def _resolve_dependent_query(sub_query: str, target_agent: str, observations: List[Dict[str, Any]]) -> str:
+        if target_agent != "KNOWLEDGE_AGENT":
+            return sub_query
+        norm = sub_query.lower()
+        if re.search(r"\b(?:código|codigo|code)\s*\d+", norm):
+            return sub_query
+        if re.search(r"\b(?:código|codigo|code)\b", norm):
+            code = RouterAgent.observed_decline_code(observations)
+            if code:
+                return f"{sub_query}. Código observado no diagnóstico: {code}."
+        return sub_query
 
 
 orchestrator = MultiAgentOrchestrator()

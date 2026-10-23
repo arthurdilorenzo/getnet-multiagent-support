@@ -21,12 +21,12 @@ HTTP → autenticação/tenant → guardrails → memória SQLite
 | --- | --- | --- |
 | Router | Gemini solicita delegações por function calling; nomes e argumentos são validados e convertidos em `RoutingPlan`. | Regras léxicas determinísticas produzem o plano. |
 | Suporte operacional | Gemini recebe schemas das tools permitidas; o aplicativo executa cada call no registry, devolve `FunctionResponse` ao modelo e permite rodadas dependentes até o limite. | Um extrator de intenção/slots escolhe as mesmas tools registradas. |
-| Knowledge / Web | Seleção de ferramentas por regras e extração de slots; Gemini pode redigir a resposta a partir dos resultados. | Mesma seleção, com composição extrativa/estruturada dos resultados. |
+| Knowledge / Web | Gemini seleciona ferramentas e argumentos por function calling; para RAG pode selecionar um ID de trecho já aprovado. A resposta factual usa extratos ou campos tipados, sem prosa livre do modelo. | Mesma seleção, com composição extrativa/estruturada dos resultados. |
 | Escalação | Enfileiramento local por ferramenta e supervisão de resultados. | Mesmo caminho local. |
 
-A execução automática de tools pelo SDK fica desativada: as chamadas de suporte passam pelo `ToolRegistry`, que valida schemas, permite apenas ferramentas registradas e vincula identidade e sessão no servidor. Router e suporte não caem silenciosamente no planejador léxico após erro do Gemini; falhas de protocolo/provedor têm resultado controlado. Knowledge pode voltar à síntese local se sua redação Gemini falhar.
+A execução automática de tools pelo SDK fica desativada: as chamadas de suporte passam pelo `ToolRegistry`, que valida schemas, permite apenas ferramentas registradas e vincula identidade e sessão no servidor. Router e suporte não caem silenciosamente no planejador léxico após erro do Gemini; falhas de protocolo/provedor têm resultado controlado. A resposta de suporte é renderizada de campos retornados pelas ferramentas; texto livre do provedor não confirma ações ou pagamentos. A seleção opcional de um trecho RAG pode voltar ao extrato local aprovado se o provedor falhar; isso não cria evidência nova.
 
-O supervisor executa até `MAX_ORCHESTRATION_ITERATIONS` passos. Ao observar `requires_escalation` no diagnóstico de suporte, pode acrescentar uma etapa humana. Esse replanejamento é uma política explícita de código; não é um planner geral autônomo. Chamadas de suporte também têm limites de turnos e de quantidade de tools.
+O supervisor executa até `MAX_ORCHESTRATION_ITERATIONS` passos. Ao observar `requires_escalation` no diagnóstico de suporte, pode acrescentar uma etapa humana. Observações e resultados estruturados também alimentam etapas seguintes e um replanejamento limitado do router. A política offline é explícita; o sistema não é um planner irrestrito. Chamadas de suporte também têm limites de turnos e de quantidade de tools.
 
 ## Retrieval local: o pipeline implementado
 
@@ -36,15 +36,15 @@ O código está em `app/rag/`. O nome legado `BilingualDenseEmbedder` é mantido
 2. O **Okapi BM25**, com `k1=1.5` e `b=0.75`, usa expansão léxica manual EN→PT da consulta.
 3. Uma **projeção por hashing em 384 coordenadas** combina unigramas, prefixos de cinco caracteres, bigramas, 4-gramas de caracteres e âncoras conceituais PT/EN escritas à mão. O vetor é normalizado em L2; a comparação usa cosseno limitado a `[0, 1]`.
 4. Cada documento recebe um score heurístico: `0.5 × BM25_normalizado_por_cobertura + 0.5 × cosseno`. O **Reciprocal Rank Fusion**, com `k=20`, combina as posições dos dois rankings e serve de **desempate**; o score heurístico é a ordenação principal.
-5. Resultados abaixo de `RAG_MIN_RELEVANCE_THRESHOLD=0.26` são descartados. Se nenhum passar, o retorno tem `abstained=true`, sem trechos/citações. Cada resultado aceito carrega URL, título, arquivo, `chunk_id`, excerto e score.
+5. Resultados abaixo de `RAG_MIN_RELEVANCE_THRESHOLD=0.26` são descartados. Se nenhum passar, o retorno tem `abstained=true`, sem trechos/citações. Uma segunda checagem exige corpo substantivo, produto/operação e restrições reconhecidas na ontologia bilíngue local. Cabeçalhos e URLs não bastam. Cada resultado aceito carrega URL, título, arquivo, `chunk_id`, excerto, proveniência e score. Essa checagem é conservadora e específica do domínio, não entailment universal.
 
 O score não é probabilidade de correção. As listas bilíngues são específicas do domínio e os buckets podem colidir. A escolha mantém dependências e execução local pequenas, com generalização semântica menor que a de um encoder treinado. O limiar não é prova de abstention correta para qualquer pergunta.
 
 ### Corpus, proveniência e reprodução
 
-`data/getnet_corpus.json` reúne duas origens distintas:
+`data/getnet_corpus.json` contém o snapshot dos mirrors locais revistos contra páginas oficiais por agente em 23/10/2026. Capturas web antigas e afirmações sem suporte foram removidas nesta revisão. O ingestor suporta duas origens:
 
-- `verified_markdown_mirror`: seções dos seis arquivos `data/getnet_*.md`, curados localmente com URLs de referência. Esse rótulo legado não significa transcrição literal nem validação independente de cada afirmação.
+- `verified_markdown_mirror`: seções dos oito arquivos `data/getnet_*.md`, curados localmente com URLs, localização e método de revisão. São resumos locais; o rótulo legado não significa transcrição literal nem validação humana independente de cada afirmação.
 - `live_web_scrape`: trechos de páginas públicas capturados por HTTP. `source_url` registra a URL final, `secondary_url` a URL solicitada e `scraped_at` a data da captura.
 
 As URLs configuradas incluem catálogo de maquininhas, Crediário, Pix, conta digital, link de pagamento, dúvidas e página global em inglês. `canonical_sources` é a lista de URLs de entrada, não uma garantia de que todas responderam ou geraram chunks. O snapshot é datado; preços, regras e disponibilidade devem ser conferidos na fonte antes de uso operacional.
@@ -67,13 +67,13 @@ A limpeza repetida é idempotente. Para reconstruir **somente dos mirrors locais
 
 O `ToolRegistry` registra ferramentas de vendas, perfil, diagnóstico, ação remota simulada, criação/consulta de ticket, retrieval, clima, câmbio e busca geral. Schemas Pydantic, controle de identidade, erros estruturados e timeout cercam sua execução.
 
-- **Operações simuladas:** liquidação e diagnóstico leem clientes mock; a escolha de terminal considera ID/modelo/sinais de falha. `execute_terminal_remote_action` grava uma intenção idempotente no SQLite. Mesmo quando o payload usa `SCHEDULED_ON_TERMINAL`, nenhum comando é enviado a hardware real.
-- **APIs públicas:** clima usa geocodificação e previsão Open-Meteo, interpretando códigos WMO; câmbio tenta AwesomeAPI e, em falha, Frankfurter. Retries e circuit breakers tratam indisponibilidade; erros não são substituídos por números inventados.
+- **Operações simuladas:** liquidação e diagnóstico leem clientes mock; a escolha de terminal considera ID/modelo/sinais de falha. `execute_terminal_remote_action` cria uma proposta imutável com `PENDING_CONFIRMATION`, hash e expiração. Somente `POST /api/actions/{proposal_id}/confirm`, com JWT do titular e escopo `terminal:action_own`, registra um recibo simulado. Idempotência rejeita a mesma chave com payload diferente. Mesmo o recibo `SCHEDULED_ON_TERMINAL` não envia comando a hardware real.
+- **APIs públicas:** clima usa geocodificação e previsão Open-Meteo, interpretando códigos WMO; câmbio tenta AwesomeAPI e, em falha, Frankfurter. Retries e circuit breakers tratam indisponibilidade; erros não são substituídos por números inventados. Extremos e precipitação ausentes continuam desconhecidos; a referência diária do Frankfurter é rotulada como referência, sem extremos intradiários fabricados.
 - **Busca geral:** consulta snippets da Wikipedia PT/EN e tenta DuckDuckGo HTML como alternativa. Não lê integralmente cada fonte; resultados e URLs de busca têm limitações de proveniência.
-- **Memória:** SQLite guarda sessões, mensagens, resumo textual de turnos antigos, tickets, ações e idempotência. O resumo é uma compactação textual local, não um modelo de memória semântica. A janela recente é configurável.
-- **HITL:** ticket começa `OPEN`; o gestor também suporta `CLAIMED`, `RESPONDED` e `RESOLVED`. A API de reply grava a resposta humana, acrescenta mensagem à sessão e retorna seu estado para `active`; o próximo turno carrega essa resposta. Telegram/webhook são opcionais e dependem de configuração. Falha de notificação não desfaz o ticket nem comprova que um humano o recebeu. Não há SLA de atendimento.
+- **Memória:** SQLite guarda sessões, mensagens, resumo textual de turnos antigos, tickets, ações e idempotência. Resumo, fatos e entidades extraídos por regras persistem além da janela e são consumidos como dados não confiáveis. Mudanças explícitas de produto substituem o tópico; turnos referenciais podem usar o anterior. Não é um modelo de memória semântica. A janela recente é configurável.
+- **HITL:** ticket começa `OPEN`; o gestor também suporta `CLAIMED`, `RESPONDED` e `RESOLVED`. Claim/reply validam estado e operador atribuído em transação. Ticket resolvido não aceita alteração silenciosa. A sessão só volta a `active` quando não restam tickets pendentes; propostas/confirmações POS ficam bloqueadas durante a intervenção. O próximo turno carrega a resposta humana. Telegram/webhook são opcionais e dependem de configuração. Falha de notificação não desfaz o ticket nem comprova que um humano o recebeu. Não há SLA de atendimento.
 
-O timeout do registry limita a espera pelo resultado; não interrompe à força uma thread que já iniciou o handler. As escritas locais não constituem uma transação distribuída com terminais ou serviços externos.
+O registry limita workers/fila e persiste operações consultáveis pelo titular. Seu timeout limita a espera; não interrompe à força uma thread que já iniciou o handler. Escrita em voo retorna `unknown`, `retryable=false` e `operation_id`, exigindo consulta/reconciliação antes de repetir. O SDK tem timeout HTTP, limite de saída, orçamento aproximado de tokens e deadline por requisição; esses limites não prometem cancelamento físico de efeitos externos. As escritas locais não constituem uma transação distribuída com terminais ou serviços externos.
 
 ## Executar localmente
 
@@ -82,7 +82,7 @@ git clone https://github.com/arthurdilorenzo/getnet-multiagent-support.git
 cd getnet-multiagent-support
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-lock.txt
 cp .env.example .env
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -91,7 +91,7 @@ Interface: `http://localhost:8000`; OpenAPI: `http://localhost:8000/docs`.
 
 O exemplo inicia em `APP_ENV=development`, com segredos vazios e sem chave Gemini. Nesse modo demo, o chat aceita o `user_id` declarado e marca a identidade como `demo_unverified`; **não autentica o lojista**. Segredos necessários são efêmeros por processo. Use apenas dados fictícios. Clima/câmbio/busca podem consultar a rede mesmo sem Gemini; sem rede, retornam falha/abstenção.
 
-Para usar Gemini, preencha `GEMINI_API_KEY` no `.env`; o modelo padrão é `gemini-2.5-flash`. Isso habilita o caminho de SDK descrito acima e envolve envio do contexto necessário ao provedor. Os testes offline não comprovam qualidade ou disponibilidade desse modelo ao vivo.
+Para usar Gemini, preencha `GEMINI_API_KEY` no `.env`; o modelo padrão é `gemini-3.1-flash-lite` (conectividade verificada nesta revisão; disponibilidade depende da conta). Isso habilita o caminho de SDK descrito acima e envolve envio do contexto necessário ao provedor. Os testes offline não comprovam qualidade ou disponibilidade desse modelo ao vivo.
 
 ### Autenticação estrita e Docker
 
@@ -118,7 +118,7 @@ curl -X POST http://localhost:8000/api/chat \
   -d '{"user_id":"cliente1988","session_id":"minha-sessao","message":"Quando caem minhas vendas?"}'
 ```
 
-A UI atual demonstra o chat sem inserir tokens; no modo estrito, use um cliente HTTP autenticado. Uma sessão pertence ao usuário persistido no SQLite; não basta conhecer ou fabricar um prefixo de `session_id`.
+Na interface, cole somente o JWT do cliente no campo **Acesso**. Ele permanece em memória na página, sem armazenamento persistente; não cole a chave Gemini nem a API key administrativa. Propostas mostram um botão de confirmação com alvo e tipo. Uma sessão pertence ao usuário persistido no SQLite; não basta conhecer ou fabricar um prefixo de `session_id`.
 
 Com os dois segredos no `.env`, execute:
 
@@ -126,7 +126,7 @@ Com os dois segredos no `.env`, execute:
 docker compose up --build -d
 ```
 
-O Compose força produção e autenticação estrita. A imagem tem build em dois estágios, roda como `appuser` (UID 10001), copia aplicação/dados e não copia `.env` nem fontes de testes. `requirements.txt` fixa dependências diretas; `requirements-lock.txt` registra a resolução completa, mas o build/CI atual instala `requirements.txt`, portanto não impõe todas as versões transitivas do lock. O volume `getnet_sqlite_state` persiste `/app/data`, incluindo o banco; volumes já existentes também preservam seu corpus anterior e precisam de atualização explícita ao trocar o snapshot.
+O Compose força produção e autenticação estrita. A imagem tem build em dois estágios, roda como `appuser` (UID 10001), copia aplicação/dados e não copia `.env` nem fontes de testes. `requirements.txt` fixa dependências diretas; build e CI instalam a resolução transitiva de `requirements-lock.txt`. O volume `getnet_sqlite_state` persiste somente `/app/state` (banco/índice derivado); o corpus em `/app/data` acompanha a imagem. O Compose usa filesystem somente leitura e `/tmp` efêmero. Volumes antigos montados em `/app/data` exigem migração explícita do banco antes de adotar o novo layout.
 
 ## API
 
@@ -134,9 +134,12 @@ O Compose força produção e autenticação estrita. A imagem tem build em dois
 | --- | --- | --- |
 | POST | `/api/chat` | Chat, JWT ou API key no modo estrito; `user_id` e `session_id` vinculados no servidor. |
 | POST | `/api/auth/token` | Operador autenticado; emite JWT merchant/operator. |
+| POST | `/api/actions/{proposal_id}/confirm` | JWT do titular + hash/CONFIRM; sem autoconfirmação pelo LLM. |
+| GET | `/api/tool-operations/{operation_id}?user_id=...` | JWT do titular + escopos originais; reconciliação de resultado. |
 | GET / DELETE | `/api/sessions/{session_id}?user_id=...` | Histórico ou limpeza com verificação do proprietário. |
 | GET | `/api/hitl/tickets` | Operador; filtros opcionais por status e cliente. |
 | GET | `/api/hitl/tickets/{ticket_id}` | Operador; detalhe do chamado. |
+| POST | `/api/hitl/tickets/{ticket_id}/claim` | Operador; transição válida e atribuição autenticada. |
 | POST | `/api/hitl/tickets/{ticket_id}/reply` | Operador; identidade da resposta vem da credencial. |
 | GET | `/api/metrics` | Operador; métricas do processo. |
 | GET | `/api/evals/run` | Operador; executa harness e pode gravar sessões/tickets de avaliação. |
@@ -152,18 +155,27 @@ Execute a mesma sequência principal do Actions:
 ```bash
 python scripts/check_no_print.py app
 pytest -v
-python -m app.evals.evaluator
+GEMINI_API_KEY='' python -m app.evals.evaluator
+python scripts/docker_smoke.py --output /tmp/docker-smoke.json
 ```
 
 O checker analisa AST somente de arquivos `.py`: ignora comentários, docstrings e strings; rejeita chamadas diretas de console, multilinha e `builtins.print`, incluindo aliases importados. Não é análise de fluxo completa para reflexão/aliases dinâmicos.
 
 Os testes exercitam retrieval, abstention/citações, higiene/idempotência/hash/índice, identidade e sessões, HITL, memória, ferramentas e falhas externas. Testes de function calling usam respostas simuladas do SDK para verificar o ciclo **call → registry → FunctionResponse → nova call/texto**, incluindo chamadas dependentes, argumentos inválidos e limites. Eles verificam o protocolo de integração; **não são um teste Gemini ao vivo**. Testes de cenário podem acessar APIs públicas e aceitam indisponibilidade honesta; a suíte não é inteiramente isolada da rede.
 
-O harness usa `data/eval_dataset.json` (13 casos locais) e calcula routing accuracy, tool selection recall, score de grounding, pass rate e latência. O CLI retorna código diferente de zero quando routing ou tool recall ficam abaixo de 1.0, grounding médio abaixo de 0.90 ou o dataset está vazio. Esse gate pertence ao dataset local e não mede desempenho fora dele.
+O harness usa `data/eval_dataset.json` (13 regressões locais com labels revistos por agente) e calcula routing accuracy, recall/precision de ferramentas, extras perigosos, consistência de evidências, pass rate e latência. A revisão de labels removeu termos sem suporte (touchscreen/menu de link) e corrigiu referências de origem, preservando as perguntas. Essa revisão não transforma o conjunto em avaliação independente. O CLI retorna código diferente de zero quando routing, recall/precision ou seleção segura de ferramentas ficam abaixo de 1.0, consistência média ou pass rate abaixo de 0.90 ou o dataset está vazio. Esse gate pertence ao dataset local e não mede desempenho fora dele.
 
-`GroundednessJudge` é uma **heurística lexical**, baseada em presença de termos esperados, URLs e ausência de algumas strings de fallback conhecidas. Não verifica entailment, correção de cada afirmação nem autenticidade externa das fontes. Os resultados não constituem avaliação semântica independente, nota V4 ou garantia contra alucinações. Latências sem Gemini não representam latência de uma chamada ao provedor; execuções do harness também podem depender de rede e estado SQLite prévio.
+`GroundednessJudge` é um **validador limitado de consistência de evidências**. Rejeita números não suportados, conflitos explícitos de polaridade, extratos alterados e abstenções com alegações materiais. Uma URL ou termos esperados sozinhos não aprovam a resposta. Ainda não prova entailment universal, cobertura ou autenticidade externa; pode haver falsos positivos/negativos. Métricas automáticas não são nota V4 nem garantia contra alucinações.
 
-O plano, critérios e limites da correção estão em [SPEC.md](SPEC.md). Não há resultado de validação Gemini ao vivo publicado nesta entrega.
+A suíte comum desliga Gemini mesmo com `.env` configurado. A integração real é opt-in, usa dados sintéticos e estado temporário:
+
+```bash
+GETNET_LIVE_TESTS=1 python scripts/live_smoke.py --output /tmp/gemini-smoke.json
+```
+
+O teste envolve consumo do provedor; nunca coloque a chave na linha de comando ou nos artefatos. O smoke Docker constrói a imagem e verifica saúde, usuário não root, strict auth, chat, tenant e persistência após restart. O Actions executa esse smoke e publica seu recibo como artefato. Uma avaliação semântica independente reservada, separada dos implementadores, é necessária além desses checks.
+
+O plano atual e os critérios de aceite estão em [SPEC_V3.md](SPEC_V3.md); o histórico anterior está em [SPEC.md](SPEC.md). O score 95+ depende da auditoria do candidato exato, sem inferência pelo número de testes. Não há nota oficial nova do avaliador Getnet.
 
 ## Trade-offs e Limitações Declaradas
 

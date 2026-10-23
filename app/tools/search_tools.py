@@ -1,4 +1,7 @@
 from html.parser import HTMLParser
+from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
@@ -73,8 +76,33 @@ KNOWN_CITY_COORDS: Dict[str, Tuple[float, float, str]] = {
 
 def decode_wmo_weather_code(code: Optional[int]) -> str:
     if code is None:
-        return "Condição meteorológica variável"
+        return "Condição meteorológica não informada pelo provedor"
     return WMO_WEATHER_CODES.get(int(code), f"Condição meteorológica WMO código {code}")
+
+
+def _number(value: Any, label: str, minimum: float, maximum: float, optional: bool = False) -> Optional[float]:
+    """Missing is unknown; malformed or non-finite observations are rejected."""
+    if value is None and optional:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{label}: valor booleano inválido.")
+    number = float(value)
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise ValueError(f"{label}: valor não finito ou fora do intervalo válido.")
+    return number
+
+
+def _iso_date(value: Any, label: str) -> str:
+    text = str(value or "")
+    try:
+        date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"{label}: data ausente ou inválida.") from exc
+    return text
+
+
+def _today_local() -> date:
+    return datetime.now(ZoneInfo('America/Sao_Paulo')).date()
 
 
 # ==============================================================================
@@ -92,6 +120,7 @@ def search_getnet_knowledge(query: str, top_k: int = 3) -> Dict[str, Any]:
         "chunks_found": len(outcome["results"]),
         "chunks": outcome["results"],
         "citations": [c.model_dump() for c in outcome["citations"]],
+        "answerability": outcome.get("answerability", {}),
     }
 
 
@@ -122,8 +151,8 @@ def search_weather(city: str = "Porto Alegre", days_ahead: int = 1) -> Dict[str,
                 if not results:
                     raise ValueError(f"Cidade '{clean_city}' não encontrada no serviço de geocodificação.")
                 first = results[0]
-                lat = float(first["latitude"])
-                lon = float(first["longitude"])
+                lat = _number(first["latitude"], "latitude", -90, 90)
+                lon = _number(first["longitude"], "longitude", -180, 180)
                 resolved_name = f"{first.get('name', clean_city)}, {first.get('admin1', '')}".strip(", ")
 
             forecast_url = (
@@ -143,26 +172,44 @@ def search_weather(city: str = "Porto Alegre", days_ahead: int = 1) -> Dict[str,
             code_list = daily.get("weathercode") or []
             dates_list = daily.get("time") or []
 
-            idx = min(max(0, days_ahead), len(max_list) - 1) if max_list else -1
-            if idx < 0:
-                raise RuntimeError("Payload meteorológico da Open-Meteo não retornou séries diárias.")
+            idx = days_ahead
+            if not 0 <= idx < len(dates_list):
+                raise RuntimeError("O provedor não retornou a data solicitada; não substituímos por outro dia.")
+
+            def observation(values, label, minimum, maximum):
+                return _number(values[idx] if idx < len(values) else None, label, minimum, maximum, optional=True)
+
+            max_t = observation(max_list, "temperatura máxima", -100, 65)
+            min_t = observation(min_list, "temperatura mínima", -100, 65)
+            rain = observation(precip_list, "probabilidade de precipitação", 0, 100)
+            if max_t is not None and min_t is not None and min_t > max_t:
+                raise ValueError("Temperatura mínima superior à máxima.")
 
             wmo_code = code_list[idx] if idx < len(code_list) else None
+            if wmo_code is not None:
+                numeric_code = _number(wmo_code, "código WMO", 0, 99)
+                if numeric_code != int(numeric_code):
+                    raise ValueError("Código WMO deve ser inteiro.")
+                wmo_code = int(numeric_code)
             condition_desc = decode_wmo_weather_code(wmo_code)
-            target_date = dates_list[idx] if idx < len(dates_list) else ""
+            target_date = _iso_date(dates_list[idx], "data meteorológica")
+            requested_date=_today_local()+timedelta(days=days_ahead)
+            if target_date[:10]!=requested_date.isoformat():
+                raise ValueError('A data retornada não corresponde ao dia solicitado; previsão antiga não atende a consulta.')
 
             return {
                 "source": "Open-Meteo Weather Forecast API",
-                "source_url": "https://api.open-meteo.com/v1/forecast",
+                "source_url": forecast_url,
                 "city": resolved_name,
                 "target_date": target_date,
-                "forecast_horizon": "Amanhã" if days_ahead == 1 else f"D+{days_ahead}",
-                "max_temp_celsius": float(max_list[idx]),
-                "min_temp_celsius": float(min_list[idx]),
-                "rain_probability_percent": int(precip_list[idx]) if idx < len(precip_list) and precip_list[idx] is not None else 0,
+                "forecast_horizon": "Hoje" if days_ahead == 0 else "Amanhã" if days_ahead == 1 else f"D+{days_ahead}",
+                "max_temp_celsius": max_t,
+                "min_temp_celsius": min_t,
+                "rain_probability_percent": rain,
                 "wmo_weather_code": wmo_code,
                 "condition": condition_desc,
                 "live": True,
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
             }
 
     return call_with_resilience("weather_api", _fetch_open_meteo)
@@ -173,12 +220,14 @@ def search_weather(city: str = "Porto Alegre", days_ahead: int = 1) -> Dict[str,
 # ==============================================================================
 def search_currency_rate(base_currency: str = "EUR", target_currency: str = "BRL") -> Dict[str, Any]:
     """
-    Consulta cotação de câmbio comercial em tempo real (AwesomeAPI com failover para Frankfurter/ECB)
+    Consulta cotação informada pela AwesomeAPI com failover para referência diária Frankfurter.
     sob proteção de Circuit Breaker + Retries.
     NUNCA inventa valores (ex: R$ 6,18) nem atribui a fontes fictícias se os provedores falharem.
     """
     base = (base_currency or "EUR").strip().upper()
     target = (target_currency or "BRL").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", base) or not re.fullmatch(r"[A-Z]{3}", target):
+        raise ValueError("Moeda deve ser um código ISO de três letras.")
 
     def _fetch_live_rate() -> Dict[str, Any]:
         with httpx.Client(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
@@ -190,20 +239,34 @@ def search_currency_rate(base_currency: str = "EUR", target_currency: str = "BRL
                     data = resp.json()
                     pair_data = data.get(f"{base}{target}")
                     if pair_data and "bid" in pair_data:
+                        rate = _number(pair_data["bid"], "cotação", 1e-10, 1e10)
+                        high = _number(pair_data.get("high"), "máxima", 1e-10, 1e10, optional=True)
+                        low = _number(pair_data.get("low"), "mínima", 1e-10, 1e10, optional=True)
+                        if high is not None and low is not None and high < low:
+                            raise ValueError("Máxima cambial inferior à mínima.")
+                        observed=pair_data.get('create_date') or None
+                        try:
+                            is_fresh=bool(observed and date.fromisoformat(str(observed)[:10])==_today_local())
+                        except ValueError:
+                            observed=None
+                            is_fresh=False
                         return {
-                            "source": "AwesomeAPI (Mercado de Câmbio em Tempo Real)",
+                            "source": "AwesomeAPI (cotação informada pelo provedor)",
                             "source_url": awesome_url,
                             "currency_pair": f"{base}/{target}",
-                            "current_rate_brl": round(float(pair_data["bid"]), 4),
-                            "high_today_brl": round(float(pair_data.get("high", pair_data["bid"])), 4),
-                            "low_today_brl": round(float(pair_data.get("low", pair_data["bid"])), 4),
-                            "updated_at": pair_data.get("create_date", ""),
-                            "live": True,
+                            "current_rate_brl": rate,
+                            "high_today_brl": high,
+                            "low_today_brl": low,
+                            "updated_at": observed,
+                            "rate_type": "market_quote" if is_fresh else "historical_market_quote" if observed else "undated_market_quote",
+                            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                            "live": is_fresh,
                         }
             except Exception:
                 pass
 
-            # Provedor Secundário Real (Failover): Frankfurter API (European Central Bank rates)
+            # Provedor secundário: referência diária Frankfurter, sem inferir
+            # um banco-fonte que o payload não identificou.
             frankfurter_url = f"https://api.frankfurter.app/latest?from={base}&to={target}"
             f_resp = client.get(frankfurter_url)
             f_resp.raise_for_status()
@@ -211,16 +274,18 @@ def search_currency_rate(base_currency: str = "EUR", target_currency: str = "BRL
             rates = f_data.get("rates") or {}
             if target not in rates:
                 raise RuntimeError(f"Par de moedas {base}/{target} não retornado pelo provedor secundário.")
-            rate_val = float(rates[target])
+            rate_val = _number(rates[target], "cotação de referência", 1e-10, 1e10)
             return {
-                "source": "Frankfurter API (European Central Bank Reference Rates)",
+                "source": "Frankfurter API (referência diária)",
                 "source_url": frankfurter_url,
                 "currency_pair": f"{base}/{target}",
-                "current_rate_brl": round(rate_val, 4),
-                "high_today_brl": round(rate_val, 4),
-                "low_today_brl": round(rate_val, 4),
-                "updated_at": f_data.get("date", ""),
-                "live": True,
+                "current_rate_brl": rate_val,
+                "high_today_brl": None,
+                "low_today_brl": None,
+                "updated_at": _iso_date(f_data.get("date"), "data da referência cambial"),
+                "rate_type": "daily_reference",
+                "live": False,
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
             }
 
     return call_with_resilience("currency_api", _fetch_live_rate)
@@ -263,20 +328,9 @@ def general_web_search(query: str, max_results: int = 3) -> Dict[str, Any]:
     Se os provedores externos estiverem inacessíveis, levanta ExternalServiceUnavailableError.
     """
     clean_query = query.strip()
-    lower = clean_query.lower()
-
-    # Despacho direto caso o LLM chame general_web_search para clima ou câmbio
-    if any(w in lower for w in ["clima", "previsão do tempo", "weather", "temperatura"]):
-        city = "Porto Alegre"
-        if "são paulo" in lower or "sao paulo" in lower:
-            city = "São Paulo"
-        elif "rio de janeiro" in lower:
-            city = "Rio de Janeiro"
-        return search_weather(city=city, days_ahead=1)
-
-    if any(w in lower for w in ["euro", "câmbio", "exchange rate", "cotação", "dólar", "dolar", "usd"]):
-        base = "USD" if ("dólar" in lower or "dolar" in lower or "usd" in lower) and "euro" not in lower else "EUR"
-        return search_currency_rate(base_currency=base, target_currency="BRL")
+    # Structured weather/currency calls belong to the explicit slot extractor.
+    # A general search never silently substitutes Porto Alegre or EUR for an
+    # unrecognized city/currency from the query.
 
     def _perform_search() -> Dict[str, Any]:
         results: List[Dict[str, str]] = []
@@ -366,7 +420,7 @@ def register_search_tools() -> None:
     )
     tool_registry.register(
         name="get_currency_exchange_rate",
-        description="Consulta cotação comercial em tempo real de moedas internacionais (EUR, USD, GBP) frente ao Real (BRL) via AwesomeAPI e Frankfurter ECB.",
+        description="Consulta cotação de um par ISO de moedas via AwesomeAPI, com fallback Frankfurter de referência diária, data e campos ausentes explícitos.",
         args_schema=CurrencyExchangeInput,
         handler=search_currency_rate,
         requires_tenant_context=False,

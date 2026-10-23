@@ -11,7 +11,7 @@ AgentTypeLiteral = Literal[
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., description="Mensagem ou consulta enviada pelo usuário")
+    message: str = Field(..., min_length=1, max_length=8000, description="Mensagem ou consulta enviada pelo usuário")
     user_id: str = Field(..., min_length=1, max_length=128, description="Identificador da conta do cliente")
     session_id: Optional[str] = Field(
         default=None,
@@ -83,6 +83,8 @@ class ToolExecutionResult(BaseModel):
     retryable: bool = False
     execution_ms: float = 0.0
     idempotent_replay: bool = False
+    operation_id: Optional[str] = None
+    outcome_state: Literal["completed", "pending", "unknown", "failed"] = "completed"
 
 
 class SpecialistOutput(BaseModel):
@@ -98,6 +100,7 @@ class SpecialistOutput(BaseModel):
     sources: List[str] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
     structured_data: Dict[str, Any] = Field(default_factory=dict)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
     tokens_used: TokenUsage = Field(default_factory=TokenUsage)
 
 
@@ -116,6 +119,8 @@ class ChatResponse(BaseModel):
     sources: List[str] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    action_proposals: List[Dict[str, Any]] = Field(default_factory=list)
     trace: List[TraceStep] = Field(default_factory=list)
     execution_time_ms: float = 0.0
 
@@ -150,3 +155,9 @@ class HitlOperatorReplyRequest(BaseModel):
     operator_id: str = Field(..., min_length=2, max_length=64)
     reply_message: str = Field(..., min_length=2, max_length=4000)
     resolve_ticket: bool = True
+
+
+class ActionConfirmationRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    expected_payload_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    confirmation: Literal["CONFIRM"]

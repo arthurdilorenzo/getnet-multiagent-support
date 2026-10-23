@@ -156,6 +156,9 @@ class EscalationAgent:
             tool_results=tool_results,
             sources=["Getnet SQLite HITL Ticket Queue"],
             structured_data={"ticket": ticket_data, "protocol_number": protocol_number},
+            evidence=[{"kind": "tool_fact", "tool_name": "create_escalation_ticket",
+                       "fact_path": key, "value": value}
+                      for key, value in ticket_data.items()],
         )
 
     def handle(

@@ -11,7 +11,9 @@ class PIIRedactor:
 
     # CPF: 000.000.000-00 ou 11 dígitos isolados precedidos por rótulo
     CPF_PATTERN = re.compile(r"\b(\d{3})\.(\d{3})\.(\d{3})-(\d{2})\b")
-    CPF_RAW_LABELED = re.compile(r"(?i)(cpf\s*[:=]?\s*)(\d{3})(\d{3})(\d{3})(\d{2})\b")
+    CPF_RAW_LABELED = re.compile(
+        r"(?i)(\bcpf\s*(?:(?:é|eh|e|is)\b\s*)?[:=]?\s*)(\d{3})(\d{3})(\d{3})(\d{2})\b"
+    )
 
     # CNPJ: 00.000.000/0001-00
     CNPJ_PATTERN = re.compile(r"\b(\d{2})\.(\d{3})\.(\d{3})/(\d{4})-(\d{2})\b")
@@ -22,11 +24,13 @@ class PIIRedactor:
 
     # Senha / CVV explícitos
     PASSWORD_PATTERN = re.compile(
-        r"(?i)\b(senha|password|pin|cvv|cvc|token\s+secreto)\s*[:=]\s*([^\s,;\"']+)"
+        r"(?i)\b(senha|password|pin|cvv|cvc|token\s+secreto)\s*"
+        r"(?::|=|(?:é|eh|e|is)\b\s*[:=]?)\s*"
+        r"(?:\"[^\"\n]*\"|'[^'\n]*'|“[^”\n]*”|[^\s,;.!?]+)"
     )
 
     # Conta corrente explícita
-    BANK_ACCOUNT_PATTERN = re.compile(r"(?i)(conta[_\s]*corrente|cc|c/c)\s*[:=]?\s*(\d{2,6})([\d\-]+)")
+    BANK_ACCOUNT_PATTERN = re.compile(r"(?i)\b(conta[_\s]*corrente|cc|c/c)\b\s*[:=]?\s*(\d{2,6})([\d\-]+)(?!\w)")
 
     @classmethod
     def mask_text(cls, text: str) -> str:
@@ -71,7 +75,7 @@ class PIIRedactor:
             result: Dict[str, Any] = {}
             for k, v in obj.items():
                 key_lower = str(k).lower()
-                if key_lower in ("password", "senha", "cvv", "secret", "api_key"):
+                if key_lower in ("password", "senha", "cvv", "cvc", "cpf", "pin", "secret", "api_key", "token_secreto"):
                     result[k] = "[REDACTED]"
                 elif key_lower == "cnpj" and isinstance(v, str):
                     result[k] = cls.mask_cnpj(v)

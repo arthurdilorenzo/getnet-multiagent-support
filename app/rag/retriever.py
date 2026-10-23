@@ -7,6 +7,7 @@ from app.config import settings
 from app.observability.logger import logger
 from app.rag.embeddings import BilingualDenseEmbedder
 from app.rag.ingestor import GetnetCorpusIngestor
+from app.rag.answerability import assess, expanded_query
 from app.schemas import Citation
 
 
@@ -20,6 +21,7 @@ class IndexedChunk:
         content: str,
         origin_type: str = "verified_markdown_mirror",
         embedding: Optional[List[float]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.chunk_id = chunk_id
         self.source_file = source_file
@@ -27,6 +29,7 @@ class IndexedChunk:
         self.title = title
         self.content = content
         self.origin_type = origin_type
+        self.provenance = provenance or {}
         # Texto indexado dá peso 2x ao título
         full_index_text = f"{title} {title} {content}"
         self.tokens: List[str] = BilingualDenseEmbedder.tokenize(full_index_text)
@@ -122,6 +125,7 @@ class HybridKnowledgeRetriever:
                 title=item.get("title", ""),
                 content=item.get("content", ""),
                 origin_type=item.get("origin_type", "verified_markdown_mirror"),
+                provenance={key:item.get(key) for key in ('verification_status','verified_at','review_method','source_location','source_access_note','secondary_url','additional_url')},
             )
             self.chunks.append(idx_chunk)
             updated_vectors[cid] = idx_chunk.embedding
@@ -200,7 +204,8 @@ class HybridKnowledgeRetriever:
             self._load_and_index()
 
         min_thresh = threshold if threshold is not None else self.min_relevance_threshold
-        query_tokens = self._expand_query_tokens(query)
+        search_query = expanded_query(query)
+        query_tokens = self._expand_query_tokens(search_query)
         if not query_tokens or not self.chunks:
             return {
                 "abstained": True,
@@ -211,7 +216,7 @@ class HybridKnowledgeRetriever:
             }
 
         # Projeta a query e sua expansão léxica PT/EN no mesmo espaço determinístico.
-        expanded_query_text = f"{query} {' '.join(query_tokens)}"
+        expanded_query_text = f"{search_query} {' '.join(query_tokens)}"
         query_vec = BilingualDenseEmbedder.embed_text(expanded_query_text)
 
         bm25_scores: List[Tuple[int, float]] = []
@@ -252,6 +257,7 @@ class HybridKnowledgeRetriever:
             b_norm = ((b_raw / (b_raw + 4.0)) * coverage_factor) if b_raw > 0 else 0.0
             # Score heurístico de BM25 e cosseno; não é probabilidade de correção.
             calibrated_score = round(min(1.0, (0.50 * b_norm) + (0.50 * d_raw)), 4)
+            answerability = assess(query, chunk.content, chunk.title)
 
             fused_items.append(
                 {
@@ -262,6 +268,9 @@ class HybridKnowledgeRetriever:
                     "title": chunk.title,
                     "content": chunk.content,
                     "origin_type": chunk.origin_type,
+                    "provenance": chunk.provenance,
+                    "answerability": answerability,
+                    "answer_snippets": answerability['answer_snippets'],
                     "bm25_score": round(b_raw, 4),
                     "dense_cosine_score": round(d_raw, 4),
                     "rrf_score": round(rrf_score, 5),
@@ -272,24 +281,25 @@ class HybridKnowledgeRetriever:
 
         # Ordena primariamente pelo score calibrado + desempate por RRF
         fused_items.sort(key=lambda x: (x["relevance_score"], x["rrf_score"]), reverse=True)
-        top_Matches = [item for item in fused_items if item["relevance_score"] >= min_thresh][:top_k]
+        top_Matches = [item for item in fused_items if item["relevance_score"] >= min_thresh and item['answerability']['answerable']][:top_k]
         max_rel = fused_items[0]["relevance_score"] if fused_items else 0.0
 
         if not top_Matches:
             return {
                 "abstained": True,
                 "abstention_reason": (
-                    f"Nenhum documento atingiu o limiar mínimo de relevância ({min_thresh:.2f}). "
+                    f"Nenhum corpo de documento cobre o tema e todas as restrições solicitadas no limiar ({min_thresh:.2f}). "
                     f"Maior score observado: {max_rel:.4f}."
                 ),
                 "max_relevance_score": max_rel,
                 "results": [],
                 "citations": [],
+                "answerability": {"answerable":False,"candidate_checks":[{'chunk_id':item['chunk_id'],'missing':item['answerability']['missing']} for item in fused_items[:6]]},
             }
 
         citations: List[Citation] = []
         for m in top_Matches:
-            excerpt = m["content"].replace("\n", " ").strip()[:180]
+            excerpt = ' '.join(m['answer_snippets'])[:400]
             citations.append(
                 Citation(
                     chunk_id=m["chunk_id"],
@@ -307,6 +317,7 @@ class HybridKnowledgeRetriever:
             "max_relevance_score": max_rel,
             "results": top_Matches,
             "citations": citations,
+            "answerability": {"answerable":True,"method":"body_constraints_and_local_bilingual_ontology","limit":"Heurística de domínio, não entailment semântico universal."},
         }
 
     def search(self, query: str, top_k: int = settings.RAG_TOP_K) -> List[Dict[str, Any]]:

@@ -1,5 +1,5 @@
-import hashlib
 import json
+import re
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 from app.config import settings
@@ -16,6 +16,8 @@ from app.tools.registry import tool_registry
 # ==============================================================================
 class GetSalesSettlementInput(BaseModel):
     user_id: str = Field(..., description="ID autenticado do cliente")
+    sales_date: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$",
+                                    description="Data explícita solicitada (ISO); a base é snapshot histórico simulado, não agenda atual.")
     payment_modality: Optional[Literal["all", "debit", "credit", "pix"]] = Field(
         default="all", description="Filtro opcional de modalidade (all, debit, credit, pix)"
     )
@@ -46,6 +48,7 @@ class GetCustomerProfileInput(BaseModel):
 
 class ExecuteTerminalRemoteActionInput(BaseModel):
     user_id: str = Field(..., description="ID autenticado do cliente")
+    session_id: str = Field(default="", description="Sessão vinculada pelo servidor")
     terminal_id: str = Field(..., description="ID do terminal alvo da ação remota")
     action_type: Literal["remote_reboot", "sim_carrier_switch", "parameter_table_update"] = Field(
         ..., description="Tipo de comando remoto a enviar ao terminal"
@@ -141,6 +144,7 @@ def _load_customers_db() -> Dict[str, Any]:
 def get_sales_settlement(
     user_id: str,
     payment_modality: Optional[str] = "all",
+    sales_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Tool 1 (Read): Consulta status de liquidação financeira, repasses D+1/D+0 e vendas de ontem.
@@ -155,6 +159,10 @@ def get_sales_settlement(
         }
 
     settlement = customer.get("sales_settlement", {}).get("yesterday_sales", {})
+    if sales_date and sales_date != settlement.get("date"):
+        return {"found": False, "user_id": user_id, "requested_sales_date": sales_date,
+                "available_snapshot_date": settlement.get("date"), "data_scope": "synthetic_historical_snapshot",
+                "error": "A base simulada não contém vendas para a data solicitada; não confirma liquidação atual."}
     bank = customer.get("domicilio_bancario", {})
     masked_bank = PIIRedactor.mask_bank_account(
         str(bank.get("agencia", "")), str(bank.get("conta_corrente", ""))
@@ -162,7 +170,7 @@ def get_sales_settlement(
     target_bank_masked = (
         f"{bank.get('banco', 'Domicílio Cadastrado')} "
         f"Agência {masked_bank['agencia']} Conta {masked_bank['conta_corrente']}"
-    )
+    ) if bank else None
 
     return {
         "found": True,
@@ -171,15 +179,20 @@ def get_sales_settlement(
         "account_plan": customer.get("account_plan"),
         "antecipacao_automatica": customer.get("antecipacao_automatica"),
         "payment_modality_filter": payment_modality or "all",
+        "data_scope": "synthetic_historical_snapshot",
+        "requested_sales_date": sales_date,
+        "snapshot_reference_date": None,
+        "temporal_notice": "Snapshot histórico simulado; a consulta não confirma depósito ou liquidação atual.",
         "sales_data": {
             "date": settlement.get("date"),
-            "settlement_batch_id": settlement.get("settlement_batch_id", "LOTE-PADRAO"),
+            "settlement_batch_id": settlement.get("settlement_batch_id"),
             "total_gross_brl": settlement.get("total_gross_brl"),
             "debit_brl": settlement.get("debit_brl"),
             "credit_brl": settlement.get("credit_brl"),
             "pix_brl": settlement.get("pix_brl"),
             "net_payout_scheduled_today_brl": settlement.get("net_payout_scheduled_today_brl"),
-            "payout_status": settlement.get("payout_status"),
+            "payout_status": re.sub(r"\bhoje\b", "na referência histórica do snapshot",
+                                    settlement.get("payout_status") or "", flags=re.I) or None,
             "target_bank": target_bank_masked,
             "pix_note": settlement.get("pix_note"),
         },
@@ -209,6 +222,13 @@ def diagnose_terminal_issue(
 
     terminals: List[Dict[str, Any]] = customer.get("terminals", [])
     recent_transactions: List[Dict[str, Any]] = customer.get("recent_transactions", [])
+    if terminal_id:
+        explicit_terminal = next((t for t in terminals if t.get("terminal_id", "").casefold() == terminal_id.strip().casefold()), None)
+        if not explicit_terminal:
+            return {"found": False, "user_id": user_id, "requested_terminal_id": terminal_id,
+                    "error_code": "TERMINAL_NOT_FOUND", "error": "Terminal solicitado não localizado na frota autenticada."}
+        # An explicit machine must never acquire another machine's transaction.
+        recent_transactions = [t for t in recent_transactions if t.get("terminal_id") == explicit_terminal["terminal_id"]]
     ctx_lower = f"{error_context} {terminal_model or ''} {terminal_id or ''} {decline_code or ''}".lower()
 
     # Inferência automática do sintoma caso symptom == 'general'
@@ -368,60 +388,12 @@ def execute_terminal_remote_action(
     action_type: str,
     reason: str = "Diagnóstico automatizado de suporte",
     idempotency_key: str = "",
+    session_id: str = "",
 ) -> Dict[str, Any]:
-    """
-    Tool 4 (Write / Idempotent): Executa comando remoto de escrita no terminal POS do cliente
-    (remote_reboot, sim_carrier_switch, parameter_table_update) com persistência SQLite e idempotência.
-    """
-    customers = _load_customers_db()
-    customer = customers.get(user_id)
-    if not customer:
-        raise CrossTenantAccessError("Não há frota autorizada para o cliente autenticado.")
-
-    terminals = customer.get("terminals", [])
-    target_term = next(
-        (t for t in terminals if t.get("terminal_id", "").lower() == terminal_id.strip().lower()),
-        None,
-    )
-    if not target_term:
-        raise CrossTenantAccessError("O terminal solicitado não pertence à frota autenticada.")
-
-    resolved_term_id = target_term.get("terminal_id", terminal_id)
-    idem_key = idempotency_key.strip() or hashlib.sha256(
-        f"{user_id}:{resolved_term_id}:{action_type}".encode("utf-8")
-    ).hexdigest()[:20]
-
-    # Verifica idempotência no SQLite
-    existing = state_store.get_idempotent_result(idem_key, user_id)
-    if existing:
-        replay = dict(existing)
-        replay["idempotent_replay"] = True
-        return replay
-
-    action_hash = hashlib.sha256(f"{idem_key}:{user_id}".encode("utf-8")).hexdigest()[:8].upper()
-    action_id = f"ACT-{action_hash}"
-    details = {
-        "terminal_model": target_term.get("model"),
-        "reason": reason,
-        "command_dispatched": action_type,
-    }
-    record = state_store.record_terminal_action(
-        action_id=action_id,
-        user_id=user_id,
-        terminal_id=resolved_term_id,
-        action_type=action_type,
-        status="SCHEDULED_ON_TERMINAL",
-        idempotency_key=idem_key,
-        details=details,
-    )
-    record["idempotent_replay"] = False
-    state_store.save_idempotent_result(
-        idempotency_key=idem_key,
-        tool_name="execute_terminal_remote_action",
-        user_id=user_id,
-        result=record,
-    )
-    return record
+    """Legacy tool name: prepare an immutable proposal; never dispatch a command."""
+    from app.security.action_policy import propose_action
+    return propose_action(user_id, session_id or f"sess_{user_id}", terminal_id,
+                          action_type, reason, idempotency_key)
 
 
 def create_escalation_ticket(
@@ -482,6 +454,7 @@ def register_customer_and_hitl_tools() -> None:
         handler=get_sales_settlement,
         requires_tenant_context=True,
         is_write_action=False,
+        required_scopes=["customer:read_own"],
     )
     tool_registry.register(
         name="diagnose_terminal_issue",
@@ -490,6 +463,7 @@ def register_customer_and_hitl_tools() -> None:
         handler=diagnose_terminal_issue,
         requires_tenant_context=True,
         is_write_action=False,
+        required_scopes=["customer:read_own"],
     )
     tool_registry.register(
         name="get_customer_profile",
@@ -498,14 +472,16 @@ def register_customer_and_hitl_tools() -> None:
         handler=get_customer_profile,
         requires_tenant_context=True,
         is_write_action=False,
+        required_scopes=["customer:read_own"],
     )
     tool_registry.register(
         name="execute_terminal_remote_action",
-        description="Envia comando remoto idempotente para o terminal POS do cliente (remote_reboot, sim_carrier_switch ou parameter_table_update) e persiste a ação no banco.",
+        description="Prepara proposta imutável de comando remoto POS (remote_reboot, sim_carrier_switch ou parameter_table_update). Não envia o comando: requer confirmação posterior pela API autenticada do usuário.",
         args_schema=ExecuteTerminalRemoteActionInput,
         handler=execute_terminal_remote_action,
         requires_tenant_context=True,
         is_write_action=True,
+        required_scopes=["terminal:action_own"],
     )
     tool_registry.register(
         name="create_escalation_ticket",
@@ -514,6 +490,7 @@ def register_customer_and_hitl_tools() -> None:
         handler=create_escalation_ticket,
         requires_tenant_context=True,
         is_write_action=True,
+        required_scopes=["chat:write"],
     )
     tool_registry.register(
         name="check_escalation_ticket",
@@ -522,6 +499,7 @@ def register_customer_and_hitl_tools() -> None:
         handler=check_escalation_ticket,
         requires_tenant_context=True,
         is_write_action=False,
+        required_scopes=["customer:read_own"],
     )
 
 

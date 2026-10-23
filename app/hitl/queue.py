@@ -10,6 +10,12 @@ from app.schemas import HitlTicketModel
 from app.security.pii import PIIRedactor
 
 
+class HITLTransitionError(ValueError):
+    """The persisted ticket state or operator ownership forbids this mutation."""
+
+    code = "HITL_INVALID_TRANSITION"
+
+
 class HITLQueueManager:
     """
     Gerenciador real de Human-in-the-Loop (HITL) com persistência SQLite,
@@ -133,7 +139,7 @@ class HITLQueueManager:
                     )
                     dispatched["telegram"] = f"http_{resp.status_code}"
             except Exception as exc:
-                logger.warning("hitl_telegram_notification_failed", ticket_id=ticket.ticket_id, error=str(exc))
+                logger.warning("hitl_telegram_notification_failed", ticket_id=ticket.ticket_id, error_type=type(exc).__name__)
                 dispatched["telegram"] = "failed"
 
         if settings.HITL_WEBHOOK_URL:
@@ -142,7 +148,7 @@ class HITLQueueManager:
                     resp = client.post(settings.HITL_WEBHOOK_URL, json=ticket.model_dump())
                     dispatched["webhook"] = f"http_{resp.status_code}"
             except Exception as exc:
-                logger.warning("hitl_webhook_notification_failed", ticket_id=ticket.ticket_id, error=str(exc))
+                logger.warning("hitl_webhook_notification_failed", ticket_id=ticket.ticket_id, error_type=type(exc).__name__)
                 dispatched["webhook"] = "failed"
 
         return dispatched
@@ -184,6 +190,9 @@ class HITLQueueManager:
                 return None
             owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (row["session_id"],)).fetchone()
             self.store._assert_owner(owner, row["user_id"])
+            self._validate_operator_transition(row, operator_id, claiming=True)
+            if row["status"] == "CLAIMED":
+                return self._row_to_model(row)
             conn.execute(
                 """
                 UPDATE escalation_tickets
@@ -204,20 +213,21 @@ class HITLQueueManager:
     ) -> Optional[HitlTicketModel]:
         """
         Registra a resposta de um especialista humano no ticket,
-        injeta a resposta no histórico conversacional da sessão do cliente
-        e reativa a sessão ('active') permitindo retomada fluida pelo agente.
+        injeta a resposta no histórico e libera a sessão somente quando todos
+        os tickets estiverem resolvidos. Validação e escrita são atômicas.
         """
-        ticket = self.get_ticket(ticket_id)
-        if not ticket:
-            return None
-        self.store.assert_session_access(ticket.session_id, ticket.user_id)
-
         now = self._now_iso()
         new_status = "RESOLVED" if resolve_ticket else "RESPONDED"
         masked_reply = PIIRedactor.mask_text(reply_message)
 
         with self.store._lock, self.store._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            # Read, validate ownership, transition and inject history under one lock/transaction.
+            row = conn.execute("SELECT * FROM escalation_tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+            if not row:
+                return None
+            self._validate_operator_transition(row, operator_id)
+            ticket = self._row_to_model(row)
             owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (ticket.session_id,)).fetchone()
             self.store._assert_owner(owner, ticket.user_id)
             conn.execute(
@@ -239,7 +249,12 @@ class HITLQueueManager:
                 sources=[f"HITL Ticket {ticket_id}"],
                 connection=conn,
             )
-            self.store.set_session_status(ticket.session_id, "active", user_id=ticket.user_id, connection=conn)
+            pending = conn.execute(
+                "SELECT 1 FROM escalation_tickets WHERE session_id = ? AND user_id = ? "
+                "AND status IN ('OPEN', 'CLAIMED', 'RESPONDED') LIMIT 1", (ticket.session_id, ticket.user_id),
+            ).fetchone()
+            self.store.set_session_status(ticket.session_id, "waiting_human" if pending else "active",
+                                          user_id=ticket.user_id, connection=conn)
             conn.commit()
 
         logger.info(
@@ -250,6 +265,18 @@ class HITLQueueManager:
             new_status=new_status,
         )
         return self.get_ticket(ticket_id)
+
+    @staticmethod
+    def _validate_operator_transition(row: Any, operator_id: str, claiming: bool = False) -> None:
+        if not operator_id or not operator_id.strip():
+            raise HITLTransitionError("Operador responsável é obrigatório.")
+        if row["status"] == "RESOLVED":
+            raise HITLTransitionError("Ticket resolvido exige reabertura explícita antes de nova intervenção.")
+        if row["assigned_operator"] and row["assigned_operator"] != operator_id:
+            raise HITLTransitionError("Ticket pertence a outro operador; reatribuição explícita é necessária.")
+        allowed = {"OPEN", "CLAIMED"} if claiming else {"OPEN", "CLAIMED", "RESPONDED"}
+        if row["status"] not in allowed:
+            raise HITLTransitionError("Transição de estado inválida para este ticket.")
 
     @staticmethod
     def _row_to_model(row: Any) -> HitlTicketModel:

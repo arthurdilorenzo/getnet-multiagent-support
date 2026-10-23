@@ -7,6 +7,7 @@ const chatStream = document.getElementById("chat-stream");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const userIdInput = document.getElementById("user-id-input");
+const authTokenInput = document.getElementById("auth-token-input");
 const sendBtn = document.getElementById("send-btn");
 
 // Menu Dropdown Elements
@@ -193,7 +194,7 @@ async function sendMessage(message, userId) {
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authenticatedHeaders(),
       body: JSON.stringify({ message: message, user_id: userId, session_id: `sess_${userId}` })
     });
 
@@ -213,6 +214,11 @@ async function sendMessage(message, userId) {
   } finally {
     setLoadingState(false);
   }
+}
+
+function authenticatedHeaders() {
+  const token = authTokenInput.value.trim().replace(/^Bearer\s+/i, "");
+  return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
 function getCurrentTime() {
@@ -267,6 +273,30 @@ function appendAssistantMessage(data) {
     </div>
   `;
   chatStream.appendChild(row);
+  (data.action_proposals || []).forEach(proposal => {
+    const control = document.createElement("button");
+    control.type = "button";
+    control.className = "ctrl-btn";
+    control.textContent = `Confirmar ${proposal.action_type} em ${proposal.terminal_id}`;
+    control.addEventListener("click", async () => {
+      control.disabled = true;
+      try {
+        const result = await fetch(`/api/actions/${encodeURIComponent(proposal.proposal_id)}/confirm`, {
+          method: "POST", headers: authenticatedHeaders(),
+          body: JSON.stringify({ user_id: data.user_id, expected_payload_hash: proposal.payload_hash, confirmation: "CONFIRM" })
+        });
+        if (!result.ok) throw new Error(`Confirmação recusada (${result.status})`);
+        const receipt = await result.json();
+        const detail = document.createElement("p");
+        detail.textContent = `Agendamento simulado registrado: ${receipt.action_id}. Não comprova execução física no terminal.`;
+        control.replaceWith(detail);
+      } catch (error) {
+        appendErrorMessage(error.message);
+        control.disabled = false;
+      }
+    });
+    row.querySelector(".msg-body").appendChild(control);
+  });
   scrollToBottom();
 }
 

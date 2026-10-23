@@ -252,8 +252,16 @@ class GetnetCorpusIngestor:
                         "title": header,
                         "content": sanitized_sec,
                         "content_hash": content_hash,
-                        "origin_type": "verified_markdown_mirror",
-                        "scraped_at": datetime.now(timezone.utc).isoformat(),
+                        # A local file with an official URL is not automatically
+                        # a verified mirror. Retain the actual review provenance.
+                        "origin_type": "verified_markdown_mirror" if meta.get("verification_status") == "reviewed_against_official_page" else "unverified_local_summary",
+                        "verification_status": meta.get("verification_status", "unverified_local_summary"),
+                        "verified_at": meta.get("verified_at"),
+                        "review_method": meta.get("review_method", "none"),
+                        "source_location": meta.get("source_location", ""),
+                        "source_access_note": meta.get('source_access_note',''),
+                        "additional_url": meta.get("additional_url", ""),
+                        "scraped_at": None,
                     }
                 )
         return chunks
@@ -341,7 +349,7 @@ class GetnetCorpusIngestor:
             "hygiene_version": "1",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "total_chunks": len(all_chunks),
-            "markdown_chunks_count": len(md_chunks),
+            "markdown_chunks_count": sum(c.get('origin_type')=='verified_markdown_mirror' for c in md_chunks),
             "live_web_chunks_count": len(web_chunks),
             "canonical_sources": [u["url"] for u in self.OFFICIAL_GETNET_URLS],
             "chunks": all_chunks,

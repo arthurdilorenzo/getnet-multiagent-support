@@ -70,7 +70,9 @@ class AuthManager:
         payload = {
             "sub": user_id,
             "role": role,
-            "scopes": scopes if scopes is not None else ["chat:write", "customer:read_own", "terminal:action_own"],
+            "scopes": scopes if scopes is not None else (
+                ["admin:all", "hitl:manage"] if role == "operator" else
+                ["chat:write", "customer:read_own", "terminal:action_own"]),
             "iat": now,
             "exp": now + ttl_seconds,
             "iss": "getnet-multiagent-auth",

@@ -126,7 +126,7 @@ def call_with_resilience(
                 breaker=breaker_name,
                 attempt=attempt,
                 max_attempts=max_retries + 1,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
             if attempt <= max_retries:
                 sleep_sec = base_delay_sec * (2 ** (attempt - 1)) + random.uniform(0.0, 0.02)
@@ -134,5 +134,5 @@ def call_with_resilience(
 
     breaker.record_failure()
     raise ExternalServiceUnavailableError(
-        f"Serviço externo '{breaker_name}' indisponível após {max_retries + 1} tentativas: {last_exc}"
+        f"Serviço externo '{breaker_name}' indisponível após {max_retries + 1} tentativas."
     ) from last_exc
