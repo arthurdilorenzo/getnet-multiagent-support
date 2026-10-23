@@ -165,13 +165,10 @@ class RouterAgent:
             external_rule = external_source and re.search(r"\b(?:regra\w*|rule\w*)\b", text, re.I)
             return bool(formal_regulation or external_rule)
 
-        def merge_same_target(steps: List[PlanStep], *, adjacent_only: bool) -> List[PlanStep]:
+        def merge_adjacent_same_target(steps: List[PlanStep]) -> List[PlanStep]:
             merged: List[PlanStep] = []
             for step in steps:
-                existing = next((item for item in merged
-                                 if item.target_agent == step.target_agent), None)
-                if adjacent_only:
-                    existing = merged[-1] if merged and merged[-1].target_agent == step.target_agent else None
+                existing = merged[-1] if merged and merged[-1].target_agent == step.target_agent else None
                 if existing is None:
                     merged.append(step)
                     continue
@@ -239,10 +236,7 @@ class RouterAgent:
                     step_order=step.step_order, target_agent=target,
                     sub_query=query, rationale=rationale, request_unit_ids=[uid],
                 ))
-            revised.extend(merge_same_target(split_steps, adjacent_only=True))
-
-        if len(revised) > settings.MAX_ORCHESTRATION_ITERATIONS:
-            revised = merge_same_target(revised, adjacent_only=False)
+            revised.extend(merge_adjacent_same_target(split_steps))
 
         for order, step in enumerate(revised, start=1):
             step.step_order = order
