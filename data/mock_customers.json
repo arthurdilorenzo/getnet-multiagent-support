@@ -5,8 +5,10 @@
       "company_name": "Di Lorenzo Café & Conveniência ME",
       "cnpj": "28.491.802/0001-44",
       "contact_person": "Arthur Di Lorenzo",
-      "account_plan": "Getnet Pro",
+      "account_plan": "Getnet Pro (Receba Já D+1)",
       "antecipacao_automatica": true,
+      "crediario_enabled": true,
+      "payment_link_enabled": true,
       "domicilio_bancario": {
         "banco": "Banco Santander (033)",
         "agencia": "1234",
@@ -16,13 +18,27 @@
       "terminals": [
         {
           "terminal_id": "GET-SMART-88219",
-          "model": "Get Smart (Android 5.5 Touch)",
+          "model": "Get Smart (Smart POS Android)",
           "serial_number": "SN-99827361",
-          "status": "Online",
-          "connection_type": "4G Multi-operadora (Claro/Vivo)",
+          "status": "Online com Oscilação de Rede",
+          "connection_type": "4G Chip Algar Multi-operadora (Claro/Vivo)",
           "signal_strength": "Instável (1/4 barras)",
           "firmware_version": "v4.18.2",
-          "paper_roll": "OK (80%)"
+          "paper_roll": "OK (80%)",
+          "battery_percent": 74,
+          "last_ping": "2026-10-22T19:55:10Z"
+        },
+        {
+          "terminal_id": "GET-CLASSICA-10442",
+          "model": "Get Clássica (POS Balcão)",
+          "serial_number": "SN-44109283",
+          "status": "Online",
+          "connection_type": "Wi-Fi + 3G Backup",
+          "signal_strength": "Estável (4/4 barras)",
+          "firmware_version": "v3.09.1",
+          "paper_roll": "OK (65%)",
+          "battery_percent": 92,
+          "last_ping": "2026-10-22T20:01:00Z"
         }
       ],
       "sales_settlement": {
@@ -33,29 +49,162 @@
           "credit_brl": 850.50,
           "pix_brl": 370.00,
           "net_payout_scheduled_today_brl": 1415.80,
-          "payout_status": "Programado para compensação hoje até as 18:00h",
-          "target_bank": "Banco Santander (033) Agência 1234 Conta 98765-4",
-          "pix_note": "As vendas Pix de R$ 370,00 foram liquidadas instantaneamente no momento da transação."
+          "settlement_batch_id": "LOTE-STL-20261022-881",
+          "payout_status": "Programado para liquidação hoje (D+1) até as 18:00h via CIP/SILOC",
+          "target_bank": "Banco Santander (033) Agência **34 Conta *****5-4",
+          "pix_note": "As vendas via Pix (R$ 370,00) já foram liquidadas integralmente em tempo real (D+0) no momento de cada transação."
         }
       },
       "recent_transactions": [
         {
           "transaction_id": "TXN-881920",
+          "terminal_id": "GET-SMART-88219",
           "timestamp": "2026-10-22 16:42:15",
           "amount_brl": 150.00,
           "card_brand": "Mastercard Final 4920",
           "payment_method": "Crédito à vista",
           "status": "RECUSADA",
           "decline_code": "05",
-          "decline_reason": "Transação não autorizada pelo emissor do cartão (bloqueio de segurança ou limite temporário do cliente comprador).",
-          "action_required": "Solicitar ao cliente que verifique a autorização no aplicativo do banco emissor ou utilize outro cartão/Pix."
+          "decline_reason": "Transação não autorizada pelo banco emissor do cartão (bloqueio preventivo de segurança ou restrição do portador).",
+          "action_required": "Orientar o comprador a verificar o aplicativo do seu banco emissor para liberar o cartão ou realizar o pagamento via Pix / outro cartão."
         },
         {
           "transaction_id": "TXN-881919",
+          "terminal_id": "GET-SMART-88219",
           "timestamp": "2026-10-22 15:10:04",
           "amount_brl": 45.00,
           "card_brand": "Visa Débito",
+          "payment_method": "Débito",
           "status": "APROVADA"
+        },
+        {
+          "transaction_id": "TXN-881915",
+          "terminal_id": "GET-CLASSICA-10442",
+          "timestamp": "2026-10-22 14:22:19",
+          "amount_brl": 310.00,
+          "card_brand": "Elo Crédito",
+          "payment_method": "Crédito Parcelado 3x",
+          "status": "RECUSADA",
+          "decline_code": "51",
+          "decline_reason": "Saldo ou limite de crédito insuficiente no cartão do portador.",
+          "action_required": "Solicitar outro cartão ao comprador ou oferecer pagamento via QR Code Pix."
+        }
+      ]
+    },
+    "cliente2045": {
+      "user_id": "cliente2045",
+      "company_name": "Bistrô Porto Alegre Gastronomia LTDA",
+      "cnpj": "14.220.911/0001-89",
+      "contact_person": "Mariana Silva",
+      "account_plan": "Get Conta Digital (Receba Conforme Vendas)",
+      "antecipacao_automatica": false,
+      "crediario_enabled": true,
+      "payment_link_enabled": true,
+      "domicilio_bancario": {
+        "banco": "Get Conta (Parceria Dock IP)",
+        "agencia": "0001",
+        "conta_corrente": "55412-9",
+        "tipo_chave_pix": "Chave Aleatória EVP"
+      },
+      "terminals": [
+        {
+          "terminal_id": "GET-SMART-55012",
+          "model": "Get Smart (Smart POS Android)",
+          "serial_number": "SN-55012990",
+          "status": "Offline (Sem Sinal)",
+          "connection_type": "4G Chip Algar",
+          "signal_strength": "Sem sinal (0/4 barras)",
+          "firmware_version": "v4.18.0",
+          "paper_roll": "Baixo (15%)",
+          "battery_percent": 38,
+          "last_ping": "2026-10-22T11:20:00Z"
+        }
+      ],
+      "sales_settlement": {
+        "yesterday_sales": {
+          "date": "2026-10-21",
+          "total_gross_brl": 4250.00,
+          "debit_brl": 1250.00,
+          "credit_brl": 2100.00,
+          "pix_brl": 900.00,
+          "net_payout_scheduled_today_brl": 1226.25,
+          "settlement_batch_id": "LOTE-STL-20261022-994",
+          "payout_status": "Débito (R$ 1.226,25 líquido) liquidado hoje às 09:15h na Get Conta; Crédito (R$ 2.100,00) agendado para D+30 (antecipação automática desativada, disponível para antecipação avulsa no App Getnet Brasil).",
+          "target_bank": "Get Conta (Parceria Dock IP) Agência **01 Conta *****2-9",
+          "pix_note": "Vendas Pix de R$ 900,00 liquidadas instantaneamente na Get Conta."
+        }
+      },
+      "recent_transactions": [
+        {
+          "transaction_id": "TXN-992011",
+          "terminal_id": "GET-SMART-55012",
+          "timestamp": "2026-10-22 11:18:40",
+          "amount_brl": 480.00,
+          "card_brand": "Visa Infinite Final 1102",
+          "payment_method": "Aproximação NFC",
+          "status": "RECUSADA",
+          "decline_code": "12",
+          "decline_reason": "Transação inválida por limite de pagamento por aproximação (NFC) excedido sem senha.",
+          "action_required": "Solicitar que o cliente insira o cartão físico no leitor de chip e digite a senha."
+        }
+      ]
+    },
+    "cliente3012": {
+      "user_id": "cliente3012",
+      "company_name": "Ótica Visão Clara EIRELI",
+      "cnpj": "39.882.104/0001-12",
+      "contact_person": "Roberto Mendes",
+      "account_plan": "Plano Light Get Clássica",
+      "antecipacao_automatica": true,
+      "crediario_enabled": true,
+      "payment_link_enabled": false,
+      "domicilio_bancario": {
+        "banco": "Itaú Unibanco (341)",
+        "agencia": "4321",
+        "conta_corrente": "11223-0",
+        "tipo_chave_pix": "CNPJ"
+      },
+      "terminals": [
+        {
+          "terminal_id": "GET-CLASSICA-33901",
+          "model": "Get Clássica (POS Tradicional)",
+          "serial_number": "SN-33901442",
+          "status": "Falha de Hardware (Leitor de Chip)",
+          "connection_type": "3G + Wi-Fi",
+          "signal_strength": "Estável (3/4 barras)",
+          "firmware_version": "v3.08.9",
+          "paper_roll": "OK (90%)",
+          "battery_percent": 85,
+          "requires_replacement": true,
+          "last_ping": "2026-10-22T18:40:00Z"
+        }
+      ],
+      "sales_settlement": {
+        "yesterday_sales": {
+          "date": "2026-10-21",
+          "total_gross_brl": 3100.00,
+          "debit_brl": 500.00,
+          "credit_brl": 2600.00,
+          "pix_brl": 0.00,
+          "net_payout_scheduled_today_brl": 2948.40,
+          "settlement_batch_id": "LOTE-STL-20261022-301",
+          "payout_status": "Liquidado integralmente hoje às 10:30h no domicílio bancário Itaú Unibanco",
+          "target_bank": "Itaú Unibanco (341) Agência **21 Conta *****3-0",
+          "pix_note": "Não houve transações Pix ontem."
+        }
+      },
+      "recent_transactions": [
+        {
+          "transaction_id": "TXN-771004",
+          "terminal_id": "GET-CLASSICA-33901",
+          "timestamp": "2026-10-22 17:05:12",
+          "amount_brl": 1200.00,
+          "card_brand": "Mastercard Black Final 8831",
+          "payment_method": "Crediário 24x",
+          "status": "RECUSADA",
+          "decline_code": "91",
+          "decline_reason": "Instabilidade temporária de comunicação com o banco emissor (Emissor Indisponível).",
+          "action_required": "Aguardar 2 minutos e repetir a transação ou utilizar outra bandeira."
         }
       ]
     }

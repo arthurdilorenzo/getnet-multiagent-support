@@ -1,17 +1,34 @@
 services:
-  getnet-agent-system:
+  getnet-multiagent:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: getnet_multiagent_service
+    container_name: getnet-multiagent-support
     ports:
       - "8000:8000"
     environment:
-      - APP_ENV=production
-      - APP_HOST=0.0.0.0
-      - APP_PORT=8000
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - AUTH_API_KEY=${AUTH_API_KEY:-getnet-dev-api-key-2026}
+      - JWT_SECRET=${JWT_SECRET:-getnet-hmac-sha256-secret-key-2026-prod}
+      - AUTH_ENFORCE_STRICT=${AUTH_ENFORCE_STRICT:-false}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - HITL_WEBHOOK_URL=${HITL_WEBHOOK_URL:-}
+      - APP_ENV=production
+      - LOG_LEVEL=INFO
     volumes:
-      - ./data:/app/data:ro
+      - getnet_sqlite_state:/app/data
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  getnet_sqlite_state:

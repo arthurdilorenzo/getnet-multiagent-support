@@ -1,31 +1,37 @@
-# Catálogo de Maquininhas e Soluções de Hardware Getnet
+---
+source_url: https://site.getnet.com.br/todas-as-maquininhas/
+secondary_url: https://site.getnet.com.br/duvidas/
+canonical_domain: site.getnet.com.br
+title: Catálogo Oficial de Maquininhas Getnet — Get Clássica vs Get Smart e Get Tap
+---
 
-## Get Clássica (POS Tradicional)
-- **Perfil:** Ideal para lojas físicas com balcão de atendimento fixo e alto volume diário de vendas (mercados, restaurantes, padarias, varejo em geral).
-- **Características de Hardware:**
-  - Teclado físico emborrachado e de alta durabilidade.
-  - Visor colorido de fácil leitura.
-  - Impressora térmica embutida de alta velocidade para emissão de comprovante em papel (bobina inclusa).
-  - Conectividade: Chip de dados 3G/GPRS multi-operadora gratuito e conexão Wi-Fi.
-  - Bateria de longa duração para uso móvel dentro da loja.
-- **Aceitação:** Aceita cartões com chip, tarja magnética e pagamentos por aproximação (NFC/Contactless), além de Apple Pay, Google Pay e Samsung Pay.
-- **Diferencial:** Robustez mecânica para operações de alta rotatividade de clientes, baixo consumo de energia e facilidade operacional.
+# Catálogo Oficial de Maquininhas e Soluções de Captura Getnet
 
-## Get Smart (Smart POS Android)
-- **Perfil:** Ideal para estabelecimentos modernos que buscam digitalização, mobilidade e integração da gestão com o ponto de venda (restaurantes gourmet, boutiques, clínicas, grandes redes de comércio).
-- **Características de Hardware:**
-  - Sistema operacional Android customizado e seguro.
-  - Tela sensível ao toque (touchscreen) colorida de 5.5 polegadas de alta resolução.
-  - Câmera traseira integrada para leitura de códigos de barra e QR Codes.
-  - Impressora térmica integrada para emissão de comprovante em papel.
-  - Conectividade ultra-rápida: Chip 4G gratuito com troca automática de operadora e Wi-Fi de alta performance (2.4GHz e 5GHz).
-- **Recursos Exclusivos:**
-  - Loja de Aplicativos Getnet (App Store Getnet): permite instalar sistemas de gestão comercial, controle de estoque, comanda eletrônica de mesas e programas de fidelidade diretamente na maquininha.
-  - Exibição de QR Code Pix dinâmico direto na tela colorida para leitura rápida pelo smartphone do cliente.
-  - Relatórios de vendas em tempo real na própria tela com gráficos e métricas de faturamento diário.
+Fonte oficial: `https://site.getnet.com.br/todas-as-maquininhas/` e `https://site.getnet.com.br/duvidas/`
 
-## Comparativo Direto: Get Clássica vs Get Smart
-- **Interface:** Get Clássica possui teclado numérico físico; Get Smart possui tela touchscreen capacitiva Android.
-- **Conectividade:** Get Clássica utiliza 3G/Wi-Fi; Get Smart utiliza 4G de alta velocidade e Wi-Fi dual-band.
-- **Inteligência e Apps:** Get Clássica é focada puramente em processamento de pagamentos; Get Smart suporta instalação de aplicativos de frente de caixa e gestão.
-- **Exibição Pix:** Get Clássica imprime QR Code no papel da bobina; Get Smart gera QR Code dinâmico na tela touchscreen e também imprime comprovante se desejado.
+## Get Clássica (POS Tradicional de Balcão e Mobilidade)
+- **Indicação Oficial Getnet:** Recomendada para estabelecimentos com faturamento mensal a partir de R$ 20 mil/mês (ou planos de aluguel padrão de R$ 79,90/mês com isenção progressiva por meta de faturamento), ideal para balcão de atendimento e operação intensa no varejo.
+- **Características Técnicas e Operacionais:**
+  - Teclado numérico físico e visor colorido.
+  - Impressão de comprovante em bobina de papel térmica.
+  - Conectividade via Wi-Fi e chip móvel multi-operadora gratuito (como Chip Algar que se conecta automaticamente às redes móveis com cobertura local).
+  - Aceita pagamentos por aproximação (NFC), cartão com chip, QR Code Pix e mais de 80 bandeiras (Visa, Mastercard, Elo, Amex, Hipercard e vouchers VA/VR).
+  - Foco exclusivo em captura rápida e robusta de transações presenciais de débito, crédito à vista, crédito parcelado e Crediário.
+
+## Get Smart (Smart POS Android com Gestão Integrada)
+- **Indicação Oficial Getnet:** Recomendada para estabelecimentos de maior volume ou que buscam gestão integrada no ponto de venda (faixas de isenção a partir de R$ 40 mil a R$ 80 mil/mês ou aluguel de referência de R$ 129,90/mês).
+- **Características Técnicas e Operacionais:**
+  - Plataforma Smart POS com sistema operacional Android, interface 100% touchscreen e câmera integrada.
+  - Conectividade avançada 4G com chip gratuito incluso e Wi-Fi, além de impressão de bobina integrada e bateria de longa duração (recomenda-se carga de pelo menos 3 horas seguidas sem aguardar descarga total).
+  - Acesso à **Get Store** e ao **Portal do Desenvolvedor – Get Smart**: permite instalar aplicativos de gestão comercial, controle de estoque, automação de frente de caixa, fechamento de comandas e emissão de relatórios diretamente no terminal.
+  - Suporte completo a QR Code Pix na tela, aproximação (NFC), carteiras digitais e mais de 80 bandeiras.
+
+## Comparativo Direto: Qual a diferença entre a Get Clássica e a Get Smart?
+- **Interface e Usabilidade:** A **Get Clássica** é um terminal POS tradicional operado por teclado físico, focado em velocidade de cobrança pura; a **Get Smart** é um terminal inteligente Android com tela sensível ao toque (touchscreen) e interface de smartphone.
+- **Ecossistema de Aplicativos (Get Store):** A **Get Clássica** executa exclusivamente funções nativas de pagamento e relatórios de POS; a **Get Smart** possui a loja de aplicativos **Get Store**, permitindo rodar sistemas de gestão de vendas, catálogo de produtos e integração ERP/PDV direto na máquina.
+- **Conectividade e Recursos:** Enquanto a **Get Clássica** opera com Wi-Fi e rede celular 3G/GPRS, a **Get Smart** conta com conectividade 4G + Wi-Fi, câmera para leitura de códigos e tela ampla para exibição de QR Code Pix e simulação visual de parcelas.
+- **Custo Mensal de Referência:** No catálogo oficial (`site.getnet.com.br/todas-as-maquininhas/`), a **Get Clássica** parte de R$ 79,90/mês e a **Get Smart** parte de R$ 129,90/mês, ambas com possibilidade de isenção conforme volume mensal transacionado.
+
+## Get Tap (Celular vira Maquininha via NFC)
+- **O que é o Get Tap (`https://site.getnet.com.br/get-tap/`):** Funcionalidade dentro do Aplicativo Getnet Brasil que transforma o smartphone do lojista em uma maquininha para receber vendas por aproximação (NFC) com cartão e carteiras digitais.
+- **Requisitos Mínimos:** Dispositivo com sistema operacional a partir do **Android 12** e antena **NFC** ativa.

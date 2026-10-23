@@ -19,6 +19,11 @@ __pycache__/
 .AppleDouble
 .LSOverride
 
-# Internal Project Notes
+# Internal Project Notes & Runtime Databases
 AI_HARDCORE_ENGINEER_GETNET.md
 HANDOFF_GETNET_CHALLENGE.md
+feedback_arthur_dilorenzo_v4.md
+data/*.db
+data/*.db-journal
+data/*.db-wal
+*.db

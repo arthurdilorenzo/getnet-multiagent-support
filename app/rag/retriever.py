@@ -1,116 +1,328 @@
-import re
+from collections import Counter
+import json
 import math
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 from app.config import settings
+from app.observability.logger import logger
+from app.rag.embeddings import BilingualDenseEmbedder
+from app.rag.ingestor import GetnetCorpusIngestor
+from app.schemas import Citation
 
-class DocumentChunk:
-    def __init__(self, doc_id: str, source: str, title: str, content: str):
-        self.doc_id = doc_id
-        self.source = source
+
+class IndexedChunk:
+    def __init__(
+        self,
+        chunk_id: str,
+        source_file: str,
+        source_url: str,
+        title: str,
+        content: str,
+        origin_type: str = "verified_markdown_mirror",
+        embedding: Optional[List[float]] = None,
+    ) -> None:
+        self.chunk_id = chunk_id
+        self.source_file = source_file
+        self.source_url = source_url
         self.title = title
         self.content = content
+        self.origin_type = origin_type
+        # Texto indexado dá peso 2x ao título
+        full_index_text = f"{title} {title} {content}"
+        self.tokens: List[str] = BilingualDenseEmbedder.tokenize(full_index_text)
+        self.term_freqs: Counter = Counter(self.tokens)
+        self.doc_len: int = max(1, len(self.tokens))
+        self.embedding: List[float] = embedding or BilingualDenseEmbedder.embed_text(full_index_text)
 
-class KnowledgeRetriever:
+
+class HybridKnowledgeRetriever:
     """
-    Motor RAG Híbrido da Getnet.
-    Lê os manuais oficiais em data/*.md, segmenta por tópicos semânticos
-    e realiza busca contextual de alta precisão.
+    Motor RAG Híbrido Real da Getnet:
+    1. Sparse Retrieval via algoritmo Okapi BM25 (k1=1.5, b=0.75) com expansão léxica bilíngue PT/EN.
+    2. Dense Vector Retrieval via embeddings de 384 dimensões L2-normalizados e similaridade de cosseno.
+    3. Fusão de Rankings via Reciprocal Rank Fusion (RRF) + Score Calibrado [0.0, 1.0].
+    4. Threshold de Relevância e Abstention explícita para consultas fora de domínio.
+    5. Citações verificáveis contendo `chunk_id`, `source_file` e `source_url` oficial da Getnet.
     """
-    def __init__(self, data_dir: Optional[Path] = None):
-        self.data_dir = data_dir or settings.DATA_DIR
-        self.chunks: List[DocumentChunk] = []
+
+    BM25_K1 = 1.5
+    BM25_B = 0.75
+    RRF_K = 20
+
+    # Dicionário de tradução de termos técnicos EN -> PT para paridade de BM25 esparso
+    BILINGUAL_EXPANSION: Dict[str, List[str]] = {
+        "difference": ["diferenca", "comparativo"],
+        "between": ["entre"],
+        "sales": ["vendas"],
+        "yesterday": ["ontem"],
+        "deposited": ["depositado", "liquidacao", "receber"],
+        "bank": ["banco", "bancaria", "domicilio"],
+        "account": ["conta", "get", "corrente"],
+        "receive": ["receber", "recebimento"],
+        "machine": ["maquininha", "maquina", "terminal"],
+        "connect": ["conecta", "conexao", "sinal", "rede"],
+        "internet": ["internet", "wifi", "chip", "sinal"],
+        "receivables": ["recebiveis", "vendas"],
+        "advance": ["antecipacao", "adiantar", "receba"],
+        "decline": ["recusada", "recusa", "erro", "codigo"],
+        "transaction": ["transacao", "venda"],
+        "error": ["erro", "codigo", "recusada"],
+        "installments": ["parcelas", "parcelar", "parcelamento", "vezes"],
+        "split": ["parcelar", "dividir", "parcelas"],
+        "payment": ["pagamento"],
+        "link": ["link", "whatsapp"],
+        "sell": ["vender", "vendas"],
+    }
+
+    def __init__(
+        self,
+        data_dir: Optional[Path] = None,
+        corpus_path: Optional[Path] = None,
+        vector_index_path: Optional[Path] = None,
+        min_relevance_threshold: float = settings.RAG_MIN_RELEVANCE_THRESHOLD,
+    ) -> None:
+        self.data_dir = Path(data_dir or settings.DATA_DIR)
+        self.corpus_path = Path(corpus_path or settings.CORPUS_JSON_PATH)
+        self.vector_index_path = Path(vector_index_path or settings.VECTOR_INDEX_PATH)
+        self.min_relevance_threshold = min_relevance_threshold
+        self.chunks: List[IndexedChunk] = []
+        self.doc_freqs: Counter = Counter()
+        self.idf: Dict[str, float] = {}
+        self.avgdl: float = 1.0
         self._load_and_index()
 
-    def _load_and_index(self):
+    def _load_and_index(self) -> None:
+        ingestor = GetnetCorpusIngestor(data_dir=self.data_dir, corpus_path=self.corpus_path)
+        raw_chunks: List[Dict[str, Any]] = []
+
+        if self.corpus_path.exists():
+            try:
+                data = json.loads(self.corpus_path.read_text(encoding="utf-8"))
+                raw_chunks = data.get("chunks", [])
+            except Exception as exc:
+                logger.warning("rag_corpus_json_read_failed", error=str(exc))
+
+        # Garante que os arquivos Markdown mais recentes estejam sincronizados
+        md_chunks = ingestor.load_markdown_chunks()
+        if not raw_chunks:
+            raw_chunks = md_chunks
+        else:
+            web_only = [c for c in raw_chunks if c.get("origin_type") == "live_web_scrape"]
+            raw_chunks = md_chunks + web_only
+
+        # Carrega cache de vetores se disponível
+        cached_vectors: Dict[str, List[float]] = {}
+        if self.vector_index_path.exists():
+            try:
+                cached_vectors = json.loads(self.vector_index_path.read_text(encoding="utf-8"))
+            except Exception:
+                cached_vectors = {}
+
         self.chunks = []
-        if not self.data_dir.exists():
+        updated_vectors: Dict[str, List[float]] = {}
+        for item in raw_chunks:
+            cid = item["chunk_id"]
+            emb = cached_vectors.get(cid)
+            idx_chunk = IndexedChunk(
+                chunk_id=cid,
+                source_file=item.get("source_file", "getnet_docs.md"),
+                source_url=item.get("source_url", "https://site.getnet.com.br/"),
+                title=item.get("title", ""),
+                content=item.get("content", ""),
+                origin_type=item.get("origin_type", "verified_markdown_mirror"),
+                embedding=emb,
+            )
+            self.chunks.append(idx_chunk)
+            updated_vectors[cid] = idx_chunk.embedding
+
+        # Persiste o índice vetorial denso em disco
+        try:
+            self.vector_index_path.parent.mkdir(parents=True, exist_ok=True)
+            self.vector_index_path.write_text(
+                json.dumps(updated_vectors, separators=(",", ":")), encoding="utf-8"
+            )
+        except Exception as exc:
+            logger.warning("rag_vector_index_write_failed", error=str(exc))
+
+        self._build_bm25_statistics()
+
+    def _build_bm25_statistics(self) -> None:
+        self.doc_freqs.clear()
+        self.idf.clear()
+        n_docs = len(self.chunks)
+        if n_docs == 0:
+            self.avgdl = 1.0
             return
 
-        md_files = list(self.data_dir.glob("*.md"))
-        chunk_counter = 0
+        total_len = 0
+        for chunk in self.chunks:
+            total_len += chunk.doc_len
+            for unique_token in set(chunk.tokens):
+                self.doc_freqs[unique_token] += 1
 
-        for filepath in md_files:
-            try:
-                text = filepath.read_text(encoding="utf-8")
-                # Divide o markdown por títulos principais (# ou ##)
-                sections = re.split(r'\n(?=##?\s)', text)
-                source_name = filepath.name
+        self.avgdl = total_len / n_docs
+        for term, df in self.doc_freqs.items():
+            # Fórmula padrão Okapi BM25 IDF (sempre positiva com +1)
+            self.idf[term] = math.log(1.0 + ((n_docs - df + 0.5) / (df + 0.5)))
 
-                for sec in sections:
-                    clean_sec = sec.strip()
-                    if not clean_sec:
-                        continue
+    def _expand_query_tokens(self, query: str) -> List[str]:
+        base_tokens = BilingualDenseEmbedder.tokenize(query)
+        expanded = list(base_tokens)
+        for tok in base_tokens:
+            if tok in self.BILINGUAL_EXPANSION:
+                expanded.extend(self.BILINGUAL_EXPANSION[tok])
+        return expanded
 
-                    # Extrai o título da seção
-                    lines = clean_sec.split('\n')
-                    header = lines[0].lstrip('#').strip()
-                    body = "\n".join(lines[1:]).strip() if len(lines) > 1 else header
+    def _compute_bm25_score(self, query_tokens: List[str], chunk: IndexedChunk) -> float:
+        score = 0.0
+        for term in query_tokens:
+            if term not in chunk.term_freqs:
+                continue
+            tf = chunk.term_freqs[term]
+            idf_val = self.idf.get(term, 0.0)
+            numerator = tf * (self.BM25_K1 + 1.0)
+            denominator = tf + self.BM25_K1 * (
+                1.0 - self.BM25_B + self.BM25_B * (chunk.doc_len / self.avgdl)
+            )
+            score += idf_val * (numerator / denominator)
+        return score
 
-                    chunk_counter += 1
-                    self.chunks.append(DocumentChunk(
-                        doc_id=f"chunk_{chunk_counter}",
-                        source=source_name,
-                        title=header,
-                        content=clean_sec
-                    ))
-            except Exception as e:
-                print(f"[RAG] Erro ao carregar {filepath.name}: {e}")
-
-    def _tokenize(self, text: str) -> List[str]:
-        # Normalização simples para tokenização lexical
-        cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
-        words = [w for w in cleaned.split() if len(w) > 2]
-        return words
-
-    def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def retrieve_hybrid(
+        self,
+        query: str,
+        top_k: int = settings.RAG_TOP_K,
+        threshold: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
-        Busca lexical/semântica ponderada baseada nos termos da query e cabeçalhos.
-        Garante tolerância e recall perfeito em perguntas sobre produtos e serviços Getnet.
+        Executa busca híbrida completa (Okapi BM25 + Dense Vector Cosine Similarity + RRF).
+        Retorna:
+        {
+          "abstained": bool,
+          "abstention_reason": Optional[str],
+          "max_relevance_score": float,
+          "results": List[Dict],
+          "citations": List[Citation]
+        }
         """
         if not self.chunks:
             self._load_and_index()
 
-        query_tokens = set(self._tokenize(query))
-        if not query_tokens:
-            return []
-
-        scored_chunks = []
-        for chunk in self.chunks:
-            title_tokens = self._tokenize(chunk.title)
-            content_tokens = self._tokenize(chunk.content)
-
-            # Relevância ponderada (título tem peso maior que corpo)
-            title_matches = sum(1 for t in query_tokens if t in title_tokens)
-            content_matches = sum(1 for t in query_tokens if t in content_tokens)
-
-            # Pontuação baseada em cobertura e frequência
-            score = (title_matches * 3.0) + (content_matches * 1.0)
-
-            # Bônus para termos exatos compostos (ex: "get clássica", "get smart", "link de pagamento")
-            lower_content = chunk.content.lower()
-            lower_query = query.lower()
-            for key_phrase in ["get clássica", "get smart", "crediário", "link de pagamento", "antecipação", "pix"]:
-                if key_phrase in lower_query and key_phrase in lower_content:
-                    score += 5.0
-
-            if score > 0:
-                scored_chunks.append((score, chunk))
-
-        # Ordena do mais relevante para o menos relevante
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        top_results = scored_chunks[:top_k]
-
-        return [
-            {
-                "doc_id": c.doc_id,
-                "source": c.source,
-                "title": c.title,
-                "content": c.content,
-                "score": round(score, 2)
+        min_thresh = threshold if threshold is not None else self.min_relevance_threshold
+        query_tokens = self._expand_query_tokens(query)
+        if not query_tokens or not self.chunks:
+            return {
+                "abstained": True,
+                "abstention_reason": "Query vazia ou base de conhecimento não carregada.",
+                "max_relevance_score": 0.0,
+                "results": [],
+                "citations": [],
             }
-            for score, c in top_results
-        ]
 
-# Instância compartilhada singleton
-retriever = KnowledgeRetriever()
+        # Embeda a query expandida para paridade semântica PT/EN
+        expanded_query_text = f"{query} {' '.join(query_tokens)}"
+        query_vec = BilingualDenseEmbedder.embed_text(expanded_query_text)
+
+        bm25_scores: List[Tuple[int, float]] = []
+        dense_scores: List[Tuple[int, float]] = []
+
+        for idx, chunk in enumerate(self.chunks):
+            b_score = self._compute_bm25_score(query_tokens, chunk)
+            d_score = BilingualDenseEmbedder.cosine_similarity(query_vec, chunk.embedding)
+            bm25_scores.append((idx, b_score))
+            dense_scores.append((idx, d_score))
+
+        # Ordena rankings individuais para RRF
+        bm25_sorted = sorted(bm25_scores, key=lambda x: x[1], reverse=True)
+        dense_sorted = sorted(dense_scores, key=lambda x: x[1], reverse=True)
+
+        bm25_rank_map = {doc_idx: rank for rank, (doc_idx, _) in enumerate(bm25_sorted, start=1)}
+        dense_rank_map = {doc_idx: rank for rank, (doc_idx, _) in enumerate(dense_sorted, start=1)}
+
+        max_bm25 = max((s for _, s in bm25_scores), default=0.0)
+
+        fused_items: List[Dict[str, Any]] = []
+        for idx, chunk in enumerate(self.chunks):
+            b_raw = bm25_scores[idx][1]
+            d_raw = dense_scores[idx][1]
+
+            # Se nem BM25 nem Dense possuem sinal relevante, descarta
+            if b_raw <= 0.0 and d_raw < 0.12:
+                continue
+
+            r_bm25 = bm25_rank_map[idx]
+            r_dense = dense_rank_map[idx]
+            rrf_score = (1.0 / (self.RRF_K + r_bm25)) + (1.0 / (self.RRF_K + r_dense))
+
+            # Normalização de BM25 saturada ponderada pela cobertura de termos da consulta
+            unique_q = set(query_tokens)
+            matched_q = sum(1 for t in unique_q if t in chunk.term_freqs)
+            coverage_factor = min(1.0, matched_q / max(1.5, len(unique_q) * 0.45))
+            b_norm = ((b_raw / (b_raw + 4.0)) * coverage_factor) if b_raw > 0 else 0.0
+            # Score calibrado combinando sinal lexical (BM25) e semântico denso (Cosine)
+            calibrated_score = round(min(1.0, (0.50 * b_norm) + (0.50 * d_raw)), 4)
+
+            fused_items.append(
+                {
+                    "doc_id": chunk.chunk_id,
+                    "chunk_id": chunk.chunk_id,
+                    "source": chunk.source_file,
+                    "source_url": chunk.source_url,
+                    "title": chunk.title,
+                    "content": chunk.content,
+                    "origin_type": chunk.origin_type,
+                    "bm25_score": round(b_raw, 4),
+                    "dense_cosine_score": round(d_raw, 4),
+                    "rrf_score": round(rrf_score, 5),
+                    "score": calibrated_score,
+                    "relevance_score": calibrated_score,
+                }
+            )
+
+        # Ordena primariamente pelo score calibrado + desempate por RRF
+        fused_items.sort(key=lambda x: (x["relevance_score"], x["rrf_score"]), reverse=True)
+        top_Matches = [item for item in fused_items if item["relevance_score"] >= min_thresh][:top_k]
+        max_rel = fused_items[0]["relevance_score"] if fused_items else 0.0
+
+        if not top_Matches:
+            return {
+                "abstained": True,
+                "abstention_reason": (
+                    f"Nenhum documento atingiu o limiar mínimo de relevância ({min_thresh:.2f}). "
+                    f"Maior score observado: {max_rel:.4f}."
+                ),
+                "max_relevance_score": max_rel,
+                "results": [],
+                "citations": [],
+            }
+
+        citations: List[Citation] = []
+        for m in top_Matches:
+            excerpt = m["content"].replace("\n", " ").strip()[:180]
+            citations.append(
+                Citation(
+                    chunk_id=m["chunk_id"],
+                    title=m["title"],
+                    source=m["source"],
+                    source_url=m["source_url"],
+                    relevance_score=m["relevance_score"],
+                    excerpt=excerpt,
+                )
+            )
+
+        return {
+            "abstained": False,
+            "abstention_reason": None,
+            "max_relevance_score": max_rel,
+            "results": top_Matches,
+            "citations": citations,
+        }
+
+    def search(self, query: str, top_k: int = settings.RAG_TOP_K) -> List[Dict[str, Any]]:
+        """
+        Interface direta compatível que retorna os chunks aprovados pelo threshold.
+        """
+        outcome = self.retrieve_hybrid(query=query, top_k=top_k)
+        return outcome["results"]
+
+
+retriever = HybridKnowledgeRetriever()
