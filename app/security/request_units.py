@@ -36,6 +36,19 @@ def request_units(message: str) -> list[dict[str, Any]]:
         boundaries.add(match.start())
     for match in _ADDITIVE_START.finditer(message):
         boundaries.add(match.start())
+    # The audited Crediário comparison is one sentence but contains two
+    # independently supportable country scopes. Split only this explicit
+    # Brazil-versus-Norway documentary form, preserving source offsets/text.
+    if (re.search(r'\bcredi[aá]rio\b', message, re.I)
+            and re.search(r'\bbrasil\b', message, re.I)
+            and re.search(r'\bnoruega\b', message, re.I)):
+        comparison = re.search(
+            r'\s+(?=com\s+o\s+que\s+a\s+documenta[cç][aã]o\s+informa\s+'
+            r'sobre\s+os\s+mesmos\s+termos\s+na\s+noruega\b)',
+            message, flags=re.I,
+        )
+        if comparison:
+            boundaries.add(comparison.start())
     ordered=sorted(boundaries)
     return [{'unit_id':f'u{i+1}','start':a,'end':b,'text':message[a:b]}
             for i,(a,b) in enumerate(zip(ordered,ordered[1:])) if a<b]

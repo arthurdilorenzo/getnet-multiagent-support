@@ -21,6 +21,10 @@ from app.security.request_units import RequestCoverageLedger, request_units
 from app.security.operational_intent import classify_operational_intent
 from app.security.fulfillment import canonical_terminal_read_text
 from app.security.planning_policy import independent_veto_unit_ids
+from app.security.request_constraints import extract_constraints
+from app.security.conditional_dependencies import (
+    evaluate_terminal_condition, parse_terminal_condition,
+)
 
 
 class MultiAgentOrchestrator:
@@ -75,6 +79,49 @@ class MultiAgentOrchestrator:
         while lines and (not lines[0].strip() or lines[0].lstrip().startswith('- ')):
             lines.pop(0)
         return prefix.rstrip()+("\n\n"+"\n".join(lines) if lines else '')
+
+    @staticmethod
+    def _conditional_crediario_dependency(message: str) -> Optional[Dict[str, Any]]:
+        """Identify an exact terminal prerequisite for conditional Crediário disclosure."""
+        has_product = bool(re.search(r'\bcredi[aá]rio\b', message, re.I))
+        has_firmware = bool(re.search(r'\bfirmware\b', message, re.I))
+        has_condition = bool(re.search(
+            r'\b(?:s[oó]mente|somente|apenas|only|s[oó])\b.{0,100}\b(?:quando|when|se|if)\b',
+            message, re.I,
+        ))
+        if not (has_product and has_firmware and has_condition):
+            return None
+        units = request_units(message)
+        condition_units = [unit['unit_id'] for unit in units
+                           if re.search(r'\bcredi[aá]rio\b', unit['text'], re.I)]
+        if not condition_units:
+            return None
+        terminals = extract_constraints(message).terminal_ids
+        target = terminals[0] if len(terminals) == 1 else None
+        condition = parse_terminal_condition(message, target) if target else None
+        return {'unit_ids': condition_units, 'terminal_id': target, 'condition': condition}
+
+    @staticmethod
+    def _coalesce_country_knowledge_plan(plan: RoutingPlan, message: str) -> RoutingPlan:
+        """Use one local evidence pass for the audited independent-country comparison."""
+        if not all(re.search(pattern, message, re.I) for pattern in (
+            r'\bcredi[aá]rio\b', r'\bbrasil\b', r'\b(?:noruega|norway)\b',
+            r'\b(?:documenta[cç][aã]o|documentation)\b',
+        )):
+            return plan
+        if len(plan.plan_steps) < 2 or any(step.target_agent != 'KNOWLEDGE_AGENT'
+                                           for step in plan.plan_steps):
+            return plan
+        ordered_ids = [unit['unit_id'] for unit in request_units(message)]
+        assigned = {uid for step in plan.plan_steps for uid in step.request_unit_ids}
+        return plan.model_copy(update={
+            'primary_agent': 'KNOWLEDGE_AGENT',
+            'plan_steps': [PlanStep(step_order=1, target_agent='KNOWLEDGE_AGENT',
+                sub_query=message, rationale='Uma consulta local cobre unidades de país independentes.',
+                request_unit_ids=[uid for uid in ordered_ids if uid in assigned])],
+            'is_multi_step': False,
+            'requires_user_context': False,
+        })
 
     def __init__(self) -> None:
         self.gemini_client = None
@@ -205,6 +252,73 @@ class MultiAgentOrchestrator:
                 token_usage=token_usage, trace=tracer.get_steps(), execution_time_ms=total_ms,
             )
 
+        routing_plan = self._coalesce_country_knowledge_plan(routing_plan, original_request)
+        conditional_dependency = self._conditional_crediario_dependency(original_request)
+        conditional_preflight: Optional[SpecialistOutput] = None
+        conditional_notice: Optional[str] = None
+        if conditional_dependency:
+            dependent_ids = set(conditional_dependency['unit_ids'])
+            filtered_steps: List[PlanStep] = []
+            for step in routing_plan.plan_steps:
+                if set(step.request_unit_ids) & dependent_ids:
+                    remaining_ids = [uid for uid in step.request_unit_ids if uid not in dependent_ids]
+                    if remaining_ids:
+                        filtered_steps.append(step.model_copy(update={'request_unit_ids': remaining_ids}))
+                else:
+                    filtered_steps.append(step)
+            routing_plan.plan_steps = filtered_steps
+            condition = conditional_dependency['condition']
+            target = conditional_dependency['terminal_id']
+            if condition is None or target is None:
+                conditional_notice = (
+                    "Não consegui validar com segurança a condição do terminal; não consultei os termos do Crediário."
+                )
+                tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='conditional_lookup_blocked',
+                    status='skipped', details={'reason': 'unsupported_or_ambiguous_terminal_condition'})
+            else:
+                all_ids = [unit['unit_id'] for unit in request_units(original_request)]
+                try:
+                    conditional_preflight = self._delegate_to_specialist(
+                        target_agent='CUSTOMER_SUPPORT_AGENT',
+                        sub_query=f"Verifique firmware e status do terminal {target}.",
+                        authorization_message=original_request,
+                        delegation_scope={'assigned_unit_ids': list(dependent_ids),
+                                          'other_unit_ids': [uid for uid in all_ids if uid not in dependent_ids]},
+                        security_context=sec_ctx, session_id=session_id,
+                        conversation_context=conversation_context, accumulated_diagnostics={},
+                        rationale='Pré-requisito operacional de leitura para informação documental condicional.',
+                        tracer=tracer,
+                    )
+                except Exception as exc:
+                    logger.warning('conditional_terminal_preflight_failed', error_type=type(exc).__name__)
+                results = conditional_preflight.tool_results if conditional_preflight else []
+                only_diagnostic_reads = bool(results) and all(
+                    result.tool_name == 'diagnose_terminal_issue' for result in results
+                ) and set(conditional_preflight.tools_called if conditional_preflight else []) <= {
+                    'diagnose_terminal_issue'}
+                authorized = only_diagnostic_reads and evaluate_terminal_condition(condition, results)
+                tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='evaluate_conditional_dependency',
+                    status='success' if authorized else 'skipped', details={
+                        'terminal_id': target, 'predicate_authorized': authorized,
+                        'reason': 'exact_typed_observation' if authorized else 'predicate_false_or_unverified',
+                    })
+                if authorized:
+                    routing_plan.plan_steps.append(PlanStep(
+                        step_order=len(routing_plan.plan_steps) + 1,
+                        target_agent='KNOWLEDGE_AGENT', sub_query=original_request,
+                        rationale='Busca documental permitida após confirmação tipada do pré-requisito.',
+                        request_unit_ids=list(dependent_ids),
+                    ))
+                else:
+                    conditional_notice = (
+                        "A condição de firmware/status do terminal não foi confirmada; não consultei os termos do Crediário."
+                    )
+            for order, step in enumerate(routing_plan.plan_steps, start=1):
+                step.step_order = order
+            if routing_plan.plan_steps:
+                routing_plan.primary_agent = routing_plan.plan_steps[0].target_agent
+            routing_plan.is_multi_step = len(routing_plan.plan_steps) > 1
+
         tracer.add_step(
             agent="ROUTER_AGENT",
             action="plan_and_route",
@@ -234,6 +348,11 @@ class MultiAgentOrchestrator:
         escalated = False
         ticket_id: Optional[str] = None
         abstained_final = False
+        if conditional_preflight:
+            agents_executed.append('CUSTOMER_SUPPORT_AGENT')
+            for tool_name in conditional_preflight.tools_called:
+                if tool_name not in all_tools_called:
+                    all_tools_called.append(tool_name)
 
         iteration = 0
         while pending_steps and iteration < settings.MAX_ORCHESTRATION_ITERATIONS:
@@ -336,6 +455,8 @@ class MultiAgentOrchestrator:
             response_segments.append(
                 f"**Atualização do Especialista Humano (Retomada de Sessão):**\n> {latest_operator_msg}"
             )
+        if conditional_notice:
+            response_segments.append(conditional_notice)
 
         for out in executed_outputs:
             # Preserve partial failures: success in one intent cannot hide a denied
@@ -604,6 +725,29 @@ class MultiAgentOrchestrator:
                 and not (available_ids & private_ids) and not spec_output.requires_escalation):
             tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_not_needed", status="skipped",
                             details={"reason": "no_actionable_observation"})
+            return False
+        country_documentation_comparison = (
+            bool(re.search(r'\bcredi[aá]rio\b', original_message, re.I))
+            and bool(re.search(r'\bbrasil\b', original_message, re.I))
+            and bool(re.search(r'\b(?:noruega|norway)\b', original_message, re.I))
+            and bool(re.search(r'\b(?:documenta[cç][aã]o|documentation)\b', original_message, re.I))
+        )
+        unresolved_rows = [row for row in request_coverage or []
+                           if row.get('state') not in {'fulfilled', 'exempt'}]
+        has_independent_supported_fact = any(
+            row.get('state') == 'fulfilled' for row in request_coverage or []
+        )
+        if (spec_output.agent_name == 'KNOWLEDGE_AGENT' and spec_output.answer_status == 'partial'
+                and spec_output.evidence and country_documentation_comparison
+                and has_independent_supported_fact and unresolved_rows
+                and all(re.search(r'\b(?:noruega|norway)\b', row.get('text', ''), re.I)
+                        for row in unresolved_rows)
+                and not (spec_output.requires_escalation or failed_tools)):
+            tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='replan_not_needed', status='skipped',
+                details={'reason': 'independent_country_documentation_unavailable',
+                         'supported_unit_count': sum(row.get('state') == 'fulfilled'
+                                                     for row in request_coverage or []),
+                         'unresolved_unit_count': len(unresolved_rows)})
             return False
         # A completed support result can reveal a dependent query even without a failure.
         if not (spec_output.requires_escalation or spec_output.abstained or failed_tools

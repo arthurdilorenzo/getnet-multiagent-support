@@ -3,6 +3,7 @@ import math
 import re
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 from google.genai import types
 from app.agents.function_calling import generate_turn, text_from_content, native_config, initial_contents
 from app.config import settings
@@ -79,6 +80,8 @@ class KnowledgeAgent:
         try:
             planning_context=dict(conversation_context or {}, original_request=original_request, delegation_scope=scope, request_units=request_units(original_request))
             planned_calls = self._plan_tool_calls(message=contextual_query,is_web_search=is_web_search,tracer=tracer,conversation_context=planning_context)
+            planned_calls = self._prefer_local_pix_product_evidence(
+                planned_calls, planning_context.get('original_request', original_request), scope)
             for call_spec in planned_calls:
                 self._validate_public_request(call_spec, authoritative_query)
             # Every documentary call is bound to the same complete original
@@ -494,6 +497,63 @@ class KnowledgeAgent:
                 rationale="Busca BM25 com expansão léxica, projeção por hashing/âncoras e RRF no corpus Getnet.",
             )
         ]
+
+    @staticmethod
+    def _prefer_local_pix_product_evidence(
+        calls: List[ToolCallSpec], original_request: str, scope: Dict[str, List[str]],
+    ) -> List[ToolCallSpec]:
+        """Correct native Web selection only for verified Getnet Pix eligibility evidence."""
+        if len(calls) != 1 or calls[0].tool_name != 'web_search_general':
+            return calls
+        assigned = set(scope.get('assigned_unit_ids', []))
+        units = [unit for unit in request_units(original_request) if unit['unit_id'] in assigned]
+        if not units:
+            return calls
+        texts = [unit['text'] for unit in units]
+        combined = ' '.join(texts)
+        norm = BilingualDenseEmbedder.normalize(combined)
+        if not re.search(r'\bpix\b', norm) or not re.search(
+            r'\b(?:conta\w*|account\w*|eligible|eligibility|elig[ií]vel|aceit\w*|accepted|categories|categorias|types)\b',
+            norm,
+        ):
+            return calls
+        # A current Getnet product rule is still a product question. Only
+        # explicit regulatory/source intent keeps the model's Web selection.
+        if re.search(
+            r'\b(?:banco central|\bbcb\b|central bank|regulat\w*|regulament\w*|'
+            r'regulador|regulator|norma\w*|\blei\b|\blaw\b|external source|fonte externa)\b',
+            norm,
+        ):
+            return calls
+        try:
+            from app.rag.retriever import retriever
+
+            ranked = retriever.retrieve_candidates(query=combined, top_k=1)
+            candidates = ranked.get('candidate_chunks', [])
+            if not candidates:
+                return calls
+            candidate = candidates[0]
+            parsed = urlsplit(str(candidate.get('source_url', '')))
+            host = (parsed.hostname or '').lower()
+            official = parsed.scheme == 'https' and (
+                host == 'getnet.com.br' or host.endswith('.getnet.com.br')
+            )
+            provenance = candidate.get('provenance') or {}
+            verified = (
+                candidate.get('origin_type') == 'verified_markdown_mirror'
+                and provenance.get('verification_status') == 'reviewed_against_official_page'
+            )
+            relevant = float(candidate.get('relevance_score', 0.0)) >= settings.RAG_MIN_RELEVANCE_THRESHOLD
+            if not (official and verified and relevant):
+                return calls
+            return [ToolCallSpec(
+                tool_name='search_getnet_knowledge',
+                arguments={'query': combined, 'top_k': settings.RAG_TOP_K},
+                rationale='Eligibility de produto Pix/Getnet atendida por fonte local Getnet verificada.',
+            )]
+        except Exception as exc:
+            logger.warning('knowledge_pix_local_evidence_check_failed', error_type=type(exc).__name__)
+            return calls
 
     def _plan_native(self,message,conversation_context=None,tracer=None) -> List[ToolCallSpec]:
         """Validate the complete provider-selected batch before any execution."""
