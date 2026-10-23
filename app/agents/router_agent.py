@@ -173,7 +173,10 @@ class RouterAgent:
             # An anaphoric consequence borrows the previous terminal diagnosis,
             # but never expands the positive finite authorization grammar. Keep
             # the diagnostic outside the deferred span, even after a true read.
-            if re.match(r'(?:if\s+(?:so|yes)|se\s+sim)\b', message[marker.start():clause_end], re.I):
+            if re.match(
+                    r'(?:if\s+(?:it\s+is|that\s+is\s+the\s+case|so|yes)|'
+                    r'se\s+(?:estiver|for\s+esse\s+o\s+caso|sim))\b',
+                    message[marker.start():clause_end], re.I):
                 previous_end = len(message[:start].rstrip(' ;\t\n'))
                 previous_start = max([0, *(boundary for boundary in sentence_boundaries
                     if boundary < previous_end), message.rfind(';', 0, previous_end) + 1])

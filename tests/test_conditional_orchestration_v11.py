@@ -719,16 +719,25 @@ def test_native_router_direct_support_diagnostics_remain_executable(monkeypatch,
     assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)
 
 
-@pytest.mark.parametrize("direct,disclosure", [
-    (f"Check if my terminal {TARGET} is Online.", "If so, tell me the eligible benefits."),
-    (f"Verifique se o terminal {TARGET} está Online.", "Se sim, informe os benefícios."),
-])
+ANAPHORIC_DISCLOSURE_CASES = [
+    (f"Check if my terminal {TARGET} is Online", "If it is, tell me the eligible benefits."),
+    (f"Check if my terminal {TARGET} is Online", "If that is the case, tell me the eligible benefits."),
+    (f"Check if my terminal {TARGET} is Online", "If so, tell me the eligible benefits."),
+    (f"Check if my terminal {TARGET} is Online", "If yes, tell me the eligible benefits."),
+    (f"Verifique se o terminal {TARGET} está Online", "Se estiver, informe os benefícios."),
+    (f"Verifique se o terminal {TARGET} está Online", "Se for esse o caso, informe os benefícios."),
+    (f"Verifique se o terminal {TARGET} está Online", "Se sim, informe os benefícios."),
+]
+
+
+@pytest.mark.parametrize("direct,disclosure", ANAPHORIC_DISCLOSURE_CASES)
+@pytest.mark.parametrize("separator", [". ", "; "])
 @pytest.mark.parametrize("observation", [{"status": "Online"}, {"status": "Offline"}, {"success": False}])
 @pytest.mark.parametrize("target_agent", ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"])
 def test_native_router_anaphoric_disclosure_stays_blocked_after_independent_diagnosis(
-        monkeypatch, tmp_path, direct, disclosure, observation, target_agent):
+        monkeypatch, tmp_path, direct, disclosure, separator, observation, target_agent):
     from app.security.request_units import request_units
-    message = f"{direct} {disclosure}"
+    message = f"{direct}{separator}{disclosure}"
     units = request_units(message)
     direct_ids = [unit["unit_id"] for unit in units if unit["start"] < len(direct)]
     disclosure_ids = [unit["unit_id"] for unit in units if unit["start"] >= len(direct)]
@@ -780,3 +789,32 @@ def test_native_router_semicolon_pix_stays_independent_of_terminal_diagnosis(
     assert routed.details["planned_steps"] == ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"]
     local_call = next(row for row in out.trace if row.action == "call:search_getnet_knowledge")
     assert local_call.details["success"] is True
+
+
+@pytest.mark.parametrize("direct,disclosure", ANAPHORIC_DISCLOSURE_CASES)
+@pytest.mark.parametrize("separator", [". ", "; "])
+def test_native_router_anaphoric_block_keeps_following_semicolon_pix_independent(
+        monkeypatch, tmp_path, direct, disclosure, separator):
+    from app.security.request_units import request_units
+    independent = "Name the account types accepted for Pix in Brazil."
+    disclosure = disclosure.rstrip(".")
+    message = f"{direct}{separator}{disclosure}; {independent}"
+    units = request_units(message)
+    direct_ids = [unit["unit_id"] for unit in units if unit["start"] < len(direct)]
+    disclosure_ids = [unit["unit_id"] for unit in units
+                      if len(direct) <= unit["start"] < message.index(independent)]
+    pix_ids = [unit["unit_id"] for unit in units if unit["start"] >= message.index(independent)]
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message,
+        delegations=[("CUSTOMER_SUPPORT_AGENT", direct, direct_ids),
+                     ("WEB_SEARCH_AGENT", disclosure, disclosure_ids),
+                     ("WEB_SEARCH_AGENT", independent, pix_ids)], status="Offline")
+    monkeypatch.delattr(orch, "_observe_and_replan")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    queries = [query for event, query in events if event == "retrieve"]
+    assert queries and all(query.strip(" ;") == independent for query in queries)
+    assert reads[1][1]["query"].strip(" ;") == independent
+    assert any(row.action == "conditional_lookup_blocked" for row in out.trace)
+    assert all(row["state"] == "unresolved" for row in out.request_coverage
+               if row["unit_id"] in disclosure_ids)
