@@ -1,0 +1,19 @@
+{
+  "baseline_sha": "d7e2125129d5806ee38730f12868aeaaba469112",
+  "command": "python isolated_runner.py (archive baseline; 6 módulos de contratos)",
+  "returncode": 0,
+  "summary_lines": [
+    "198 passed, 1 warning in 2.18s"
+  ],
+  "network_disabled": true,
+  "dotenv_read_suppressed": true,
+  "hardware_effects": "simulated",
+  "test_files": [
+    "test_action_integrity.py",
+    "test_http_actions_v3.py",
+    "test_p0_action_security.py",
+    "test_security_boundaries.py",
+    "test_gemini_function_calling.py",
+    "test_state_hitl_supervisor_v3.py"
+  ]
+}

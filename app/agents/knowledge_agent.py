@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from typing import Any, Dict, List, Optional
 from google.genai import types
@@ -12,6 +13,7 @@ from app.rag.semantic import SemanticEvidenceAuthorizer, valid_selection
 from app.rag.answerability import assess, body_snippets, concepts
 from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
+from app.security.request_units import request_units, validate_scope
 from app.security.pii import PIIRedactor
 from app.tools.registry import tool_registry
 import app.tools.search_tools  # noqa: F401 - garante registro das tools de busca e RAG
@@ -55,6 +57,7 @@ class KnowledgeAgent:
         conversation_context: Optional[Dict[str, Any]] = None,
         tracer: Optional[SystemTracer] = None,
         request_message: Optional[str] = None,
+        delegation_scope: Optional[Dict[str, Any]] = None,
     ) -> SpecialistOutput:
         tracer = tracer or SystemTracer(session_id=session_id,user_id=security_context.authenticated_user_id)
         trace_id = tracer.trace_id
@@ -64,6 +67,14 @@ class KnowledgeAgent:
         semantic_mode = 'native_semantic' if settings.GEMINI_API_KEY else 'limited_offline'
 
         # 1. Function calling nativo; extrator local somente no modo sem chave.
+        try:
+            scope=validate_scope(original_request,delegation_scope)
+        except (TypeError,ValueError):
+            ids=[u['unit_id'] for u in request_units(original_request)]
+            return SpecialistOutput(agent_name='WEB_SEARCH_AGENT' if is_web_search else 'KNOWLEDGE_AGENT',
+                response='Não foi possível validar o escopo das unidades do pedido.',abstained=True,
+                semantic_mode=semantic_mode,answer_status='abstained',abstention_reason='semantic_analysis:DELEGATION_SCOPE',
+                request_unit_ids=ids,unresolved_unit_ids=ids)
         try:
             planned_calls = self._plan_tool_calls(message=contextual_query,is_web_search=is_web_search,tracer=tracer,conversation_context=conversation_context)
             for call_spec in planned_calls:
@@ -80,7 +91,8 @@ class KnowledgeAgent:
         except ValueError as exc:
             return SpecialistOutput(agent_name='WEB_SEARCH_AGENT' if is_web_search else 'KNOWLEDGE_AGENT',
                                     response=str(exc),confidence=0,abstained=True,abstention_reason='Argumento público não identificado com segurança.',
-                                    semantic_mode=semantic_mode,answer_status='abstained')
+                                    semantic_mode=semantic_mode,answer_status='abstained',
+                                    request_unit_ids=scope['assigned_unit_ids'],unresolved_unit_ids=scope['assigned_unit_ids'])
 
         tools_called: List[str] = []
         tool_results: List[ToolExecutionResult] = []
@@ -105,11 +117,16 @@ class KnowledgeAgent:
                 data=dict(res.data or {})
                 if settings.GEMINI_API_KEY:
                     authorization=SemanticEvidenceAuthorizer(self.client).authorize(
-                        original_request,data.get('candidate_chunks',[]),conversation_context,tracer)
+                        original_request,data.get('candidate_chunks',[]),conversation_context,tracer,delegation_scope=scope)
                     data.update(semantic_mode='native_semantic',answer_status=authorization.status,
                         abstained=authorization.status!='complete',abstention_reason=authorization.reason or None,
                         chunks=authorization.approved_chunks,chunks_found=len(authorization.approved_chunks),
                         unresolved_units=authorization.unresolved_units,
+                        request_unit_ids=authorization.request_unit_ids,covered_unit_ids=authorization.covered_unit_ids,
+                        unresolved_unit_ids=[uid for uid in authorization.unresolved_unit_ids if uid in authorization.request_unit_ids],
+                        request_unit_exemptions={row['unit_id']:row['kind'] for row in authorization.coverage
+                            if row['unit_id'] in authorization.request_unit_ids and row['kind'] in {'context','courtesy'} and row['verification']['verdict']=='accept'},
+                        semantic_error={'stage':authorization.error_stage,'code':authorization.error_code,**authorization.diagnostics},
                         answerability={'answerable':authorization.status=='complete','request_hash':authorization.request_hash,
                                        'method':'native_two_pass_evidence_authorization','coverage':authorization.coverage,
                                        'limit':'Schemas/spans prove structural integrity; model semantics require independent review.'})
@@ -118,14 +135,15 @@ class KnowledgeAgent:
                         excerpt=' '.join(span['quote'] for span in c['approved_spans'])[:400]).model_dump()
                         for c in authorization.approved_chunks]
                 else:
-                    from app.rag.answerability import offline_request_coverage
-                    local=offline_request_coverage(original_request)
-                    data.update(semantic_mode='limited_offline',answer_status='abstained' if data.get('abstained') else 'complete')
-                    data['answerability']={**data.get('answerability',{}),'offline_request_coverage':local}
-                    if local['unresolved_units']:
-                        data.update(abstained=True,answer_status='partial' if data.get('chunks') else 'abstained',
-                                    unresolved_units=local['unresolved_units'],abstention_reason='Pedido fora da gramática local delimitada.')
+                    data=self._offline_coverage(original_request,data,scope)
                 res.data=data
+            elif res.success and res.tool_name in {'get_currency_exchange_rate','get_weather_forecast'}:
+                observed=dict(res.data or {})
+                covered=[u['unit_id'] for u in request_units(original_request)
+                    if u['unit_id'] in scope['assigned_unit_ids'] and self._public_unit_covered(u['text'],call_spec,observed)]
+                observed.update(request_unit_ids=scope['assigned_unit_ids'],covered_unit_ids=covered,
+                    unresolved_unit_ids=[uid for uid in scope['assigned_unit_ids'] if uid not in covered])
+                res.data=observed
             elif res.success and res.tool_name == 'web_search_general':
                 # Search snippets provide navigational extracts, not verified
                 # completion of an arbitrary current factual question.
@@ -164,6 +182,11 @@ class KnowledgeAgent:
                     if src_url and src_url not in sources:
                         sources.append(src_url)
 
+        assigned_ids=scope['assigned_unit_ids']
+        covered_ids=list(dict.fromkeys(uid for result in tool_results for uid in (result.data or {}).get('covered_unit_ids',[]) if uid in assigned_ids))
+        exemptions={uid:kind for result in tool_results for uid,kind in (result.data or {}).get('request_unit_exemptions',{}).items() if uid in assigned_ids}
+        unresolved_ids=[uid for uid in assigned_ids if uid not in covered_ids and uid not in exemptions]
+
         # 3. Avaliação de Falha de Ferramenta Externa ou Abstention do RAG
         usable=[result for result in tool_results if result.success and (not (result.data or {}).get('abstained') or ((result.data or {}).get('answer_status')=='partial' and ((result.data or {}).get('chunks') or (result.data or {}).get('results'))))]
         incomplete_results=[result for result in usable if (result.data or {}).get('answer_status')=='partial']
@@ -195,6 +218,7 @@ class KnowledgeAgent:
                 abstention_reason=primary_res.error_message or "Serviço externo indisponível",semantic_mode=semantic_mode,answer_status='abstained',
                 tools_called=tools_called,
                 tool_results=tool_results,
+                request_unit_ids=assigned_ids,covered_unit_ids=covered_ids,unresolved_unit_ids=unresolved_ids,
                 sources=sources,
             )
 
@@ -218,6 +242,7 @@ class KnowledgeAgent:
                 structured_data=primary_res.data or {},
                 tools_called=tools_called,
                 tool_results=tool_results,
+                request_unit_ids=assigned_ids,covered_unit_ids=covered_ids,unresolved_unit_ids=unresolved_ids,
                 sources=sources,
             )
 
@@ -226,6 +251,8 @@ class KnowledgeAgent:
             user_message=authoritative_query,tool_results=[result],citations=citations,tracer=tracer)
             for result in usable)
         unresolved=list(dict.fromkeys(unit for result in usable for unit in (result.data or {}).get('unresolved_units',[])))
+        if any((result.data or {}).get('coverage_notice') for result in usable):
+            synthesized_text+='\n\nCobertura no modo local: a formulação não foi interpretada integralmente; os extratos acima não comprovam cobertura de todo o pedido.'
         if unresolved:
             synthesized_text+='\n\nPartes do pedido sem resposta verificada:\n'+'\n'.join('- '+unit for unit in unresolved)
         if partial_failures:
@@ -239,16 +266,73 @@ class KnowledgeAgent:
             agent_name="WEB_SEARCH_AGENT" if is_web_search else "KNOWLEDGE_AGENT",
             response=synthesized_text,
             confidence=round(confidence, 4),
-            abstained=bool(partial_failures or incomplete_results),
-            semantic_mode=semantic_mode,answer_status='partial' if partial_failures or incomplete_results else 'complete',
-            abstention_reason='Consulta parcialmente indisponível ou sem evidência suficiente.' if partial_failures or incomplete_results else None,
+            abstained=bool(partial_failures or incomplete_results or unresolved_ids),
+            semantic_mode=semantic_mode,answer_status='partial' if partial_failures or incomplete_results or unresolved_ids else 'complete',
+            abstention_reason='Consulta parcialmente indisponível ou sem evidência suficiente.' if partial_failures or incomplete_results or unresolved_ids else None,
             tools_called=tools_called,
             tool_results=tool_results,
+            request_unit_ids=assigned_ids,covered_unit_ids=covered_ids,unresolved_unit_ids=unresolved_ids,
             sources=sources,
             citations=citations,
-            structured_data=primary_res.data or {},
+            structured_data={**(primary_res.data or {}),'request_unit_exemptions':exemptions},
             evidence=[item for result in usable for item in self._evidence(result)],
         )
+
+    @staticmethod
+    def _public_unit_covered(text: str,call: ToolCallSpec,data: Dict[str,Any]) -> bool:
+        """Credit bounded public requests only when their typed observation exists."""
+        norm=' '.join(BilingualDenseEmbedder.normalize(text).split())
+        args=call.arguments
+        try:KnowledgeAgent._validate_public_request(call,text)
+        except ValueError:return False
+        def number(value):return isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value)
+        if call.tool_name=='get_currency_exchange_rate':
+            if not number(data.get('current_rate_brl')) or not data.get('updated_at'):return False
+            if data.get('currency_pair')!=f"{args.get('base_currency')}/{args.get('target_currency')}":return False
+            currency=r'(?:eur|euro|usd|dolar|dollar|brl|real|reais|gbp|libra|pound|jpy|iene|yen|chf|franco suico|cny|yuan|cad|dolar canadense|ars|peso argentino)'
+            prefix=r'(?:qual(?: e)? (?:a )?(?:cotacao|taxa de cambio)|what(?: s| is)? (?:the )?(?:exchange rate|rate)|cotacao|exchange rate)'
+            return bool(re.fullmatch(prefix+rf' (?:do |de |of |for |from )?{currency}(?: (?:para |to |em |in )?{currency})?(?: (?:hoje|today|agora|now))?',norm))
+        if call.tool_name=='get_weather_forecast':
+            try:city=' '.join(BilingualDenseEmbedder.normalize(KnowledgeAgent._extract_city(text)).split())
+            except ValueError:return False
+            if not data.get('target_date') or not all(number(data.get(key)) for key in ('min_temp_celsius','max_temp_celsius')):return False
+            if re.search(r'chuva|chove|chover|rain',norm) and not number(data.get('rain_probability_percent')):return False
+            observed=' '.join(BilingualDenseEmbedder.normalize(str(data.get('city',''))).split())
+            if not (observed==city or observed.startswith(city+' ')):return False
+            horizon=r'(?:hoje|amanha|depois de amanha|today|tomorrow|day after tomorrow)'
+            weather=r'(?:previsao(?: do tempo)?|tempo|clima|temperatura|weather|forecast|rain probability)'
+            return bool(re.fullmatch(rf'(?:qual(?: e)? a |what(?: s| is)? the )?{weather} (?:em |no |na |in |for )?{re.escape(city)}(?: (?:para )?{horizon})?',norm)
+                        or re.fullmatch(rf'(?:chove|chover|rain) {horizon} (?:em|no|na|in) {re.escape(city)}',norm))
+        return False
+
+    @staticmethod
+    def _offline_coverage(original: str,data: Dict[str,Any],scope: Dict[str,List[str]]) -> Dict[str,Any]:
+        from app.rag.answerability import offline_request_coverage
+        canonical=request_units(original);assigned=set(scope['assigned_unit_ids'])
+        whole=offline_request_coverage(original)
+        covered=[]
+        chunks=data.get('chunks',[])
+        if not data.get('abstained') and whole['complete_parse']:
+            covered=[u['unit_id'] for u in canonical if u['unit_id'] in assigned]
+        else:
+            for unit in canonical:
+                if unit['unit_id'] not in assigned or not offline_request_coverage(unit['text'])['complete_parse']:continue
+                if any(assess(unit['text'],chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
+                    covered.append(unit['unit_id'])
+        unresolved=[u['unit_id'] for u in canonical if u['unit_id'] in assigned and u['unit_id'] not in covered]
+        data.update(semantic_mode='limited_offline',request_unit_ids=scope['assigned_unit_ids'],
+                    covered_unit_ids=covered,unresolved_unit_ids=unresolved,
+                    answer_status='abstained' if data.get('abstained') else 'partial' if unresolved else 'complete')
+        data['answerability']={**data.get('answerability',{}),'offline_request_coverage':whole}
+        if unresolved:
+            # If no clause has been fully interpreted, the application cannot
+            # honestly claim that the already quoted question was unanswered.
+            # Report the capability limit; reserve literal lists for known gaps.
+            data.update(abstained=True,answer_status='partial' if chunks else 'abstained',
+                        abstention_reason='Pedido fora da gramática local delimitada.',
+                        unresolved_units=[u['text'] for u in canonical if u['unit_id'] in unresolved] if covered else [],
+                        coverage_notice=bool(chunks) and not covered)
+        return data
 
     def handle(self, message: str, is_web_search: bool = False, user_id: str = "cliente1988") -> Dict[str, Any]:
         """

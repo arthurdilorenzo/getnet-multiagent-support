@@ -1,0 +1,66 @@
+{
+  "baseline_sha": "d7e2125129d5806ee38730f12868aeaaba469112",
+  "selection_policy": "Allowlist explícita: código, specs, resultados agregados, URLs públicas e excertos sem dados privados. Nenhuma configuração/credencial lida.",
+  "files": [
+    {
+      "snapshot": "snapshots/baseline/app/agents/orchestrator.py",
+      "origin": "git show d7e2125129d5806ee38730f12868aeaaba469112:app/agents/orchestrator.py",
+      "sha256": "9b3f960aca44c8dccd64aca4ee51a994aa4257d0c5cb39115e38cd8e415067de"
+    },
+    {
+      "snapshot": "snapshots/baseline/app/tools/registry.py",
+      "origin": "git show d7e2125129d5806ee38730f12868aeaaba469112:app/tools/registry.py",
+      "sha256": "28d1e90f98732dca44a96e43f305bd8df6489a43dd2b6577d0e779c19ce487c1"
+    },
+    {
+      "snapshot": "snapshots/baseline/app/rag/retriever.py",
+      "origin": "git show d7e2125129d5806ee38730f12868aeaaba469112:app/rag/retriever.py",
+      "sha256": "c720f34e7b3af40606feaf40248837f6b7abbd2198e1a2cdfd44e53f1cc62c0d"
+    },
+    {
+      "snapshot": "snapshots/SPEC_V3.md",
+      "origin": "git show d7e2125129d5806ee38730f12868aeaaba469112:SPEC_V3.md",
+      "sha256": "a178212881fdb8389b8fcfdcaf772ee86655ca191c87259fc1787f9e0ee1cdb7"
+    },
+    {
+      "snapshot": "snapshots/SPEC_V5.md",
+      "origin": "git show d7e2125129d5806ee38730f12868aeaaba469112:SPEC_V5.md",
+      "sha256": "ffcb7e29b529a70cc46537e7b6caa63e18e8eef93ac5f1a60af365c296f21950"
+    },
+    {
+      "snapshot": "snapshots/SPEC_V6_PROPOSED.md",
+      "origin": "SPEC_V6.md local, contrato proposto em 2026-10-23; não resultado auditado",
+      "sha256": "aff6706b4b86b26dbbea3c820486e1e5ee5344ce310a33c7f70ceb206e7e8804"
+    },
+    {
+      "snapshot": "snapshots/audit-v5-excerpts.md",
+      "origin": "seleção sanitizada de fontes locais mencionadas nas cenas; dados agregados, sem payload de cliente",
+      "sha256": "12104edfe51e8d5c2c433a7ae27daeb1c5c381f6be0394c93b0504c13986e22d"
+    },
+    {
+      "snapshot": "snapshots/audit-v5-receipt.json",
+      "origin": "seleção sanitizada de fontes locais mencionadas nas cenas; dados agregados, sem payload de cliente",
+      "sha256": "c0684537b7354a9d9dad3ac1873562235da166a70d518165833d784ba97e98f7"
+    },
+    {
+      "snapshot": "snapshots/audit-v5-scores.json",
+      "origin": "seleção sanitizada de fontes locais mencionadas nas cenas; dados agregados, sem payload de cliente",
+      "sha256": "be6238f9bdbb5effca72f48c982a5b2cc58c1b847779180b0b0f58bc91e8996e"
+    },
+    {
+      "snapshot": "snapshots/baseline-retrieval-readme.md",
+      "origin": "seleção sanitizada de fontes locais mencionadas nas cenas; dados agregados, sem payload de cliente",
+      "sha256": "e0610eb542fc6c583cefc7189bc686368d04afbab7e56ede1b87934b07af7b31"
+    },
+    {
+      "snapshot": "snapshots/ci-list.json",
+      "origin": "seleção sanitizada de fontes locais mencionadas nas cenas; dados agregados, sem payload de cliente",
+      "sha256": "b006a204494ccb1937cdeef595448790222786734b88850b088155f4b985c071"
+    },
+    {
+      "snapshot": "snapshots/method-worklog-excerpt.md",
+      "origin": "seleção sanitizada de fontes locais mencionadas nas cenas; dados agregados, sem payload de cliente",
+      "sha256": "78d0fad23e7d6fd8a8df0bd8358cca8740c8f2631ac5997d516819f93ea9bfd0"
+    }
+  ]
+}

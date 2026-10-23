@@ -23,7 +23,14 @@ def selection():
 
 
 def analysis(message, *, units=None):
-    return {'request_hash':digest(message),'units':units or [unit('u1',message,0,len(message),selections=[selection()])]}
+    # V6 transports decisions by IDs; literal bodies/offsets remain canonical.
+    canonical = units or [unit('u1',message,0,len(message),selections=[selection()])]
+    decisions = {item['unit_id']: {key: value for key, value in item.items()
+                 if key not in {'unit_id', 'start', 'end', 'text', 'selections'}}
+                 for item in canonical}
+    for item in canonical:
+        decisions[item['unit_id']]['span_ids'] = [s['span_id'] for s in item['selections']]
+    return {'request_hash':digest(message),'units':decisions}
 
 
 def unit(uid,message,start,end,*,kind='requirement',decision='supported',selections=None):
@@ -33,7 +40,7 @@ def unit(uid,message,start,end,*,kind='requirement',decision='supported',selecti
 
 
 def verification(message, ids=('u1',), *, rejected=(), complete=True, issue='unsupported_relation'):
-    return {'request_hash':digest(message),'checks':[{'unit_id':uid,'verdict':'reject' if uid in rejected else 'accept','issues':[issue] if uid in rejected else []} for uid in ids],'complete':complete}
+    return {'request_hash':digest(message),'checks':{uid:{'verdict':'reject' if uid in rejected else 'accept','issues':[issue] if uid in rejected else []} for uid in ids},'complete':complete}
 
 
 def provider(replies, requests):
@@ -79,9 +86,9 @@ def test_native_two_passes_publish_only_enumerated_whole_paragraphs():
     ('span_id','invented'),('chunk_id','invented'),('content_hash','bad'),
     ('quote','A liquidação é imediata.'),('start',0),('end',22),
 ])
-def test_invented_selection_never_authorizes(field,value):
+def test_model_cannot_override_server_owned_selection_fields(field,value):
     message='O Serviço Aurora é adequado?'
-    first=analysis(message);first['units'][0]['selections'][0][field]=value
+    first=analysis(message);first['units']['u1'][field]=value
     out=authorize(message,first=first)
     assert out.status=='abstained' and not out.approved_chunks
 
@@ -227,9 +234,10 @@ def test_unknown_requirement_cannot_be_promoted_by_verifier_complete_true():
 def test_subparagraph_quote_cannot_remove_a_contractual_condition():
     message='Explique Aurora.'
     first=analysis(message)
-    quote=first['units'][0]['selections'][0]
-    quote['quote']=quote['quote'].split(',')[0]
-    quote['end']=quote['start']+len(quote['quote'])
+    # Compact transport may select a whole span ID, never supply edited text.
+    quote=selection()
+    first['units']['u1']['quote']=quote['quote'].split(',')[0]
+    first['units']['u1']['end']=quote['start']+len(first['units']['u1']['quote'])
     assert authorize(message,first=first).status=='abstained'
 
 

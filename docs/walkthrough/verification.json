@@ -1,0 +1,36 @@
+{
+  "video": "Getnet_Walkthrough_Tecnico.mp4",
+  "bytes": 3699599,
+  "sha256": "207f9cd794bc36db0b5a908e40e2a381afeafae6e2013594219b7ea8c48b105f",
+  "duration_seconds": 280.215374,
+  "streams": [
+    {
+      "type": "video",
+      "codec": "h264",
+      "duration": "280.159180",
+      "sample_rate": null,
+      "channels": null,
+      "width": 1280,
+      "height": 720,
+      "r_frame_rate": "12/1"
+    },
+    {
+      "type": "audio",
+      "codec": "aac",
+      "duration": "280.215374",
+      "sample_rate": "22050",
+      "channels": 1,
+      "width": null,
+      "height": null,
+      "r_frame_rate": "0/0"
+    }
+  ],
+  "audio_volume_db": {
+    "mean_volume": -15.1,
+    "max_volume": -2.4
+  },
+  "full_decode": "passed",
+  "sampled_frames": 11,
+  "network_calls": 0,
+  "limits": "Não houve escuta humana; verificação de áudio por stream, duração, decodificação e nível. Cenas de código/diagramas, sem gravação UI."
+}

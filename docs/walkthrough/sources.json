@@ -1,0 +1,124 @@
+{
+  "baseline_sha": "d7e2125129d5806ee38730f12868aeaaba469112",
+  "scenes": [
+    {
+      "scene": 1,
+      "title": "Suporte multiagente Getnet",
+      "start": 0,
+      "duration": 22.16,
+      "source": "README.md + auditoria independente V5",
+      "narration": "Este walkthrough apresenta o sistema de suporte multiagente do desafio Getnet. A narração é sintética, gerada localmente, e os dados de clientes e de terminais são simulados. As cenas mostram arquivos de código e recibos reais, sem encenar uma interface em execução. O recorte é o baseline congelado d sete e dois um dois cinco. As propostas da versão seis aparecem separadamente, sem atribuir a elas resultados ainda não comprovados."
+    },
+    {
+      "scene": 2,
+      "title": "Arquitetura e fronteiras",
+      "start": 22.16,
+      "duration": 27.393,
+      "source": "d7e2125: app/agents/orchestrator.py:7–16",
+      "narration": "A API recebe a pergunta e vincula identidade e sessão no servidor. O supervisor carrega a memória, pede um plano ao router e delega aos especialistas. Knowledge cuida da evidência documental. Customer Support usa ferramentas de vendas e diagnóstico. Escalation registra encaminhamento humano. O supervisor observa os resultados e pode acrescentar etapas. O registro central de ferramentas impõe autorização antes do handler. Separar essas responsabilidades torna verificáveis os pontos em que o modelo pode decidir e os pontos em que precisa obedecer ao contrato."
+    },
+    {
+      "scene": 3,
+      "title": "Raciocínio com ferramentas",
+      "start": 49.553,
+      "duration": 26.165,
+      "source": "d7e2125: app/tools/registry.py:153–162",
+      "narration": "Com Gemini habilitado, o modelo propõe chamadas estruturadas e recebe as observações de volta. A execução automática do SDK fica desativada: toda ferramenta atravessa o registry. O código exibido verifica os escopos e impede selecionar outra conta. O ciclo permite chamadas dependentes, em vez de uma resposta fixa por cenário. Sem chave, existe uma política determinística delimitada. Ela não recebe crédito de raciocínio aberto, e uma falha do provedor no modo nativo não vira aprovação lexical silenciosa."
+    },
+    {
+      "scene": 4,
+      "title": "Retrieval não é prova factual",
+      "start": 75.718,
+      "duration": 24.923,
+      "source": "d7e2125: app/rag/retriever.py:214–224; README / Retrieval local",
+      "narration": "O retrieval combina BM vinte e cinco com expansão léxica bilíngue e uma projeção por hashing em trezentas e oitenta e quatro coordenadas. Ela agrega palavras, prefixos, bigramas, caracteres e âncoras manuais. O score heurístico ordena os candidatos, e a fusão recíproca de rankings serve de desempate. Apesar do nome legado do embedder, não há encoder neural neste índice. Similaridade só encontra candidatos. Não prova que o texto responde à pergunta, nem que preserva suas condições."
+    },
+    {
+      "scene": 5,
+      "title": "Autorizar evidência antes de responder",
+      "start": 100.641,
+      "duration": 24.837,
+      "source": "d7e2125: app/rag/semantic.py; app/agents/knowledge_agent.py; README",
+      "narration": "No caminho documental nativo, Gemini interpreta a pergunta original e revisa as fontes em duas passagens. O servidor valida a identidade dos corpos e os spans selecionados, e o renderer publica extratos preservando as ressalvas. No offline, a gramática é limitada e pode responder parcialmente ou se abster. Hash e offset comprovam identidade do texto local, não verdade externa. Duas passagens do mesmo modelo também podem compartilhar erros. Por isso, avaliação semântica independente continua necessária."
+    },
+    {
+      "scene": 6,
+      "title": "Segurança de ação em duas etapas",
+      "start": 125.478,
+      "duration": 26.471,
+      "source": "GETNET_V4_AUDIT_V5_2026-10-23.md / S02 + audit-v5-results.jsonl",
+      "narration": "O fluxo de ação é dividido em duas etapas. A ferramenta cria uma proposta imutável, pendente de confirmação, com hash e expiração. A confirmação exige uma chamada HTTP externa ao modelo, com o token do titular, o escopo apropriado e o hash exato. O recibo da auditoria registra recusa sem escopo, confirmação válida e replay sem duplicação. O resultado é um recibo simulado. Não foi enviado comando a um terminal físico. Isso demonstra o contrato de consentimento local, sem extrapolar para uma operação distribuída real."
+    },
+    {
+      "scene": 7,
+      "title": "Verificação executada para este vídeo",
+      "start": 151.949,
+      "duration": 24.785,
+      "source": "walkthrough/run_validation.py → walkthrough/local-validation.json",
+      "narration": "Além de mostrar evidência anterior, este vídeo recebeu uma verificação local nova. O script exportou o baseline pelo Git para uma cópia temporária e executou seis módulos de testes de contrato. Foram cento e noventa e oito testes aprovados, com um aviso de dependência. As conexões de rede estavam bloqueadas e a leitura de dotenv foi suprimida. O recibo fica junto ao vídeo e o script permite repetir a execução. Esses testes verificam contratos simulados; não medem qualidade do Gemini ao vivo."
+    },
+    {
+      "scene": 8,
+      "title": "Spec antes de código; revisão separada",
+      "start": 176.734,
+      "duration": 26.842,
+      "source": "context/WORKLOG.md; SPEC_V3.md; SPEC_V5.md; SPEC_V6.md",
+      "narration": "O trabalho foi organizado por especificações antes das mudanças. As frentes tiveram responsabilidades separadas para semântica e retrieval, segurança e estado, além de integração. A avaliação reservada ficou fora do repositório do produto, e um revisor novo analisou o candidato congelado. Depois da auditoria, aqueles casos passam a ser regressões conhecidas. O uso de múltiplos agentes ajuda a dividir implementação e revisão, mas não é garantia automática de independência estatística, nem substitui validação humana dos critérios."
+    },
+    {
+      "scene": 9,
+      "title": "Evidência forte; limites explícitos",
+      "start": 203.575,
+      "duration": 26.542,
+      "source": "audit-v5-scores.json; audit-v5-receipt.json; ci-list.json; auditoria V5",
+      "narration": "A auditoria anterior atribuiu oitenta e nove vírgula vinte e sete pontos nominais, sem caráter de nota oficial. Ela registrou quatrocentos e oitenta e quatro testes independentes e integração contínua verde no mesmo commit. Porém, dos dezoito casos nativos, apenas quatro ficaram completos e um parcialmente útil. Houve nove falhas de provedor e quatro rejeições de protocolo. Essas treze falhas não comprovam fidelidade semântica. Os resultados ainda não sustentam noventa e cinco pontos, e o main permanece preservado no baseline anterior."
+    },
+    {
+      "scene": 10,
+      "title": "V6: contrato proposto, ainda em trabalho",
+      "start": 230.117,
+      "duration": 24.738,
+      "source": "SPEC_V6.md — proposta/implementação em andamento; sem nota V6 neste vídeo",
+      "narration": "A especificação da versão seis ataca os limites encontrados. Propõe reduzir a saída do modelo a decisões por identificadores, reconstruindo os dados canônicos no servidor. Também prevê erros tipados sem conteúdo privado e um ledger para que uma parte documental não desapareça quando outra parte é operacional. Delegar uma unidade não significa cumpri-la. Essa cena apresenta o contrato em trabalho, não um resultado de qualidade já demonstrado. A próxima promoção depende de novo congelamento e evidência independente."
+    },
+    {
+      "scene": 11,
+      "title": "Como revisar e reproduzir",
+      "start": 254.856,
+      "duration": 25.27,
+      "source": "pipeline/getnet_v6_evaluation/walkthrough/ • nenhuma publicação nesta produção",
+      "narration": "Para revisar esta entrega, os scripts, as fontes, a narração e as legendas ficam ao lado do MP quatro. O primeiro script repete os contratos locais sobre o baseline congelado. O segundo gera as cenas e a voz com ferramentas locais, sem chamadas externas. O corpus é um snapshot datado e resumido, o estado é local e as operações de terminal são simuladas. A proposta de engenharia é manter decisões rastreáveis e limites visíveis, e fazer cada alegação de qualidade depender da evidência correspondente."
+    }
+  ],
+  "local_validation": {
+    "baseline_sha": "d7e2125129d5806ee38730f12868aeaaba469112",
+    "command": "python isolated_runner.py (archive baseline; 6 módulos de contratos)",
+    "returncode": 0,
+    "summary_lines": [
+      "198 passed, 1 warning in 1.76s"
+    ],
+    "network_disabled": true,
+    "dotenv_read_suppressed": true,
+    "hardware_effects": "simulated",
+    "test_files": [
+      "test_action_integrity.py",
+      "test_http_actions_v3.py",
+      "test_p0_action_security.py",
+      "test_security_boundaries.py",
+      "test_gemini_function_calling.py",
+      "test_state_hitl_supervisor_v3.py"
+    ]
+  },
+  "archival_ci": {
+    "conclusion": "success",
+    "databaseId": 39980766855,
+    "headSha": "d7e2125129d5806ee38730f12868aeaaba469112",
+    "status": "completed",
+    "url": "https://github.com/arthurdilorenzo/getnet-multiagent-support/actions/runs/39980766855"
+  },
+  "audit_total": 89.27,
+  "render_method": "Pillow file excerpts and diagrams; not screen capture",
+  "voice": "macOS say / Luciana / 178 base / atempo 1.5 final",
+  "portable_snapshot_index": "snapshots/provenance.json",
+  "source_reference_policy": "Os source labels das cenas registram os caminhos históricos. Render independente lê somente snapshots/ e local-validation.json incluídos."
+}

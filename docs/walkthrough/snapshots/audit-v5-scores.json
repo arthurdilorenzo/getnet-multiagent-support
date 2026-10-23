@@ -1,0 +1,75 @@
+{
+  "rubric_anchors_available": false,
+  "official_grade": false,
+  "formula": "sum(weight_percent * score_out_of_10 / 10)",
+  "criteria": [
+    {
+      "criterion": "Business & Challenge Fit",
+      "weight_percent": 8,
+      "score_out_of_10": 8.5,
+      "contribution_out_of_100": 6.8
+    },
+    {
+      "criterion": "Agentic Reasoning & Orchestration",
+      "weight_percent": 15,
+      "score_out_of_10": 8.9,
+      "contribution_out_of_100": 13.35
+    },
+    {
+      "criterion": "Context, Knowledge & RAG",
+      "weight_percent": 10,
+      "score_out_of_10": 8.1,
+      "contribution_out_of_100": 8.1
+    },
+    {
+      "criterion": "Tool & Action Engineering",
+      "weight_percent": 10,
+      "score_out_of_10": 9.5,
+      "contribution_out_of_100": 9.5
+    },
+    {
+      "criterion": "Security & Identity",
+      "weight_percent": 13,
+      "score_out_of_10": 9.6,
+      "contribution_out_of_100": 12.48
+    },
+    {
+      "criterion": "Memory, State & Resilience",
+      "weight_percent": 8,
+      "score_out_of_10": 8.5,
+      "contribution_out_of_100": 6.8
+    },
+    {
+      "criterion": "Human Oversight & Risk Management",
+      "weight_percent": 7,
+      "score_out_of_10": 9.4,
+      "contribution_out_of_100": 6.58
+    },
+    {
+      "criterion": "Evaluation & Quality Engineering",
+      "weight_percent": 14,
+      "score_out_of_10": 8.9,
+      "contribution_out_of_100": 12.46
+    },
+    {
+      "criterion": "Observability, Reliability & Cost",
+      "weight_percent": 6,
+      "score_out_of_10": 7.8,
+      "contribution_out_of_100": 4.68
+    },
+    {
+      "criterion": "Production Engineering",
+      "weight_percent": 5,
+      "score_out_of_10": 9.6,
+      "contribution_out_of_100": 4.8
+    },
+    {
+      "criterion": "Engineering Judgment",
+      "weight_percent": 4,
+      "score_out_of_10": 9.3,
+      "contribution_out_of_100": 3.72
+    }
+  ],
+  "nominal_total": 89.27,
+  "main95_gate_met": false
+}

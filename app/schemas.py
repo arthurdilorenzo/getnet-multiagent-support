@@ -56,6 +56,7 @@ class PlanStep(BaseModel):
     target_agent: AgentTypeLiteral
     sub_query: str
     rationale: str
+    request_unit_ids: List[str] = Field(default_factory=list)
 
 
 class RoutingPlan(BaseModel):
@@ -94,6 +95,9 @@ class SpecialistOutput(BaseModel):
     abstained: bool = False
     semantic_mode: Literal['', 'native_semantic', 'limited_offline'] = ''
     answer_status: Literal['', 'complete', 'partial', 'abstained'] = ''
+    request_unit_ids: List[str] = Field(default_factory=list)
+    covered_unit_ids: List[str] = Field(default_factory=list)
+    unresolved_unit_ids: List[str] = Field(default_factory=list)
     abstention_reason: Optional[str] = None
     requires_escalation: bool = False
     escalation_reason: Optional[str] = None
@@ -117,6 +121,7 @@ class ChatResponse(BaseModel):
     abstained: bool = False
     semantic_mode: Literal['', 'native_semantic', 'limited_offline'] = ''
     answer_status: Literal['', 'complete', 'partial', 'abstained'] = ''
+    request_coverage: List[Dict[str, Any]] = Field(default_factory=list)
     escalated: bool = False
     ticket_id: Optional[str] = None
     tools_called: List[str] = Field(default_factory=list)

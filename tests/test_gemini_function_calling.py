@@ -184,7 +184,9 @@ def test_support_recovers_invalid_arguments_with_model_selected_retry():
     out = CustomerSupportAgent(provider).run("Ocorrência Q7", ctx())
     assert [r.success for r in out.tool_results] == [False, True]
     assert out.structured_data["get_sales_settlement"]["payment_modality_filter"] == "pix"
-    assert not out.abstained
+    # Protocol recovery does not establish that an opaque original was fulfilled.
+    assert out.abstained and out.answer_status == 'partial'
+    assert out.unresolved_unit_ids == ['u1']
 
 
 @pytest.mark.parametrize("failure", [RuntimeError("unavailable"), completion(), completion(text="Saldo inventado")])
@@ -250,8 +252,10 @@ def test_explicit_action_request_proposes_via_registry_and_result_returns_to_mod
     provider = Provider(completion(("execute_terminal_remote_action", {
         "terminal_id": "GET-SMART-88219", "action_type": "remote_reboot"})), observe)
     out = CustomerSupportAgent(provider).run("Reinicie remotamente minha máquina", ctx())
-    assert not out.abstained
+    assert out.abstained and out.answer_status == 'partial'
+    assert not out.covered_unit_ids
     assert out.structured_data["execute_terminal_remote_action"]["proposal_id"].startswith("PROP-")
+    assert out.structured_data["execute_terminal_remote_action"]["status"] == 'PENDING_CONFIRMATION'
     assert "Comando agendado no terminal." not in out.response
 
 
@@ -310,7 +314,8 @@ def test_request_to_assistant_with_question_mark_authorizes_requested_actions(ac
     out = CustomerSupportAgent(provider).run(
         "Minha maquininha não conecta na internet, pode reiniciar remotamente e trocar operadora?", ctx()
     )
-    assert not out.abstained
+    assert out.abstained and out.answer_status == 'partial'
+    assert not out.covered_unit_ids
     assert out.tool_results[0].success
 
 

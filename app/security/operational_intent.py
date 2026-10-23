@@ -5,7 +5,7 @@ requests stay unknown; callers must not turn them into a private profile query.
 """
 from dataclasses import dataclass
 import re
-from app.security.request_constraints import extract_constraints, _normalize
+from app.security.request_constraints import extract_constraints, _normalize, diagnostic_reference_intent
 
 
 @dataclass(frozen=True)
@@ -28,8 +28,8 @@ def _classify_clause(message: str, conversation_context: dict | None = None) -> 
     requirement = has(r'\b(?:preciso|necessario|obrigatorio|need|require\w*|mandatory)\b.{0,80}\b(?:conta|account|bank)\b')
     documentary = documentary or requirement or (commercial and not temporal)
     settlement_subject = has(r'\b(?:sales?|takings?|settlements?|payouts?|proceeds|vendas?|recebimentos?|repasses?|liquidacao|extrato|saldo|deposit\w*|dinheiro)\b|\b(?:valor liquido|net (?:amount|payout|proceeds))\b')
-    diagnosis_subject = bool(constraints.terminal_ids or constraints.transaction_ids) or has(r'\b(?:terminal|maquininha|maquina|machine|pos|transacao|transaction|firmware|telemetria|telemetry)\b')
-    diagnostic = has(r'\b(?:diagnos\w*|check|cheque|inspect\w*|verifi\w*|inspec\w*|analis\w*|analy\w*|investig\w*|status|estado|situacao|signal|sinal|connect\w*|conex\w*|telemetr\w*|declin\w*|recus\w*|refus\w*|error|erro|code|codigo|firmware|hardware|offline|broken|defeito|leitor|wifi|internet|rede|chip)\b')
+    diagnosis_subject = bool(constraints.terminal_ids or constraints.transaction_ids) or has(r'\b(?:terminal|maquininha|maquina|machine|pos|transacao|transaction|firmware|telemetria|telemetry|aparelho|equipamento|device|equipment)\b')
+    diagnostic = diagnostic_reference_intent(message) or has(r'\b(?:diagnos\w*|check|cheque|inspect\w*|verifi\w*|inspec\w*|analis\w*|analy\w*|investig\w*|status|estado|situacao|signal|sinal|connect\w*|conex\w*|telemetr\w*|declin\w*|recus\w*|refus\w*|error|erro|code|codigo|firmware|hardware|offline|broken|defeito|leitor|wifi|internet|rede|chip)\b')
     action = has(r'\b(?:reinicie|reinicia|reiniciar|restart|reboot|atualize|update|troque|switch)\b')
     known_error = has(r'\b(?:codigo|code|erro|error)\s*[:#]?\s*\d{2,3}\b')
     intents = []

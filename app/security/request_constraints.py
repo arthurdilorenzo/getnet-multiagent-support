@@ -31,6 +31,24 @@ def _normalize(text: str) -> str:
     return ''.join(c for c in unicodedata.normalize('NFKD', text.lower()) if not unicodedata.combining(c))
 
 
+def diagnostic_reference_intent(message: str) -> bool:
+    """Recognized inspection + device/property slots, independent of deixis.
+
+    A singular persisted POS can fill the missing subject of these diagnostic
+    reads. This does not infer arbitrary document attributes or action consent.
+    """
+    norm=_normalize(message)
+    inspection=re.search(r'\b(?:check|inspect\w*|verifi\w*|confir\w*|consult\w*|examin\w*|cheque|diagnos\w*)\b',norm)
+    property_slot=re.search(r'\b(?:versao|version|firmware|status|estado|situacao|telemetr\w*|connect\w*|conect\w*|conex\w*|sinal|signal|hardware)\b',norm)
+    device_slot=re.search(r'\b(?:terminal|pos|device|equipment|aparelho|equipamento|maquina|maquininha|machine)\b',norm)
+    specific_property=re.search(r'\b(?:firmware|telemetr\w*|connect\w*|conect\w*|conex\w*|sinal|signal|hardware)\b',norm)
+    return bool((inspection and (specific_property or device_slot)) or (property_slot and device_slot))
+
+
+def _new_device_target(norm: str) -> bool:
+    return bool(re.search(r'\b(?:outro|outra|novo|nova|another|different|new)\s+(?:terminal|pos|device|equipment|aparelho|equipamento|maquina|maquininha|machine)\b',norm))
+
+
 def extract_constraints(message: str, conversation_context: dict | None = None) -> RequestConstraints:
     """Extract explicit IDs, ISO/PT/EN dates and unambiguous persisted POS references.
 
@@ -46,6 +64,18 @@ def extract_constraints(message: str, conversation_context: dict | None = None) 
         entity = ((conversation_context or {}).get('entities') or {}).get('terminal_id')
         if isinstance(entity, str) and re.fullmatch(TERMINAL_PATTERN, entity.upper()):
             terminals = (entity.upper(),)
+    # A recognized diagnostic continuation can use a singular persisted POS
+    # without deictic words. Explicit new models/topics and documentary scope
+    # stop inheritance; these slots are reference data, never permission.
+    diagnostic = diagnostic_reference_intent(clean)
+    new_topic = re.search(r'\b(?:get (?:smart|classica|tap)|manual\w*|document\w*|catalog\w*|como funciona|how does|perfil|profile|vendas|sales|payout|pix|link de pagamento|software|application|aplicativo|browser|navegador|dashboard)\b',norm)
+    if not terminals and not transactions and diagnostic and not new_topic and not _new_device_target(norm):
+        entity = ((conversation_context or {}).get('entities') or {}).get('terminal_id')
+        if isinstance(entity,str) and re.fullmatch(TERMINAL_PATTERN,entity.upper()):
+            terminals = (entity.upper(),)
+    # Even an explicit deictic does not override a newly named model/topic.
+    if (new_topic or _new_device_target(norm)) and not re.search(TERMINAL_PATTERN,clean,re.I):
+        terminals = ()
     dates: list[str] = []
     ambiguous = False
 
@@ -111,6 +141,8 @@ def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstrai
                 result[field] = normalized
 
     if tool_name in ('diagnose_terminal_issue', 'execute_terminal_remote_action'):
+        if not constraints.terminal_ids and _new_device_target(_normalize(constraints.original_message)):
+            raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION','Informe o ID do novo terminal; o terminal anterior não será substituído silenciosamente.')
         if not constraints.terminal_ids and re.search(r'\b(?:mesm[oa]|same)\s+(?:terminal|maquina|maquininha|machine)\b', _normalize(constraints.original_message)):
             raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION', 'Não há um terminal de referência inequívoco. Informe o ID do terminal.')
         bind('terminal_id', constraints.terminal_ids, 'REQUEST_TARGET_MISMATCH')

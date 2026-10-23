@@ -21,6 +21,7 @@ class MetricsCollector:
         self.agent_counts: Counter = Counter()
         self.tool_counts: Counter = Counter()
         self.tool_errors: Counter = Counter()
+        self._completion_groups: Dict[str, Dict[str, Counter]] = {}
         self.total_prompt_tokens: int = 0
         self.total_completion_tokens: int = 0
         self.total_cost_usd: float = 0.0
@@ -36,9 +37,18 @@ class MetricsCollector:
         escalated: bool = False,
         abstained: bool = False,
         failed: bool = False,
+        semantic_mode: str = '',
+        answer_status: str = '',
     ) -> None:
         with self._lock:
             self.total_requests += 1
+            mode = semantic_mode if semantic_mode in {'native_semantic', 'limited_offline'} else 'unclassified'
+            status = answer_status if answer_status in {'complete', 'partial', 'abstained'} else 'unclassified'
+            group = self._completion_groups.setdefault(mode, {}).setdefault(
+                status, Counter(total=0, successful=0, failed=0, abstained=0))
+            group['total'] += 1
+            group['failed' if failed else 'successful'] += 1
+            group['abstained'] += int(abstained)
             if failed:
                 self.failed_requests += 1
             else:
@@ -84,6 +94,14 @@ class MetricsCollector:
                     "escalated_to_hitl": self.escalated_requests,
                     "abstained": self.abstained_requests,
                 },
+                "requests_by_mode_and_status": {
+                    mode: {status: dict(counts) for status, counts in statuses.items()}
+                    for mode, statuses in self._completion_groups.items()
+                },
+                "completion_metadata_limitations": (
+                    "Modo e status são metadados declarados pelo pipeline; successful conta "
+                    "execuções sem falha, não comprova resolução ou correção semântica."
+                ),
                 "latency_ms": {
                     "avg_ms": avg_lat,
                     "p50_ms": self._percentile(sorted_lat, 50),

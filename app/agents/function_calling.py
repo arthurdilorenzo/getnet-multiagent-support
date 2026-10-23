@@ -16,6 +16,15 @@ class RouterPlanningError(RuntimeError):
     """A configured provider could not produce a safe, validated delegation plan."""
 
 
+class ProviderTurnError(ValueError):
+    """Safe machine-readable failure; no provider body or prompt is retained."""
+
+    def __init__(self, code: str):
+        self.code = code
+        # Preserve the legacy budget message contract without exposing input.
+        super().__init__('Request token budget exceeded' if code == 'TOKEN_BUDGET' else code)
+
+
 def _minimal_thinking() -> Optional[types.ThinkingConfig]:
     # Explicit allowlist: Gemini 2.5 uses a different interface; Pro does not
     # support MINIMAL. Do not apply a family's setting to unknown model aliases.
@@ -83,10 +92,13 @@ def generate_turn(
     if remaining <= 0:
         raise TimeoutError("Request deadline exceeded before provider call")
     payload = "\n".join(c.model_dump_json(exclude_none=True) for c in contents)
+    # Instructions, tool declarations and constrained schema also consume input
+    # context. This remains a conservative local estimate, not billed usage.
+    estimated_input = payload + '\n' + config.model_dump_json(exclude_none=True)
     consumed = tracer.get_token_usage().total_tokens if tracer else 0
-    estimate = SystemTracer.estimate_tokens(payload)
+    estimate = SystemTracer.estimate_tokens(estimated_input)
     if consumed + estimate + settings.LLM_MAX_OUTPUT_TOKENS > settings.LLM_REQUEST_TOKEN_BUDGET:
-        raise ValueError("Request token budget exceeded")
+        raise ProviderTurnError('TOKEN_BUDGET')
     config = config.model_copy(deep=True)
     if config.thinking_config is None:
         config.thinking_config = _minimal_thinking()
@@ -101,6 +113,7 @@ def generate_turn(
     error_type = None
     provider_error_type = None
     provider_error_code = None
+    turn_error_code = None
     try:
         response = call_with_resilience(
             "gemini_api",
@@ -117,21 +130,25 @@ def generate_turn(
             tracer.record_tokens(
                 prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
                 completion_tokens=(getattr(usage, "candidates_token_count", 0) or 0) + (thoughts or 0),
-                prompt_text=payload,
+                prompt_text=estimated_input,
             )
         candidates = getattr(response, "candidates", None)
         if not candidates or len(candidates) != 1:
-            raise ValueError("Gemini não retornou um candidato único.")
+            raise ProviderTurnError('SDK_CANDIDATE_COUNT')
         candidate = candidates[0]
         finish_reason = getattr(candidate.finish_reason, "value", candidate.finish_reason)
         if candidate.finish_reason not in (None, types.FinishReason.STOP):
-            raise ValueError("Gemini não concluiu um turno válido.")
+            raise ProviderTurnError('SDK_FINISH_REASON')
         content = candidate.content
         if content is None or content.role != "model" or not content.parts:
-            raise ValueError("Gemini não retornou conteúdo de modelo válido.")
+            raise ProviderTurnError('SDK_EMPTY_CONTENT')
         return content
     except Exception as exc:
         error_type = type(exc).__name__
+        if isinstance(exc, ProviderTurnError) and exc.code in {
+            'TOKEN_BUDGET', 'SDK_CANDIDATE_COUNT', 'SDK_FINISH_REASON', 'SDK_EMPTY_CONTENT'
+        }:
+            turn_error_code = exc.code
         cause = exc.__cause__ or exc
         provider_error_type = type(cause).__name__
         code = getattr(cause, "code", None)
@@ -139,9 +156,14 @@ def generate_turn(
         raise
     finally:
         details = {"phase": safe_phase, "model": settings.GEMINI_MODEL,
+            "request_bytes": len(estimated_input.encode('utf-8')),
+            "response_schema_bytes": len(json.dumps(config.response_json_schema or {}, ensure_ascii=False).encode('utf-8')),
+            "estimated_prompt_tokens": estimate,
+            "tokens_consumed_before_call": consumed,
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
             "timeout_ms": timeout_ms, "finish_reason": finish_reason,
             "thoughts_token_count": thoughts, "error_type": error_type,
+            "turn_error_code": turn_error_code,
             "provider_error_type": provider_error_type, "provider_error_code": provider_error_code}
         if tracer:
             tracer.add_step(agent="GEMINI_PROVIDER", action="provider_generation", details=details,

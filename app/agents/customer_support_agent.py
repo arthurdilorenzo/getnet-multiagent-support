@@ -10,6 +10,7 @@ from app.schemas import SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
+from app.security.request_units import request_units, validate_scope
 from app.security.request_constraints import (
     TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints,
 )
@@ -57,18 +58,73 @@ class CustomerSupportAgent:
         conversation_context: Optional[Dict[str, Any]] = None,
         tracer: Optional[SystemTracer] = None,
         authorization_message: Optional[str] = None,
+        delegation_scope: Optional[Dict[str, Any]] = None,
     ) -> SpecialistOutput:
         original_message = message if authorization_message is None else authorization_message
         message = PIIRedactor.mask_text(message)
         original_message = PIIRedactor.mask_text(original_message)
         conversation_context = PIIRedactor.mask_structure(conversation_context)
+        try:
+            scope = validate_scope(original_message, delegation_scope)
+        except ValueError:
+            return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT",response="Escopo de delegação inválido; consulta não executada.",
+                confidence=0.0,abstained=True,abstention_reason="INVALID_DELEGATION_SCOPE",answer_status="abstained")
         if settings.GEMINI_API_KEY:
-            return self._run_with_gemini(
+            output = self._run_with_gemini(
                 message, security_context, session_id, conversation_context, tracer, original_message
             )
-        return self._run_offline(
-            message, security_context, session_id, conversation_context, tracer, original_message
-        )
+        else:
+            output = self._run_offline(
+                message, security_context, session_id, conversation_context, tracer, original_message
+            )
+        return self._with_unit_coverage(output,original_message,scope,conversation_context)
+
+    @staticmethod
+    def _with_unit_coverage(output: SpecialistOutput, original: str, scope: dict,
+                            context: Optional[Dict[str,Any]]) -> SpecialistOutput:
+        assigned=scope['assigned_unit_ids']
+        covered=[]
+        successful={result.tool_name:result.data for result in output.tool_results
+                    if result.success and result.outcome_state=='completed' and isinstance(result.data,dict) and result.data.get('found',True)}
+        tools={'profile':'get_customer_profile','settlement':'get_sales_settlement',
+               'diagnosis':'diagnose_terminal_issue','action':'execute_terminal_remote_action'}
+        coverage_context=dict(context or {})
+        terminal=(successful.get('diagnose_terminal_issue',{}).get('terminal') or {}).get('terminal_id')
+        if isinstance(terminal,str) and re.fullmatch(TERMINAL_PATTERN,terminal):
+            coverage_context['entities']={**(coverage_context.get('entities') or {}),'terminal_id':terminal}
+        for unit in request_units(original):
+            if unit['unit_id'] not in assigned: continue
+            text=unit['text'].lstrip(' ;,.')
+            norm=BilingualDenseEmbedder.normalize(text)
+            intent=classify_operational_intent(text,coverage_context)
+            if not intent.intents or intent.documentary_scope or intent.ambiguous: continue
+            # This tool only prepares proposals. A successfully created pending
+            # proposal is never proof of the execution requested by the user.
+            if 'action' in intent.intents: continue
+            if not all(tools[item] in successful for item in intent.intents): continue
+            if re.search(r'\b(?:se|if|unless|exceto|except|desde que|provided that|garant\w*|guarantee\w*)\b',norm): continue
+            if 'settlement' in intent.intents:
+                constraints=extract_constraints(text,context)
+                data=successful['get_sales_settlement']
+                if not constraints.sales_dates or constraints.ambiguous_date or data.get('requested_sales_date') not in constraints.sales_dates: continue
+            if 'diagnosis' in intent.intents:
+                relation=re.search(r'\b(?:versao|version|firmware|status|estado|signal|sinal|connect\w*|conect\w*|conex\w*|telemetr\w*|hardware|declin\w*|recus\w*|code|codigo|transacao|transaction)\b',norm)
+                bare=re.fullmatch(r'(?:check|inspect|verifique|cheque|diagnostique)\s+(?:(?:o|the|terminal)\s+)*get [a-z0-9 ]+',norm)
+                hardware_relation=(successful['diagnose_terminal_issue'].get('requires_hardware_replacement')
+                    and re.search(r'\b(?:defeit\w*|falha|leitor|chip|reader|fault|broken)\b',norm))
+                if not relation and not bare and not hardware_relation: continue
+            covered.append(unit['unit_id'])
+        unresolved=[unit_id for unit_id in assigned if unit_id not in covered]
+        output.request_unit_ids=list(assigned)
+        output.covered_unit_ids=covered
+        output.unresolved_unit_ids=unresolved
+        output.semantic_mode='native_semantic' if settings.GEMINI_API_KEY else 'limited_offline'
+        if unresolved or output.abstained:
+            output.answer_status='partial' if covered or output.structured_data else 'abstained'
+            output.abstained=True
+        else:
+            output.answer_status='complete'
+        return output
 
     @staticmethod
     def _authorized_remote_action(message: str, action_type: str, terminal_id: Optional[str] = None) -> bool:
@@ -414,22 +470,15 @@ class CustomerSupportAgent:
     ) -> str:
         if not conversation_context:
             return message
-        norm = BilingualDenseEmbedder.normalize(message)
-        if re.search(TERMINAL_PATTERN, message, re.I):
+        constraints=extract_constraints(message,conversation_context)
+        if re.search(TERMINAL_PATTERN,message,re.I) or len(constraints.terminal_ids)!=1:
             return message
-        # Persisted entities are data, never old imperatives. Only a genuinely
-        # referential turn inherits them; a new Pix/settlement question does not.
-        if not re.search(r"\b(?:ela|ele|dela|dele|isso|esse|essa|aquele|aquela|mesmo|mesma|it|its|that|same)\b", norm):
-            return message
-        entities = conversation_context.get("entities") or {}
-        terminal = entities.get("terminal_id")
-        code = entities.get("decline_code")
-        if terminal and re.fullmatch(TERMINAL_PATTERN, str(terminal), re.I):
-            context = f"Terminal de referência: {str(terminal).upper()}"
-            if code and re.fullmatch(r"\d{2}", str(code)):
-                context += f"; código {code}"
-            return f"{message} | {context}"
-        return message
+        terminal=constraints.terminal_ids[0]
+        code=((conversation_context or {}).get("entities") or {}).get("decline_code")
+        context=f"Terminal de referência: {terminal}"
+        if code and re.fullmatch(r"\d{2}",str(code)):
+            context+=f"; código {code}"
+        return f"{message} | {context}"
 
     def _plan_initial_tools(
         self, message: str, tracer: Optional[SystemTracer] = None

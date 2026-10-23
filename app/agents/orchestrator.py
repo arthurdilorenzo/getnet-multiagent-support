@@ -1,5 +1,6 @@
 from collections import deque
 import re
+import hashlib
 from typing import Any, Deque, Dict, List, Optional
 from google import genai
 from app.agents.customer_support_agent import CustomerSupportAgent
@@ -13,9 +14,10 @@ from app.memory.store import state_store
 from app.observability.logger import logger
 from app.observability.metrics import metrics_collector
 from app.observability.tracer import SystemTracer
-from app.schemas import ChatRequest, ChatResponse, Citation, PlanStep, SpecialistOutput
+from app.schemas import ChatRequest, ChatResponse, Citation, PlanStep, SpecialistOutput, RoutingPlan
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
+from app.security.request_units import RequestCoverageLedger
 
 
 class MultiAgentOrchestrator:
@@ -42,6 +44,34 @@ class MultiAgentOrchestrator:
         if not incomplete and all(out.answer_status == 'complete' and not out.abstained for out in outputs):
             return mode, 'complete'
         return mode, 'partial'
+
+    @staticmethod
+    def _verified_unit_exemptions(output: SpecialistOutput, original: str) -> Optional[Dict[str,str]]:
+        mapping=output.structured_data.get('request_unit_exemptions',{})
+        if not mapping: return {}
+        if not isinstance(mapping,dict) or output.agent_name!='KNOWLEDGE_AGENT' or output.semantic_mode!='native_semantic': return None
+        digest=hashlib.sha256(original.encode()).hexdigest()
+        proof={}
+        for result in output.tool_results:
+            if not result.success or result.tool_name!='search_getnet_knowledge': continue
+            source=(result.data or {}).get('answerability',{})
+            if source.get('method')!='native_two_pass_evidence_authorization' or source.get('request_hash')!=digest: continue
+            for row in source.get('coverage',[]):
+                if row.get('kind') in {'context','courtesy'} and (row.get('verification') or {}).get('verdict')=='accept':
+                    proof[row.get('unit_id')]=row['kind']
+        if any(uid not in output.request_unit_ids or kind not in {'context','courtesy'} or proof.get(uid)!=kind for uid,kind in mapping.items()): return None
+        return dict(mapping)
+
+    @staticmethod
+    def _without_unit_footer(text: str) -> str:
+        marker='Partes do pedido sem resposta verificada:'
+        if marker not in text: return text
+        prefix,tail=text.split(marker,1)
+        lines=tail.splitlines()
+        # Remove only the generated list; preserve subsequent caveats/errors.
+        while lines and (not lines[0].strip() or lines[0].lstrip().startswith('- ')):
+            lines.pop(0)
+        return prefix.rstrip()+("\n\n"+"\n".join(lines) if lines else '')
 
     def __init__(self) -> None:
         self.gemini_client = None
@@ -113,7 +143,7 @@ class MultiAgentOrchestrator:
                 tools_called=["input_guardrail_filter"],
                 latency_ms=total_ms,
                 token_usage=token_usage,
-                blocked=True,
+                blocked=True, semantic_mode="", answer_status="abstained",
             )
             return ChatResponse(
                 response=safe_refusal,
@@ -124,7 +154,7 @@ class MultiAgentOrchestrator:
                 intent="Blocked by Security Policy",
                 confidence=1.0,
                 abstained=True,
-                tools_called=["input_guardrail_filter"],
+                tools_called=["input_guardrail_filter"], answer_status="abstained",
                 sources=["Getnet AI Security Policy"],
                 token_usage=token_usage,
                 trace=tracer.get_steps(),
@@ -139,6 +169,9 @@ class MultiAgentOrchestrator:
             content=request.message,
         )
 
+        original_request=PIIRedactor.mask_text(request.message)
+        ledger=RequestCoverageLedger(original_request)
+
         # 2. Planejamento pelo Supervisor / Router Agent (validado via Pydantic RoutingPlan)
         try:
             routing_plan = self.router.plan(
@@ -147,6 +180,7 @@ class MultiAgentOrchestrator:
                 conversation_context=conversation_context,
                 tracer=tracer,
             )
+            routing_plan=RouterAgent.bind_request_units(routing_plan,original_request,conversation_context)
         except RouterPlanningError:
             refusal = "Não foi possível planejar o atendimento pelo provedor de IA. Tente novamente em instantes."
             tracer.add_step(agent="ROUTER_AGENT", action="planning_failed", status="abstained",
@@ -159,12 +193,12 @@ class MultiAgentOrchestrator:
             token_usage = tracer.get_token_usage()
             metrics_collector.record_request(
                 agent_used="ROUTER_AGENT", tools_called=[], latency_ms=total_ms,
-                token_usage=token_usage, abstained=True,
+                token_usage=token_usage, abstained=True,semantic_mode="",answer_status="abstained",
             )
             return ChatResponse(
                 response=refusal, user_id=sec_ctx.authenticated_user_id,
                 session_id=session_id, trace_id=tracer.trace_id,
-                agent_used="ROUTER_AGENT", confidence=0.0, abstained=True,
+                agent_used="ROUTER_AGENT", confidence=0.0, abstained=True,answer_status="abstained",request_coverage=ledger.snapshot(),
                 token_usage=token_usage, trace=tracer.get_steps(), execution_time_ms=total_ms,
             )
 
@@ -181,6 +215,8 @@ class MultiAgentOrchestrator:
         )
 
         # 3. Loop de Orquestração do Supervisor (Delegate -> Observe -> Dynamic Replan -> Stop)
+        for step in routing_plan.plan_steps:
+            ledger.assign(step.target_agent,step.request_unit_ids)
         pending_steps: Deque[PlanStep] = deque(routing_plan.plan_steps)
         executed_outputs: List[SpecialistOutput] = []
         accumulated_diagnostics: Dict[str, Any] = {}
@@ -201,13 +237,25 @@ class MultiAgentOrchestrator:
             iteration += 1
             current_step = pending_steps.popleft()
             target_agent = current_step.target_agent
+            try:
+                scoped_plan=RouterAgent.bind_request_units(RoutingPlan(primary_agent=target_agent,plan_steps=[current_step],confidence=0.0,reasoning="Server unit binding"),original_request,conversation_context)
+                current_step=scoped_plan.plan_steps[0]
+                ledger.assign(target_agent,current_step.request_unit_ids)
+            except (ValueError,RouterPlanningError):
+                replan_failed=True
+                break
+            rows=ledger.snapshot()
+            assigned=list(current_step.request_unit_ids)
+            other=[row['unit_id'] for row in rows if row['unit_id'] not in assigned or any(agent!=target_agent for agent in row['assigned_agents'])]
+            scope={'assigned_unit_ids':assigned,'other_unit_ids':other}
             step_context = dict(conversation_context, specialist_observations=list(observations))
             sub_query = self._resolve_dependent_query(current_step.sub_query, target_agent, observations)
 
             spec_output = self._delegate_to_specialist(
                 target_agent=target_agent,
                 sub_query=sub_query,
-                authorization_message=request.message,
+                authorization_message=original_request,
+                delegation_scope=scope,
                 security_context=sec_ctx,
                 session_id=session_id,
                 conversation_context=step_context,
@@ -216,6 +264,14 @@ class MultiAgentOrchestrator:
                 tracer=tracer,
             )
 
+            exemptions=self._verified_unit_exemptions(spec_output,original_request)
+            accepted=exemptions is not None and ledger.report(target_agent,spec_output.request_unit_ids,spec_output.covered_unit_ids,
+                                   spec_output.unresolved_unit_ids,evidence_count=len(spec_output.evidence),exemptions=exemptions)
+            if not accepted:
+                spec_output.abstained=True
+                spec_output.answer_status='partial' if spec_output.evidence else 'abstained'
+                tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR",action="coverage_report_rejected",status="error",
+                                details={"reason":"unknown_or_unassigned_unit_ids"})
             executed_outputs.append(spec_output)
             observations.append(self._observation(spec_output))
             state_store.remember_tool_referents(session_id, sec_ctx.authenticated_user_id,
@@ -280,7 +336,7 @@ class MultiAgentOrchestrator:
         for out in executed_outputs:
             # Preserve partial failures: success in one intent cannot hide a denied
             # operation or a failed human handoff in another intent.
-            response_segments.append(out.response)
+            response_segments.append(self._without_unit_footer(out.response))
 
         if not response_segments and executed_outputs:
             response_segments.append(executed_outputs[-1].response)
@@ -292,7 +348,16 @@ class MultiAgentOrchestrator:
         abstained_final = bool(pending_steps or replan_failed or any(o.abstained for o in executed_outputs))
         semantic_mode, answer_status = self._answer_metadata(
             executed_outputs, incomplete=bool(pending_steps or replan_failed))
-        raw_final_response = "\n\n---\n\n".join(response_segments)
+        request_coverage=ledger.snapshot()
+        unresolved=[row for row in request_coverage if row['state'] not in {'fulfilled','exempt'}]
+        if unresolved:
+            abstained_final=True
+            answer_status='partial' if any(row['state']=='fulfilled' for row in request_coverage) or any(out.evidence and out.structured_data for out in executed_outputs) else 'abstained'
+        elif request_coverage and not pending_steps and not replan_failed and not abstained_final:
+            answer_status='complete'
+        raw_final_response = "\n\n---\n\n".join(segment for segment in response_segments if segment)
+        if unresolved:
+            raw_final_response+="\n\nPartes do pedido sem resposta verificada:\n"+"\n".join("- "+row['text'] for row in unresolved)
 
         # 5. Guardrail de Saída (Redaction de PII e prevenção de vazamentos)
         final_response = GuardrailManager.sanitize_output(raw_final_response)
@@ -343,7 +408,7 @@ class MultiAgentOrchestrator:
             token_usage=token_usage,
             blocked=False,
             escalated=escalated,
-            abstained=abstained_final,
+            abstained=abstained_final,semantic_mode=semantic_mode,answer_status=answer_status,
         )
 
         return ChatResponse(
@@ -365,6 +430,7 @@ class MultiAgentOrchestrator:
             action_proposals=action_proposals,
             semantic_mode=semantic_mode,
             answer_status=answer_status,
+            request_coverage=request_coverage,
             trace=tracer.get_steps(),
             execution_time_ms=total_ms,
         )
@@ -380,11 +446,13 @@ class MultiAgentOrchestrator:
         accumulated_diagnostics: Dict[str, Any],
         rationale: str,
         tracer: SystemTracer,
+        delegation_scope: Optional[Dict[str,Any]] = None,
     ) -> SpecialistOutput:
         if target_agent == "CUSTOMER_SUPPORT_AGENT":
             out = self.customer_support_agent.run(
                 message=sub_query,
                 authorization_message=authorization_message,
+                delegation_scope=delegation_scope,
                 security_context=security_context,
                 session_id=session_id,
                 conversation_context=conversation_context,
@@ -405,6 +473,7 @@ class MultiAgentOrchestrator:
             out = self.knowledge_agent.run(
                 message=sub_query,
                 request_message=authorization_message,
+                delegation_scope=delegation_scope,
                 security_context=security_context,
                 is_web_search=True,
                 session_id=session_id,
@@ -455,6 +524,7 @@ class MultiAgentOrchestrator:
         out = self.knowledge_agent.run(
             message=sub_query,
             request_message=authorization_message,
+            delegation_scope=delegation_scope,
             security_context=security_context,
             is_web_search=False,
             session_id=session_id,

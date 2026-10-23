@@ -2,6 +2,7 @@ import json
 import re
 import math
 import unicodedata
+import uuid
 from decimal import Decimal, InvalidOperation
 from app.rag.embeddings import BilingualDenseEmbedder as Text
 from pathlib import Path
@@ -133,6 +134,21 @@ class GroundednessJudge:
         if response.answer_status=='partial':
             return cls._score_partial(case,response)
         text=response.response
+        # A literal unanswered question is not an asserted fact. Validate its
+        # boundary before excluding it, preserving every preceding claim.
+        marker='\n\nPartes do pedido sem resposta verificada:\n'
+        if response.abstained and marker in text:
+            claims, quoted=text.split(marker,1)
+            original=' '.join(PIIRedactor.mask_text(str(case.get('message',''))).split())
+            lines=quoted.splitlines()
+            valid=bool(claims.strip() and original and lines) and all(
+                line.startswith('- ') and line[2:].strip() and
+                ' '.join(line[2:].split()) in original for line in lines)
+            if not valid:
+                return {'groundedness_score':0.0,'passed':False,
+                        'reason':'Pendência sem correspondência literal verificável no pedido original.',
+                        'judge_scope':'limited_abstention_claim_check'}
+            text=claims
         norm=Text.normalize(text)
         checks=[]
         def fail(reason, **details):
@@ -278,6 +294,7 @@ class SystemEvaluator:
     def run_suite(self) -> Dict[str, Any]:
         raw = json.loads(self.dataset_path.read_text(encoding="utf-8"))
         cases: List[Dict[str, Any]] = raw.get("cases", [])
+        run_id=uuid.uuid4().hex
 
         case_results: List[Dict[str, Any]] = []
         routing_hits = 0
@@ -290,7 +307,7 @@ class SystemEvaluator:
             req = ChatRequest(
                 message=case["message"],
                 user_id=case["user_id"],
-                session_id=f"eval_sess_{case['case_id']}_{idx}",
+                session_id=f"eval_{run_id}_{idx}",
             )
             resp = orchestrator.process(req)
             latencies_ms.append(resp.execution_time_ms)
@@ -362,6 +379,7 @@ class SystemEvaluator:
             }
 
         summary = {
+            "evaluation_run_id": run_id,
             "dataset_version": raw.get("dataset_version", "2.0.0"),
             "execution_mode": "gemini" if settings.GEMINI_API_KEY else "offline_deterministic",
             "judge_type": "limited_evidence_numeric_polarity_and_extract_consistency",
