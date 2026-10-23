@@ -74,6 +74,34 @@ def test_failed_exact_target_without_terminal_conflicts_with_success():
     assert not evaluate_terminal_condition(condition, [failed, diagnosis()])
 
 
+@pytest.mark.parametrize("data", [None, {}, {"requested_terminal_id": TARGET}])
+@pytest.mark.parametrize("failure", [
+    {"success": False},
+    {"success": True, "outcome_state": "failed"},
+    {"success": True, "outcome_state": "unknown"},
+    {"success": True, "outcome_state": "pending"},
+    {"success": True, "error_code": "DIAGNOSTIC_READ_FAILED"},
+])
+def test_failed_diagnostic_without_terminal_invalidates_positive_read(data, failure):
+    condition = parse_terminal_condition(REQUEST, TARGET)
+    failed = ToolExecutionResult(tool_name="diagnose_terminal_issue", data=data, **failure)
+    assert evaluate_terminal_condition(condition, [diagnosis(), failed]) is False
+    assert evaluate_terminal_condition(condition, [failed, diagnosis()]) is False
+
+
+@pytest.mark.parametrize("conflict", [
+    {"firmware": "qa-12.07"},
+    {"status": "Offline"},
+    {"firmware": None},
+    {"found": False},
+])
+def test_conflicting_exact_target_reads_never_authorize(conflict):
+    condition = parse_terminal_condition(REQUEST, TARGET)
+    conflicting = diagnosis(**conflict)
+    assert evaluate_terminal_condition(condition, [diagnosis(), conflicting]) is False
+    assert evaluate_terminal_condition(condition, [conflicting, diagnosis()]) is False
+
+
 @pytest.mark.parametrize("message", [
     f"If firmware of {TARGET} is qa-12.08 or status is Online, tell me benefits.",
     f"If firmware of {TARGET} is qa-12.08 and status is Online and certified, tell me benefits.",

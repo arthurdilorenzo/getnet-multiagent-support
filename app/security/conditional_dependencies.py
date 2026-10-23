@@ -73,13 +73,18 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
 def evaluate_terminal_condition(
     condition: Optional[TerminalCondition], observations: Sequence[ToolExecutionResult]
 ) -> bool:
-    """Authorize only when every exact-target diagnostic observation agrees."""
+    """Authorize a single-target preflight only when all diagnostic reads succeed."""
     if not isinstance(condition, TerminalCondition) or not observations:
         return False
     matched = False
     for result in observations:
         if not isinstance(result, ToolExecutionResult) or result.tool_name != "diagnose_terminal_issue":
             continue
+        # A failed read may have no target payload. In this single-target
+        # preflight it still invalidates any earlier positive observation.
+        if (result.success is not True or result.outcome_state != "completed"
+                or result.error_code is not None):
+            return False
         data = result.data
         if not isinstance(data, dict):
             continue
@@ -91,8 +96,7 @@ def evaluate_terminal_condition(
         if not isinstance(terminal, dict) or terminal.get("terminal_id") != condition.terminal_id:
             continue
         matched = True
-        if (result.success is not True or result.outcome_state != "completed"
-                or result.error_code is not None or data.get("found") is not True
+        if (data.get("found") is not True
                 or data.get("requested_terminal_id", condition.terminal_id) != condition.terminal_id
                 or terminal.get("firmware_version") != condition.firmware_version
                 or terminal.get("status") != condition.status):
