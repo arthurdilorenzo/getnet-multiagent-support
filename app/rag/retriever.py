@@ -7,7 +7,8 @@ from app.config import settings
 from app.observability.logger import logger
 from app.rag.embeddings import BilingualDenseEmbedder
 from app.rag.ingestor import GetnetCorpusIngestor
-from app.rag.answerability import assess, expanded_query
+from app.rag.answerability import assess, expanded_query, parse_requirements
+from app.rag.facts import FactCatalog, extract_facts
 from app.schemas import Citation
 
 
@@ -83,11 +84,15 @@ class HybridKnowledgeRetriever:
         corpus_path: Optional[Path] = None,
         vector_index_path: Optional[Path] = None,
         min_relevance_threshold: float = settings.RAG_MIN_RELEVANCE_THRESHOLD,
+        fact_catalog_path: Optional[Path] = None,
     ) -> None:
         self.data_dir = Path(data_dir or settings.DATA_DIR)
         self.corpus_path = Path(corpus_path or settings.CORPUS_JSON_PATH)
         self.vector_index_path = Path(vector_index_path or settings.VECTOR_INDEX_PATH)
         self.min_relevance_threshold = min_relevance_threshold
+        self.fact_catalog_path = Path(fact_catalog_path or self.data_dir / 'knowledge_facts.json')
+        self.fact_catalog = FactCatalog.load(self.fact_catalog_path)
+        self.catalog_required = self.fact_catalog_path.exists()
         self.chunks: List[IndexedChunk] = []
         self.doc_freqs: Counter = Counter()
         self.idf: Dict[str, float] = {}
@@ -257,7 +262,8 @@ class HybridKnowledgeRetriever:
             b_norm = ((b_raw / (b_raw + 4.0)) * coverage_factor) if b_raw > 0 else 0.0
             # Score heurístico de BM25 e cosseno; não é probabilidade de correção.
             calibrated_score = round(min(1.0, (0.50 * b_norm) + (0.50 * d_raw)), 4)
-            answerability = assess(query, chunk.content, chunk.title)
+            facts = self.fact_catalog.for_chunk(chunk.chunk_id, chunk.content) if self.catalog_required else extract_facts(chunk.chunk_id, chunk.content)
+            answerability = assess(query, chunk.content, chunk.title, facts=facts, chunk_id=chunk.chunk_id)
 
             fused_items.append(
                 {
@@ -271,6 +277,7 @@ class HybridKnowledgeRetriever:
                     "provenance": chunk.provenance,
                     "answerability": answerability,
                     "answer_snippets": answerability['answer_snippets'],
+                    "approved_facts": [f for check in answerability["coverage"] for f in check["facts"]],
                     "bm25_score": round(b_raw, 4),
                     "dense_cosine_score": round(d_raw, 4),
                     "rrf_score": round(rrf_score, 5),
@@ -281,10 +288,19 @@ class HybridKnowledgeRetriever:
 
         # Ordena primariamente pelo score calibrado + desempate por RRF
         fused_items.sort(key=lambda x: (x["relevance_score"], x["rrf_score"]), reverse=True)
-        top_Matches = [item for item in fused_items if item["relevance_score"] >= min_thresh and item['answerability']['answerable']][:top_k]
+        eligible = [item for item in fused_items if item["relevance_score"] >= min_thresh and item['approved_facts']]
+        # Select contributing chunks, then verify every requested relation across
+        # the selected evidence set. One covered subquestion is not global coverage.
+        top_Matches = eligible[:top_k]
+        coverage = []
+        for requirement in parse_requirements(query)['requirements']:
+            supporting = [check for item in top_Matches for check in item['answerability']['coverage']
+                          if check['requirement'] == requirement and check['facts']]
+            facts = [fact for check in supporting for fact in check['facts']]
+            coverage.append({'requirement':requirement,'status':'supported' if facts else 'unknown','facts':facts})
         max_rel = fused_items[0]["relevance_score"] if fused_items else 0.0
 
-        if not top_Matches:
+        if not top_Matches or any(check['status'] == 'unknown' for check in coverage):
             return {
                 "abstained": True,
                 "abstention_reason": (
@@ -294,7 +310,7 @@ class HybridKnowledgeRetriever:
                 "max_relevance_score": max_rel,
                 "results": [],
                 "citations": [],
-                "answerability": {"answerable":False,"candidate_checks":[{'chunk_id':item['chunk_id'],'missing':item['answerability']['missing']} for item in fused_items[:6]]},
+                "answerability": {"answerable":False,"coverage":coverage,"parser":"bounded_local_relations_v4","candidate_checks":[{'chunk_id':item['chunk_id'],'missing':item['answerability']['missing']} for item in fused_items[:6]]},
             }
 
         citations: List[Citation] = []
@@ -317,7 +333,7 @@ class HybridKnowledgeRetriever:
             "max_relevance_score": max_rel,
             "results": top_Matches,
             "citations": citations,
-            "answerability": {"answerable":True,"method":"body_constraints_and_local_bilingual_ontology","limit":"Heurística de domínio, não entailment semântico universal."},
+            "answerability": {"answerable":True,"coverage":coverage,"method":"verified_subject_relation_value_spans","parser":"bounded_local_relations_v4","limit":"Gramática local delimitada, não entailment semântico universal."},
         }
 
     def search(self, query: str, top_k: int = settings.RAG_TOP_K) -> List[Dict[str, Any]]:

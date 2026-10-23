@@ -386,6 +386,7 @@ class MultiAgentOrchestrator:
         if target_agent == "WEB_SEARCH_AGENT":
             out = self.knowledge_agent.run(
                 message=sub_query,
+                request_message=authorization_message,
                 security_context=security_context,
                 is_web_search=True,
                 session_id=session_id,
@@ -435,6 +436,7 @@ class MultiAgentOrchestrator:
         # Default: KNOWLEDGE_AGENT (Hybrid RAG)
         out = self.knowledge_agent.run(
             message=sub_query,
+            request_message=authorization_message,
             security_context=security_context,
             is_web_search=False,
             session_id=session_id,

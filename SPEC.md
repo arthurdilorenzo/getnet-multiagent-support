@@ -1,6 +1,6 @@
 # Getnet V4 — especificação e plano de implementação
 
-> Este plano descreve a correção anterior ao commit `672c87e`. A execução atual, derivada da auditoria independente de 66,75/100 e condicionada a 95+ antes de main, está em [SPEC_V3.md](SPEC_V3.md).
+> Este plano descreve a correção anterior ao commit `672c87e`. O ciclo seguinte está em [SPEC_V3.md](SPEC_V3.md). A execução atual, derivada da auditoria de `e7a0f10` (78,30/100) e condicionada a 95+ antes de main, está em [SPEC_V4.md](SPEC_V4.md).
 
 **Data:** 23/10/2026 · **Baseline:** `b6c8b09` · **Meta:** corrigir os cinco gaps auditados e fornecer evidência para reavaliação 95+. A nota só pode ser atribuída pelo avaliador externo.
 

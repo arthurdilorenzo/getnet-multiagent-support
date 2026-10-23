@@ -20,6 +20,11 @@ RUN python -m venv /opt/venv && \
 # ==============================================================================
 FROM python:3.11-slim AS runtime
 
+ARG VCS_REF=unknown
+ARG SOURCE_DIRTY=true
+LABEL org.opencontainers.image.revision=$VCS_REF
+LABEL com.getnet.source.dirty=$SOURCE_DIRTY
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \

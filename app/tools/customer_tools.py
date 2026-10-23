@@ -28,6 +28,7 @@ class DiagnoseTerminalIssueInput(BaseModel):
     terminal_id: Optional[str] = Field(
         default=None, description="ID específico do terminal POS (ex: GET-SMART-88219)"
     )
+    transaction_id: Optional[str] = Field(default=None, description="ID explícito da transação; nunca substituir por outra ocorrência.")
     terminal_model: Optional[str] = Field(
         default=None, description="Modelo do terminal caso especificado (ex: Get Smart, Get Clássica)"
     )
@@ -206,6 +207,7 @@ def diagnose_terminal_issue(
     symptom: str = "general",
     decline_code: Optional[str] = None,
     error_context: str = "",
+    transaction_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Tool 2 (Read): Diagnóstico técnico multi-terminal POS (conectividade, hardware e códigos ISO-8583).
@@ -229,6 +231,19 @@ def diagnose_terminal_issue(
                     "error_code": "TERMINAL_NOT_FOUND", "error": "Terminal solicitado não localizado na frota autenticada."}
         # An explicit machine must never acquire another machine's transaction.
         recent_transactions = [t for t in recent_transactions if t.get("terminal_id") == explicit_terminal["terminal_id"]]
+    if transaction_id:
+        recent_transactions = [t for t in recent_transactions
+                               if str(t.get("transaction_id", "")).casefold() == transaction_id.strip().casefold()]
+        if not recent_transactions:
+            return {"found": False, "user_id": user_id, "requested_transaction_id": transaction_id,
+                    "error_code": "TRANSACTION_NOT_FOUND", "error": "Transação solicitada não localizada no escopo autenticado e terminal solicitado."}
+        if decline_code and recent_transactions[0].get("decline_code") != decline_code:
+            return {"found": False, "user_id": user_id, "requested_transaction_id": transaction_id,
+                    "error_code": "TRANSACTION_CODE_MISMATCH",
+                    "error": "O código informado diverge da transação solicitada; confirme o ID e o código."}
+        # The exact transaction's machine is authoritative when no POS was supplied.
+        if not terminal_id:
+            terminal_id = recent_transactions[0].get("terminal_id")
     ctx_lower = f"{error_context} {terminal_model or ''} {terminal_id or ''} {decline_code or ''}".lower()
 
     # Inferência automática do sintoma caso symptom == 'general'

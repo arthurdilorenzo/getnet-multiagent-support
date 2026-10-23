@@ -148,6 +148,18 @@ class GroundednessJudge:
                 r_negative=bool(cls.NEGATION.search(sentence))
                 if all(bool(cls.NEGATION.search(ref)) != r_negative for ref in s_sents):
                     return fail('Contradição explícita de polaridade em torno de: '+str(anchor))
+        # Matching words or numbers cannot establish WHO controls a condition.
+        # This checker has no NLI model: certify independent reference extracts
+        # only; unrestricted paraphrases require independent semantic review.
+        if references:
+            reference_text = Text.normalize(cls._strip_links(support))
+            for sentence in response_sentences:
+                if sentence.startswith('['):
+                    continue
+                claim = Text.normalize(cls._strip_links(sentence)).strip()
+                if claim and claim not in reference_text:
+                    return fail('Alegação não extrativa exige revisão semântica independente.',
+                                unsupported_claim=sentence, semantic_review_required=True)
         # For attached extracts, substantive non-source text must be verbatim.
         # Typed facts use deterministic renderers; validate the numeric field
         # association as well as the global numeric allowlist.

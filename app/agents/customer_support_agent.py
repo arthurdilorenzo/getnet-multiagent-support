@@ -9,6 +9,9 @@ from app.rag.embeddings import BilingualDenseEmbedder
 from app.schemas import SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
+from app.security.request_constraints import (
+    TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints,
+)
 import app.tools.customer_tools  # noqa: F401 - garante registro das customer tools
 from app.tools.registry import tool_registry
 from google.genai import types
@@ -77,7 +80,7 @@ class CustomerSupportAgent:
         # Ambiguous quoted requests require a new unquoted explicit instruction.
         if re.search(r"[\"“”«»`]|(?:^|\s)['‘’]", message):
             return False
-        requested_terminals = set(re.findall(r"\bGET-[A-Z]+-\d+\b", message.upper()))
+        requested_terminals = set(re.findall(TERMINAL_PATTERN, message.upper()))
         if terminal_id is not None and requested_terminals and terminal_id.upper() not in requested_terminals:
             return False
         expanded = re.sub(r"don[’']t", "do not", message, flags=re.I)
@@ -118,6 +121,7 @@ class CustomerSupportAgent:
         conversation_context: Optional[Dict[str, Any]], tracer: Optional[SystemTracer],
         authorization_message: str,
     ) -> SpecialistOutput:
+        constraints = extract_constraints(authorization_message, conversation_context)
         contents = initial_contents(message, conversation_context)
         config = native_config(
             tool_registry.get_gemini_function_declarations(names=self.AVAILABLE_TOOLS),
@@ -193,19 +197,30 @@ class CustomerSupportAgent:
                             tool_name=name, success=False, error_code="INVALID_TOOL_ARGUMENTS",
                             error_message="Chamada de ferramenta incompleta.",
                         )
-                    elif name == "execute_terminal_remote_action" and not self._authorized_remote_action(
-                        authorization_message, (call.args or {}).get("action_type", ""),
-                        (call.args or {}).get("terminal_id", ""),
-                    ):
-                        result = ToolExecutionResult(
-                            tool_name=name, success=False, error_code="ACTION_NOT_AUTHORIZED",
-                            error_message="A mensagem atual não autoriza explicitamente esse comando remoto.",
-                        )
                     else:
-                        result = tool_registry.execute(
-                            name, call.args if call.args is not None else {},
-                            security_context=security_context, session_id=session_id, trace_id=trace_id,
-                        )
+                        try:
+                            arguments = constrain_call(name, call.args or {}, constraints)
+                        except RequestConstraintError as exc:
+                            # Preserve the public consent-denial code for a remote
+                            # command aimed at a machine the original request did not authorize.
+                            code = ("ACTION_NOT_AUTHORIZED" if name == "execute_terminal_remote_action"
+                                    and exc.code == "REQUEST_TARGET_MISMATCH" else exc.code)
+                            result = ToolExecutionResult(tool_name=name, success=False,
+                                                         error_code=code, error_message=exc.message)
+                        else:
+                            if name == "execute_terminal_remote_action" and not self._authorized_remote_action(
+                                authorization_message, arguments.get("action_type", ""),
+                                arguments.get("terminal_id", ""),
+                            ):
+                                result = ToolExecutionResult(
+                                    tool_name=name, success=False, error_code="ACTION_NOT_AUTHORIZED",
+                                    error_message="A mensagem atual não autoriza explicitamente esse comando remoto.",
+                                )
+                            else:
+                                result = tool_registry.execute(
+                                    name, arguments,
+                                    security_context=security_context, session_id=session_id, trace_id=trace_id,
+                                )
                     results.append(result)
                     if result.success and isinstance(result.data, dict):
                         data[name] = result.data
@@ -254,6 +269,7 @@ class CustomerSupportAgent:
         authorization_message: str = "",
     ) -> SpecialistOutput:
         trace_id = tracer.trace_id if tracer else ""
+        constraints = extract_constraints(authorization_message or message, conversation_context)
         contextual_msg = self._enrich_with_session_memory(message, conversation_context)
 
         tools_called: List[str] = []
@@ -271,13 +287,19 @@ class CustomerSupportAgent:
             call_spec = pending_calls.pop(0)
             tools_called.append(call_spec.tool_name)
 
-            res = tool_registry.execute(
-                tool_name=call_spec.tool_name,
-                raw_arguments=call_spec.arguments,
-                security_context=security_context,
-                session_id=session_id,
-                trace_id=trace_id,
-            )
+            try:
+                arguments = constrain_call(call_spec.tool_name, call_spec.arguments, constraints)
+            except RequestConstraintError as exc:
+                res = ToolExecutionResult(tool_name=call_spec.tool_name, success=False,
+                                          error_code=exc.code, error_message=exc.message)
+            else:
+                res = tool_registry.execute(
+                    tool_name=call_spec.tool_name,
+                    raw_arguments=arguments,
+                    security_context=security_context,
+                    session_id=session_id,
+                    trace_id=trace_id,
+                )
             tool_results.append(res)
 
             if tracer:
@@ -387,11 +409,11 @@ class CustomerSupportAgent:
         if not conversation_context:
             return message
         norm = BilingualDenseEmbedder.normalize(message)
-        if re.search(r"\bGET-[A-Z]+-\d+\b", message, re.I):
+        if re.search(TERMINAL_PATTERN, message, re.I):
             return message
         # Persisted entities are data, never old imperatives. Only a genuinely
         # referential turn inherits them; a new Pix/settlement question does not.
-        if not re.search(r"\b(?:ela|ele|dela|dele|isso|esse|essa|aquele|aquela|it|its|that|same)\b", norm):
+        if not re.search(r"\b(?:ela|ele|dela|dele|isso|esse|essa|aquele|aquela|mesmo|mesma|it|its|that|same)\b", norm):
             return message
         entities = conversation_context.get("entities") or {}
         terminal = entities.get("terminal_id")
@@ -402,9 +424,9 @@ class CustomerSupportAgent:
             texts = [conversation_context.get("rolling_summary", "")]
             texts.extend(m.get("content", "") for m in conversation_context.get("recent_messages", [])
                          if m.get("role") == "user")
-            matches = re.findall(r"\bGET-[A-Z]+-\d+\b", " ".join(texts), re.I)
+            matches = re.findall(TERMINAL_PATTERN, " ".join(texts), re.I)
             terminal = matches[-1].upper() if matches else None
-        if terminal and re.fullmatch(r"GET-[A-Z]+-\d+", str(terminal), re.I):
+        if terminal and re.fullmatch(TERMINAL_PATTERN, str(terminal), re.I):
             context = f"Terminal de referência: {str(terminal).upper()}"
             if code and re.fullmatch(r"\d{2}", str(code)):
                 context += f"; código {code}"
@@ -453,7 +475,7 @@ class CustomerSupportAgent:
                 "decline", "recusa", "recusada", "erro", "error", "transacao", "transaction",
                 "maquininha", "maquina", "machine", "terminal", "codigo", "leitor", "defeito",
             ]
-        ) or bool(re.search(r"\bGET-[A-Z]+-\d+\b", message, re.I)) or any(self._authorized_remote_action(message, action) for action in (
+        ) or bool(re.search(TERMINAL_PATTERN, message, re.I)) or bool(re.search(TRANSACTION_PATTERN, message, re.I)) or any(self._authorized_remote_action(message, action) for action in (
             "remote_reboot", "sim_carrier_switch", "parameter_table_update"
         )):
             symptom = "general"
@@ -465,8 +487,8 @@ class CustomerSupportAgent:
                 symptom = "hardware"
 
             # Extração de terminal_id específico se mencionado (ex: GET-CLASSICA-10442)
-            term_id_match = re.search(r"\b(GET-[A-Z]+-\d+)\b", message, re.I)
-            term_id = term_id_match.group(1).upper() if term_id_match else None
+            term_id_match = re.search(TERMINAL_PATTERN, message, re.I)
+            term_id = term_id_match.group(0).upper() if term_id_match else None
 
             # Extração de modelo se mencionado
             term_model = None

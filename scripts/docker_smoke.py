@@ -23,8 +23,18 @@ def main():
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    code_sha = command("git", "-C", str(root), "rev-parse", "HEAD", capture=True)
+    code_dirty = bool(command("git", "-C", str(root), "status", "--porcelain", capture=True))
     if not args.skip_build:
-        command("docker", "build", "-t", args.image, str(root))
+        command("docker", "build", "--build-arg", f"VCS_REF={code_sha}", "--build-arg",
+                f"SOURCE_DIRTY={str(code_dirty).lower()}", "-t", args.image, str(root))
+    image_id = command("docker", "image", "inspect", "--format", "{{.Id}}", args.image, capture=True)
+    image_revision = command("docker", "image", "inspect", "--format",
+                             '{{index .Config.Labels "org.opencontainers.image.revision"}}', args.image, capture=True)
+    image_dirty = command("docker", "image", "inspect", "--format",
+                          '{{index .Config.Labels "com.getnet.source.dirty"}}', args.image, capture=True)
+    if args.skip_build and (image_revision != code_sha or code_dirty or image_dirty != 'false'):
+        raise RuntimeError("A imagem reutilizada não comprova o checkout limpo atual; reconstrua sem --skip-build.")
     identifier = "getnet-smoke-" + uuid.uuid4().hex[:12]
     container, volume = identifier, identifier + "-state"
     environment = {**os.environ, "GEMINI_API_KEY": "", "AUTH_API_KEY": secrets.token_urlsafe(48),
@@ -92,6 +102,9 @@ def main():
         assert code == 200 and after["recent_messages"] == before["recent_messages"]
         checks.append("restart_persistence")
         summary = {"status": "passed", "checks": checks, "image": args.image,
+                   "image_id": image_id, "code_sha": code_sha, "code_dirty": code_dirty,
+                   "image_revision": image_revision, "built_during_run": not args.skip_build,
+                   "image_source_dirty": image_dirty,
                    "duration_seconds": round(time.monotonic() - started, 3)}
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -239,6 +239,9 @@ def search_currency_rate(base_currency: str = "EUR", target_currency: str = "BRL
                     data = resp.json()
                     pair_data = data.get(f"{base}{target}")
                     if pair_data and "bid" in pair_data:
+                        if (("code" in pair_data and pair_data["code"] != base)
+                                or ("codein" in pair_data and pair_data["codein"] != target)):
+                            raise ValueError("Identidade do par cambial divergente no provedor primário.")
                         rate = _number(pair_data["bid"], "cotação", 1e-10, 1e10)
                         high = _number(pair_data.get("high"), "máxima", 1e-10, 1e10, optional=True)
                         low = _number(pair_data.get("low"), "mínima", 1e-10, 1e10, optional=True)
@@ -271,6 +274,13 @@ def search_currency_rate(base_currency: str = "EUR", target_currency: str = "BRL
             f_resp = client.get(frankfurter_url)
             f_resp.raise_for_status()
             f_data = f_resp.json()
+            if f_data.get("base") != base:
+                raise ValueError("Moeda-base ausente ou divergente no provedor secundário.")
+            if "amount" not in f_data or f_data["amount"] is None:
+                raise ValueError("Unidade cambial ausente no provedor secundário.")
+            amount = _number(f_data["amount"], "unidade cambial", 1e-10, 1e10)
+            if amount != 1:
+                raise ValueError("Unidade cambial divergente: a consulta exige uma unidade da moeda-base.")
             rates = f_data.get("rates") or {}
             if target not in rates:
                 raise RuntimeError(f"Par de moedas {base}/{target} não retornado pelo provedor secundário.")

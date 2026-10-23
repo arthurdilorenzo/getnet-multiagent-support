@@ -6,6 +6,7 @@ from app.observability.tracer import SystemTracer
 from app.rag.embeddings import BilingualDenseEmbedder
 from app.schemas import PlanStep, RoutingPlan
 from app.security.pii import PIIRedactor
+from app.security.request_constraints import TERMINAL_PATTERN, TRANSACTION_PATTERN
 from pydantic import BaseModel, ConfigDict, Field
 from app.agents.function_calling import (
     RouterPlanningError, generate_turn, initial_contents, native_config,
@@ -253,13 +254,16 @@ houver próximo passo útil; não esconda falhas parciais nem invente evidência
         # mas se pergunta "Qual a diferença entre a Get Clássica e a Get Smart?", é catálogo/RAG.
         is_catalog_comparison = ("diferenca" in norm or "difference" in norm) and ("classica" in norm or "smart" in norm)
         has_support = (not is_catalog_comparison) and any(s in norm or s in lower for s in support_signals)
-        explicit_terminal = bool(re.search(r"\bGET-[A-Z]+-\d+\b", message, re.I))
+        explicit_terminal = bool(re.search(TERMINAL_PATTERN, message, re.I))
+        explicit_transaction = bool(re.search(TRANSACTION_PATTERN, message, re.I))
         manual_request = bool(re.search(r"\b(?:manual|manuals|user guide|documentation|catalog|catalogo)\b", norm))
         private_diagnostic = bool(re.search(
             r"\b(?:diagnos\w*|check|inspect\w*|verifi\w*|inspec\w*|analis\w*|analy\w*|investig\w*|status|estado|situacao|signal|sinal|connect\w*|conex\w*|telemetr\w*|declin\w*|recus\w*|refus\w*|error|erro|code|codigo)\b", norm
         ))
         personal_terminal = bool(re.search(r"\bmy\s+(?:terminal|pos|device|card machine)\b", norm))
-        if (explicit_terminal or personal_terminal) and private_diagnostic and not manual_request and not is_catalog_comparison:
+        if (explicit_terminal or explicit_transaction or personal_terminal) and private_diagnostic and not manual_request and not is_catalog_comparison:
+            has_support = True
+        if explicit_transaction and not manual_request and re.search(r"\b(?:negad\w*|declin\w*|recus\w*|what went wrong|por que)\b", norm):
             has_support = True
         if personal_terminal and not manual_request and re.search(r"\b(?:offline|no signal|not working|broken)\b", norm):
             has_support = True
@@ -284,6 +288,7 @@ houver próximo passo útil; não esconda falhas parciais nem invente evidência
             r"\b(?:libra|iene|yen|pound|yuan|renminbi|gbp|jpy|cny|chf|cad|ars|presidente|president)\b"
             r"|\b(?:franco suico|dolar canadense|peso argentino|tempo em|tempo para)\b", norm
         ))
+        has_web = has_web or bool(re.search(r"\b(?:chov\w*|chuva|rain|rainfall|meteorolog\w*|precipitacao)\b", norm))
 
         # Sinais de Escalação Humana / HITL
         human_signals = [

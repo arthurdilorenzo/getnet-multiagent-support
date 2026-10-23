@@ -6,6 +6,7 @@ whether their bodies contain usable evidence. No questions or canned answers liv
 here. Unknown essential constraints produce abstention.
 """
 import re
+import unicodedata
 from typing import Any, Dict, List, Set
 from app.rag.embeddings import BilingualDenseEmbedder as Text
 
@@ -80,92 +81,148 @@ def body_snippets(content: str) -> List[str]:
     return result
 
 
-def assess(query: str, content: str, title: str = '') -> Dict[str, Any]:
-    snippets=body_snippets(content)
-    q=Text.normalize(query)
-    body=Text.normalize(' '.join(snippets))
-    requested=concepts(query)
-    present=concepts(body)
-    missing=[]
-    # A product must be in the actual body, not just navigation/title/URL.
-    explicit=requested & {'pix','crediario','classica','smart','tap','link','advance'}
-    for product in explicit:
-        if product not in present:
-            missing.append('product:'+product)
-    if 'remote_payment' in requested and not (present & {'remote_payment','link'}):
-        missing.append('capability:remote_payment')
-    if 'installments' in requested and 'installments' not in present:
-        missing.append('capability:installments')
-    if 'account' in requested and 'account' not in present:
-        missing.append('product:account')
-    if 'connectivity' in requested and 'connectivity' not in present:
-        missing.append('capability:connectivity')
-    for facet,(query_words,evidence_words) in FACETS.items():
-        if any(_has(q,word) for word in query_words) and not any(_has(body,word) for word in evidence_words):
-            missing.append('facet:'+facet)
-    for country,aliases in GEOGRAPHY.items():
-        if any(_has(q,alias) for alias in aliases) and not any(_has(body,alias) for alias in aliases):
-            missing.append('country:'+country)
-    if any(_has(q,term) for term in ('estrangeiro','estrangeira','foreign','abroad','non resident','nao residente','fora do brasil','exterior','internacional')):
-        if not any(_has(body,term) for term in ('estrangeiro','estrangeira','foreign','abroad','non resident','nao residente','fora do brasil','exterior','internacional')):
-            missing.append('eligibility:foreign_or_nonresident')
-    # Installment limits and their decision-maker need actual cardinality or
-    # authority evidence. A fee/simulation paragraph alone proves neither.
-    limit_requested=any(_has(q,term) for term in ('quantas','limite','maxim','how many','maximum','quem define','quem determina','who sets','who determines'))
-    if 'installments' in requested and limit_requested:
-        cardinality=bool(re.search(r'\b(?:ate|up to)\s+\d+\s*(?:x|vezes|parcelas|installments)?\b',body))
-        authority=bool(re.search(r'\b(?:limite|maximo|maximum|parcelas)\b.{0,100}\b(?:emissor|issuer|banco|bank)\b|\b(?:emissor|issuer)\b.{0,100}\b(?:limite|maximum|parcelas)\b',body))
-        if not (cardinality or authority): missing.append('facet:installment_limit')
-        asks_authority=any(_has(q,term) for term in ('quem define','quem determina','who sets','who determines','who decides'))
-        if asks_authority and not authority: missing.append('facet:installment_authority')
-    # Named dates and explicit percentages constrain the claim. The body must
-    # mention them; shared topical vocabulary cannot establish their truth.
-    for token in re.findall(r'\b\d{4}-\d{2}-\d{2}\b|\b\d+(?:[.,]\d+)?\s*%', query):
-        if Text.normalize(token) not in body:
-            missing.append('constraint:'+token)
-    if not snippets:
-        missing.append('substantive_body')
-    matched=Text.tokenize(body)
-    query_tokens=set(Text.tokenize(query))-{'getnet','funciona','funcionar','posso','pode','possible','would','please','preciso','quero','gostaria','need','get','customer','cliente','store','loja'}
-    overlaps=query_tokens & set(matched)
-    meaningful = bool(requested & present) or bool(overlaps)
-    if not meaningful:
-        missing.append('topic_evidence')
-    # Unknown properties must not be answered by a generic product paragraph.
-    # Consume the ontology's vocabulary and ordinary question scaffolding,
-    # then require the remaining content words in the actual product evidence.
-    semantic_words=set()
-    for country,aliases in GEOGRAPHY.items():
-        if any(_has(q,alias) for alias in aliases):
-            for alias in aliases:
-                semantic_words.update(Text.tokenize(alias))
-    for key in requested:
-        for phrase in CONCEPTS[key]:
-            semantic_words.update(Text.tokenize(phrase))
-    for words,_ in FACETS.values():
-        for phrase in words:
-            if _has(q,phrase): semantic_words.update(Text.tokenize(phrase))
-    scaffolding=set(('getnet funciona funcionar funcionamento diferenca diferencas diferenca entre comparativo comparar compare difference differences between '
-        'preciso quero gostaria saber entender explique explicar sobre informacoes informacao posso pode podem tem ter possui usa usar uso quem define determina numero '
-        'vender venda vendas receber recebimento dinheiro cobrar cliente clientes comprador loja estabelecimento atraves usando necessito cartao ainda via '
-        'possible want need know tell explain works work information support supports use have has take collect request customer customers sell through using merchant open '
-        'buyer payments payment sales sale card cash takings money not physically present store without opening checking account who defines sets determines receive receiving '
-        'before their contractual due date from at who with get is does it e acompanhamento pergunta contexto produto atributo qual quais').split())
-    residual=set(Text.tokenize(query))-semantic_words-scaffolding
-    residual={term for term in residual if not any(len(word)>=4 and term.startswith(word) for word in semantic_words)}
-    def covered(term,text):
-        return any(term==word or (len(term)>=5 and len(word)>=5 and term[:5]==word[:5]) for word in Text.tokenize(text))
-    for term in sorted(residual):
-        if not covered(term,body):
-            missing.append('property:'+term)
-        elif explicit and term not in {'hoje','today'}:
-            sentences=re.split(r'(?<=[.!?])\s+', ' '.join(snippets))
-            if not any(covered(term,sentence) and explicit <= concepts(sentence) for sentence in sentences):
-                # Do not assign Clássica's keyboard to Smart merely because both
-                # products occur somewhere in a comparative document.
-                missing.append('property_subject:'+term)
-    return {'answerable':not missing,'missing':missing,'requested_concepts':sorted(requested),'body_concepts':sorted(present),'answer_snippets':snippets}
+def parse_requirements(query: str) -> Dict[str, Any]:
+    """Bounded PT/EN request grammar. Incidental tokens are not fact requirements.
 
+    Only predicate complements, subjects, values and explicit scope constrain the
+    evidence. Unrecognized property/operation constructions remain unknown.
+    """
+    from app.rag.facts import SUBJECTS, FEATURES, PAYMENT_METHODS, mentioned_subjects
+    q = Text.normalize(query)
+    subjects = mentioned_subjects(query)
+    # Generic hardware words identify a terminal, not an additional POS model.
+    if len(subjects) > 1 and 'terminal' in subjects:
+        subjects.remove('terminal')
+    requested = concepts(query)
+    if not subjects:
+        if 'remote_payment' in requested: subjects = ['link']
+        elif 'advance' in requested: subjects = ['advance']
+        elif 'installments' in requested: subjects = ['crediario']
+        elif 'connectivity' in requested: subjects = ['terminal']
+        elif 'account' in requested: subjects = ['account']
+    # A named payment after an acceptance verb is its object, not its subject.
+    acceptance = re.search(r'\b(?:aceit\w*|accept\w*|pagar|pay|usando|using)\b', q)
+    if acceptance and len(subjects) > 1:
+        leading = mentioned_subjects(q[:acceptance.start()])
+        if leading: subjects = leading
+    countries = [country for country, aliases in GEOGRAPHY.items() if any(_has(q,a) for a in aliases)]
+    # Unknown named territories are preserved without expanding a country list.
+    for scope in re.findall(r'\b(?:no|na|em|in)\s+([A-ZÀ-Ý][\wÀ-ÿ-]*(?:\s+[A-ZÀ-Ý][\wÀ-ÿ-]*)*)',query):
+        normalized = Text.normalize(scope).strip()
+        if any(any(alias.startswith(normalized) or normalized.startswith(alias) for alias in aliases) for aliases in SUBJECTS.values()): continue
+        if not any(normalized in aliases for aliases in GEOGRAPHY.values()): countries.append(normalized)
+    foreign = bool(re.search(r'\b(?:estrangeir\w*|foreign|abroad|non resident|nao residente|exterior|internacional)\b',q))
+    requirements = []
+    def add(relation, value='', unit=None, targets=None):
+        for subject in targets if targets is not None else subjects or ['unknown']:
+            item = {'subject':subject,'relation':relation,'value':value,'unit':unit,
+                    'countries':countries,'foreign_eligibility':foreign,
+                    'query_span':[0,len(query)]}
+            if item not in requirements: requirements.append(item)
+    # Operations cannot be proven by a general product overview.
+    operation_patterns = {
+        'password_reset':r'redefin|reset|recuperar|esqueci',
+        'password':r'\b(?:senha|password|passcode|pin)\b',
+        'cancellation':r'cancel|estorn|refund|devolv',
+        'dispute':r'chargeback|contesta|disput',
+        'expiry':r'validade|expira|expiration|expiry|vencimento do link',
+        'signup':r'habilit|contrat|ativar|enable|activate|sign up|\bopen\b|cadastro de estabelecimento',
+    }
+    for relation, pattern in operation_patterns.items():
+        if re.search(pattern,q):
+            if relation == 'password' and re.search(operation_patterns['password_reset'],q): continue
+            target = ['app_access'] if relation == 'password_reset' and not subjects and re.search(r'aplicativo|portal|app|access|acesso',q) else None
+            add(relation,targets=target)
+    if re.search(r'cadastr\w* chave|criar\w* chave|register.*key|create.*key',q): add('key_creation')
+    elif re.search(r'\b(?:criar|gerar|create|generate)\b',q): add('creation')
+    if re.search(r'\b(?:taxas?|tarifas?|juros|fees?|interest|custos?|cost)\b',q): add('fees')
+    installment = 'installments' in requested or ('crediario' in subjects and re.search(r'parcel|limit|maximum|maximo',q))
+    if installment:
+        if re.search(r'quem.*(?:defin|determin)|who.*(?:sets|determines|decides)|emissor|issuer',q): add('installment_authority')
+        elif re.search(r'quantas|limite|maxim|how many|up to|ate \d|\d+\s*x',q): add('installment_limit')
+        else: add('installments')
+    time_requested = bool(re.search(r'prazo|quando.*(?:receb|cai)|how long|when (?:will|do)|settlement time|\d+\s+(?:dias?|days?|horas?|hours?)',q))
+    if time_requested and not re.search(r'validade|expira|vencimento do link',q): add('settlement_time')
+    # Values retain units and are checked on the same subject/relation fact.
+    numbers = []
+    numeric_q = ''.join(c for c in unicodedata.normalize('NFKD',query.lower()) if not unicodedata.combining(c))
+    for match in re.finditer(r'\b(\d+(?:[.,]\d+)?)\s*(x|vezes|parcelas|installments|dias uteis|business days|dias?|days?|horas?|hours?|%)',numeric_q):
+        amount, unit = match.groups()
+        canonical = 'installments' if unit in {'x','vezes','parcelas','installments'} else 'business_days' if unit in {'dias uteis','business days'} else 'hours' if unit in {'hora','horas','hour','hours'} else 'percent' if unit == '%' else 'days'
+        relation = 'installment_limit' if canonical == 'installments' else 'fee_value' if canonical == 'percent' else 'settlement_time'
+        numbers.append(relation)
+        add(relation,amount.replace(',','.'),canonical)
+    if numbers:
+        requirements = [r for r in requirements if r['value'] or r['relation'] not in numbers]
+    for date in re.findall(r'\b\d{4}-\d{2}-\d{2}\b',query): add('effective_date',date)
+    # A requested tender is a value even when phrased without an acceptance verb.
+    tender_context = bool(re.search(r'aceit|accept|pagar|pay with|cobrar.*(?:usando|com)|collect.*(?:using|with)',q))
+    if tender_context:
+        object_text = q[acceptance.end():] if acceptance else q
+        methods = [key for key,aliases in PAYMENT_METHODS.items() if any(_has(object_text,a) for a in aliases)]
+        for method in methods: add('payment_method',method)
+        if not methods and re.search(r'aceit|accept',q): add('payment_method','unknown')
+    # A qualifier attached with com/with is a request constraint, unlike a
+    # courtesy phrase or a shop/customer introduction before the question.
+    for qualifier in re.findall(r'\b(?:com|with)\s+(.+?)(?=[?.;]|$)',query,flags=re.I):
+        value = Text.normalize(qualifier).strip()
+        if mentioned_subjects(value) or value == 'getnet': continue
+        if any(any(_has(value,a) for a in aliases) for aliases in PAYMENT_METHODS.values()):
+            for method,aliases in PAYMENT_METHODS.items():
+                if any(_has(value,a) for a in aliases): add('payment_method',method)
+        elif not any(any(_has(value,a) for a in aliases) for aliases in FEATURES.values()):
+            add('property',' '.join(Text.tokenize(value)))
+    feature_requested = False
+    if any(subject in {'smart','classica','tap'} for subject in subjects):
+        for feature, aliases in FEATURES.items():
+            if any(_has(q,a) for a in aliases):
+                # An attribute such as battery autonomy is not the existence of a battery.
+                attr = 'battery_autonomy' if feature == 'battery' and re.search(r'autonomia|duration|how long|life',q) else feature
+                add('hardware_feature',attr); feature_requested = True
+        predicate = re.search(r'\b(?:possui|tem|has|have|support\w*|include\w*)\s+(.+)',q)
+        if predicate and not feature_requested:
+            add('hardware_feature',' '.join(Text.tokenize(predicate[1]))); feature_requested = True
+        elif not feature_requested and re.search(r'resistent|waterproof|biometri|autonomia|compativel|compatible|\b(?:faz|does)\b',q):
+            add('hardware_feature','unknown'); feature_requested = True
+    if re.search(r'simulacao|simular|simulation|simulate',q): add('simulation')
+    if re.search(r'frequencia|frequency',q): add('frequency')
+    if 'remote_payment' in requested and not tender_context: add('remote_collection',targets=['link'] if not subjects else None)
+    if 'advance' in requested and not time_requested and not any(r['relation'] in {'fees','signup','cancellation'} for r in requirements): add('advance_receivables')
+    if 'connectivity' in requested: add('connectivity')
+    if re.search(r'conta (?:bancaria|corrente)|bank account|banco tradicional|traditional bank',q):
+        add('account_requirement',targets=[s for s in subjects if s in {'pix','account'}] or ['account'])
+    if foreign: add('eligibility')
+    # Overview has a narrow grammar; unknown substantive operations do not fall through.
+    overview = bool(re.search(r'funciona|funcionam|funcionamento|diferenc|compar|difference|what is|what are|works|work|expli|explain|tell me|sobre|about|como.*permite|\bo que\b',q))
+    if not requirements:
+        add('overview' if overview else 'unknown')
+    return {'requirements':requirements,'parser':'bounded_local_relations_v4',
+            'parser_limit':'Gramática local PT/EN delimitada; não é entailment semântico universal.'}
+
+
+def assess(query: str, content: str, title: str = '', *, facts=None, chunk_id: str = 'inline') -> Dict[str, Any]:
+    from app.rag.facts import extract_facts
+    parsed = parse_requirements(query)
+    valid = [f for f in (extract_facts(chunk_id,content) if facts is None else facts) if f.valid_for(chunk_id,content)]
+    coverage = []
+    selected = []
+    for requirement in parsed['requirements']:
+        matches = []
+        for fact in valid:
+            if fact.subject != requirement['subject'] or fact.relation != requirement['relation']: continue
+            value = requirement['value']
+            if value and value != fact.value and not (value == 'card' and fact.value in {'credit','debit'}): continue
+            if requirement['unit'] and requirement['unit'] != fact.unit: continue
+            if requirement['countries'] and not all(country == fact.geographic_scope for country in requirement['countries']): continue
+            if requirement['foreign_eligibility'] and fact.relation != 'eligibility': continue
+            matches.append(fact)
+        coverage.append({'requirement':requirement,'status':'supported' if matches else 'unknown','facts':[f.to_dict() for f in matches]})
+        selected.extend(f.excerpt for f in matches)
+    missing = [r['requirement']['subject']+':'+r['requirement']['relation']+(':'+r['requirement']['value'] if r['requirement']['value'] else '') for r in coverage if r['status']=='unknown']
+    return {'answerable':bool(coverage) and not missing,'missing':missing,'coverage':coverage,
+            'requested_concepts':sorted(concepts(query)),'body_concepts':sorted(concepts(content)),
+            'answer_snippets':list(dict.fromkeys(selected)),
+            'parser':parsed['parser'],'limit':parsed['parser_limit']}
 
 def expanded_query(query: str) -> str:
     """Translate capability vocabulary before similarity scoring."""

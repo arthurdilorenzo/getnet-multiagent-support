@@ -35,7 +35,7 @@ def test_missing_fx_extrema_remain_unknown(monkeypatch):
 
 
 def test_reference_fx_is_dated_daily_reference_not_intraday(monkeypatch):
-    mock_http(monkeypatch, awesome={}, frank={'date':'2026-10-19','rates':{'BRL':6.1}})
+    mock_http(monkeypatch, awesome={}, frank={'base':'EUR','amount':1,'date':'2026-10-19','rates':{'BRL':6.1}})
     result = search_tools.search_currency_rate()
     assert result['live'] is False
     assert result['rate_type'] == 'daily_reference'

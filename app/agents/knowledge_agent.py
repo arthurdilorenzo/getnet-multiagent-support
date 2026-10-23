@@ -7,7 +7,8 @@ from app.config import settings
 from app.observability.logger import logger
 from app.observability.tracer import SystemTracer
 from app.rag.embeddings import BilingualDenseEmbedder
-from app.rag.answerability import body_snippets, concepts
+from app.rag.facts import EvidenceFact
+from app.rag.answerability import assess, body_snippets, concepts
 from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
@@ -52,13 +53,17 @@ class KnowledgeAgent:
         session_id: str = "",
         conversation_context: Optional[Dict[str, Any]] = None,
         tracer: Optional[SystemTracer] = None,
+        request_message: Optional[str] = None,
     ) -> SpecialistOutput:
         trace_id = tracer.trace_id if tracer else ""
         contextual_query = self._enrich_query_with_memory(message, conversation_context)
+        authoritative_query = self._enrich_query_with_memory(request_message or message, conversation_context)
 
         # 1. Function calling nativo; extrator local somente no modo sem chave.
         try:
             planned_calls = self._plan_tool_calls(message=contextual_query,is_web_search=is_web_search,tracer=tracer,conversation_context=conversation_context)
+            for call_spec in planned_calls:
+                self._validate_public_request(call_spec, authoritative_query)
         except ValueError as exc:
             return SpecialistOutput(agent_name='WEB_SEARCH_AGENT' if is_web_search else 'KNOWLEDGE_AGENT',
                                     response=str(exc),confidence=0,abstained=True,abstention_reason='Argumento público não identificado com segurança.')
@@ -70,6 +75,10 @@ class KnowledgeAgent:
 
         # 2. Loop de Execução de Tools via ToolRegistry
         for call_spec in planned_calls[: settings.MAX_TOOL_TURNS]:
+            if call_spec.tool_name == 'search_getnet_knowledge':
+                # The provider cannot erase a requested country, operation or attribute.
+                # It still selects the native tool; the server binds the factual request.
+                call_spec.arguments = {**call_spec.arguments, 'query': authoritative_query}
             tools_called.append(call_spec.tool_name)
             res = tool_registry.execute(
                 tool_name=call_spec.tool_name,
@@ -166,7 +175,7 @@ class KnowledgeAgent:
 
         # 4. Síntese Grounded a partir dos resultados reais das Tools
         synthesized_text = '\n\n'.join(self._synthesize_from_tool_results(
-            user_message=message,tool_results=[result],citations=citations,tracer=tracer)
+            user_message=authoritative_query,tool_results=[result],citations=citations,tracer=tracer)
             for result in usable)
         if partial_failures:
             synthesized_text+='\n\nNão foi possível verificar parte das consultas solicitadas; os resultados acima cobrem somente as consultas com evidência disponível.'
@@ -280,7 +289,7 @@ class KnowledgeAgent:
 
         if is_web_search:
             # Verifica se é previsão meteorológica
-            if any(w in norm for w in ["weather", "previsao", "tempo", "clima", "temperatura", "chover"]):
+            if any(w in norm for w in ["weather", "previsao", "tempo", "clima", "temperatura", "chover", "chove", "chuva", "rain", "forecast"]):
                 city = self._extract_city(message)
                 days = 2 if ('depois de amanha' in norm or 'day after tomorrow' in norm) else 0 if ('hoje' in norm or 'today' in norm) and 'amanha' not in norm and 'tomorrow' not in norm else 1
                 explicit_days=re.search(r'\b(?:em|in)\s+(\d+)\s+(?:dias|days)\b',norm)
@@ -367,6 +376,46 @@ class KnowledgeAgent:
             raise ValueError('Não foi possível planejar uma consulta pública com segurança. Tente novamente com os dados necessários.') from exc
 
     @staticmethod
+    def _validate_public_request(call: ToolCallSpec, original: str) -> None:
+        """Bind only explicit public slots; native planning remains native.
+
+        Missing slots do not trigger a lexical fallback. A conflicting explicit
+        slot rejects the complete batch before any external read is dispatched.
+        """
+        norm = BilingualDenseEmbedder.normalize(original)
+        args = call.arguments
+        if call.tool_name == 'get_currency_exchange_rate':
+            aliases={'EUR':('euro','eur'),'USD':('dolar','dollar','usd'),'GBP':('libra','pound','gbp'),
+                     'JPY':('iene','yen','jpy'),'CHF':('franco suico','swiss franc','chf'),
+                     'CNY':('yuan','renminbi','cny'),'CAD':('dolar canadense','canadian dollar','cad'),
+                     'ARS':('peso argentino','argentine peso','ars'),'BRL':('real','reais','brl')}
+            found=[]
+            for code,words in aliases.items():
+                hits=[match.start() for word in words for match in re.finditer(r'\b'+re.escape(word)+r'\b',norm)]
+                if hits: found.append((min(hits),code))
+            if any(code=='CAD' for _,code in found): found=[item for item in found if item[1]!='USD']
+            found.sort()
+            if len(found)>2: raise ValueError('Há mais de um par cambial no pedido; esclareça o par desta consulta.')
+            for index, field in enumerate(('base_currency','target_currency')):
+                if index < len(found) and str(args.get(field,'')).upper() != found[index][1]:
+                    raise ValueError('A moeda selecionada não corresponde à moeda explícita do pedido original.')
+        elif call.tool_name == 'get_weather_forecast':
+            try:
+                city = KnowledgeAgent._extract_city(original)
+            except ValueError:
+                city = None
+            if city and BilingualDenseEmbedder.normalize(str(args.get('city',''))).strip() != BilingualDenseEmbedder.normalize(city).strip():
+                raise ValueError('A cidade selecionada não corresponde à cidade explícita do pedido original.')
+            horizon=None
+            explicit=re.search(r'\b(?:em|in)\s+(\d+)\s+(?:dias|days)\b',norm)
+            if explicit: horizon=int(explicit[1])
+            elif 'depois de amanha' in norm or 'day after tomorrow' in norm: horizon=2
+            elif re.search(r'\b(?:amanha|tomorrow)\b',norm): horizon=1
+            elif re.search(r'\b(?:hoje|today)\b',norm): horizon=0
+            if horizon is not None and args.get('days_ahead') != horizon:
+                raise ValueError('O horizonte selecionado não corresponde ao prazo explícito do pedido original.')
+
+    @staticmethod
     def _extract_city(message: str) -> str:
         lower = message.lower()
         for known in ("porto alegre", "são paulo", "sao paulo", "rio de janeiro", "curitiba", "belo horizonte", "brasília", "brasilia"):
@@ -374,13 +423,13 @@ class KnowledgeAgent:
                 return known.title()
         # Extração por padrão "em <Cidade>" ou "in <City>"
         match = re.search(
-            r"\b(?:em|in|para)\s+([a-zà-ú]+(?:\s+[a-zà-ú]+){0,2})",
+            r"\b(?:em|in|para|no|na|for)\s+([a-zà-ú]+(?:\s+[a-zà-ú]+){0,2})",
             message,
             flags=re.I,
         )
         if match:
             candidate = match.group(1).strip()
-            candidate = re.split(r'\b(?:amanhã|amanha|hoje|tomorrow|today|para|depois|em|in|nos)\b',candidate,flags=re.I)[0].strip()
+            candidate = re.split(r'\b(?:amanhã|amanha|hoje|tomorrow|today|para|depois|em|in|nos|forecast)\b',candidate,flags=re.I)[0].strip()
             if candidate:
                 return candidate
         raise ValueError('Informe a cidade para consultar a previsão do tempo.')
@@ -470,37 +519,54 @@ class KnowledgeAgent:
         if not chunks:
             return "Não foram encontrados trechos correspondentes na documentação oficial da Getnet."
 
-        top_chunk = next((c for c in chunks if c.get('chunk_id') == selected_chunk_id), chunks[0])
-        snippets=top_chunk.get('answer_snippets') or body_snippets(top_chunk.get('content',''))
-        if not snippets:
-            return 'Não encontrei um trecho de corpo que responda à pergunta com segurança.'
-        # Whole source paragraphs preserve qualifications, negations and limits.
-        # Only body text is presented; headings cannot masquerade as evidence.
-        out='\n'.join(snippets)
-        source=top_chunk.get('source','Documentação Getnet')
-        url=top_chunk.get('source_url','')
-        provenance=top_chunk.get('provenance') or {}
-        reviewed=provenance.get('verified_at')
-        if reviewed:
-            out+=f"\n\n[Resumo documental revisado em {reviewed}; fonte: {source} ({url})]"
-        else:
-            out+=f"\n\n[Fonte local: {source} ({url})]"
-        for key in ('secondary_url','additional_url'):
-            if provenance.get(key):
-                out+=f"\n[Fonte complementar]({provenance[key]})"
+        if selected_chunk_id:
+            chunks = sorted(chunks,key=lambda chunk:chunk.get('chunk_id') != selected_chunk_id)
+        sections = []
+        for chunk in chunks:
+            snippets = self._verified_snippets(chunk,user_message)
+            if not snippets:
+                continue
+            section = '\n'.join(snippets)
+            source=chunk.get('source','Documentação Getnet')
+            url=chunk.get('source_url','')
+            provenance=chunk.get('provenance') or {}
+            reviewed=provenance.get('verified_at')
+            if reviewed:
+                section+=f"\n\n[Resumo documental revisado por agente em {reviewed}; fonte: {source} ({url})]"
+            else:
+                section+=f"\n\n[Extrato de documento local: {source} ({url})]"
+            for key in ('secondary_url','additional_url'):
+                if provenance.get(key): section+=f"\n[Fonte complementar]({provenance[key]})"
+            sections.append(section)
+        out='\n\n'.join(dict.fromkeys(sections)) or 'Não encontrei um trecho de corpo verificável que responda à pergunta com segurança.'
         if tracer:
-            tracer.record_tokens(prompt_text=top_chunk.get('content',''),completion_text=out)
+            tracer.record_tokens(prompt_text=user_message,completion_text=out)
         return out
+
+    @staticmethod
+    def _verified_snippets(chunk: Dict[str, Any], query: str = '') -> List[str]:
+        content=chunk.get('content','')
+        if 'approved_facts' in chunk:
+            valid=[]
+            for raw in chunk['approved_facts']:
+                try:
+                    fact=EvidenceFact(**raw)
+                except (TypeError,ValueError):
+                    continue
+                if fact.valid_for(chunk.get('chunk_id',''),content): valid.append(fact.excerpt)
+            return list(dict.fromkeys(valid))
+        # Legacy direct callers still use the same bounded evidence grammar.
+        return assess(query,content,chunk_id=chunk.get('chunk_id','inline'))['answer_snippets']
 
     @staticmethod
     def _evidence(result: ToolExecutionResult) -> List[Dict[str, Any]]:
         data=result.data or {}
         if result.tool_name=='search_getnet_knowledge':
             return [{'kind':'source_excerpt','source':c.get('source'),'source_url':c.get('source_url'),
-                     'excerpt':'\n'.join(c.get('answer_snippets') or body_snippets(c.get('content',''))),
+                     'excerpt':'\n'.join(KnowledgeAgent._verified_snippets(c)),
                      'chunk_id':c.get('chunk_id'),'source_kind':'curated_local_summary',
                      **(c.get('provenance') or {})}
-                    for c in data.get('chunks',[]) if c.get('answer_snippets') or body_snippets(c.get('content',''))]
+                    for c in data.get('chunks',[]) if KnowledgeAgent._verified_snippets(c)]
         if result.tool_name=='web_search_general':
             return [{'kind':'source_excerpt','source_url':r.get('url'),'source':r.get('title'),
                      'excerpt':r.get('snippet'),'source_kind':'search_snippet_unverified'} for r in data.get('results',[])]
