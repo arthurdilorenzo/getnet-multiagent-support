@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 from typing import Any, Dict, List, Literal, Optional
 
 from google.genai import types
@@ -59,6 +60,8 @@ class VerificationCheck(StrictModel):
                         'relation_mismatch','unit_mismatch','value_mismatch','scope_mismatch',
                         'polarity_mismatch','unsupported_relation','misclassified_context','ambiguous_reference',
                         'invalid_delegation']]
+    # None preserves the pre-V10 conservative veto for old/omitted declarations.
+    affected_unit_ids: Optional[List[str]]=None
 
 
 class SemanticVerification(StrictModel):
@@ -141,6 +144,11 @@ def compact_schema(phase: str,digest: str,unit_ids: List[str],span_ids: List[str
         key='units'
     else:
         item=VerificationCheck.model_json_schema();key='checks'
+        # New native generations must make dependency scope explicit; null is
+        # permitted and remains conservative. Local DTO accepts older receipts.
+        item['required'].append('affected_unit_ids')
+        for branch in item['properties']['affected_unit_ids']['anyOf']:
+            if branch.get('type')=='array':branch['items']['enum']=unit_ids
     properties={'request_hash':{'type':'string','enum':[digest]},key:{'type':'object',
         'properties':{uid:copy.deepcopy(item) for uid in unit_ids},'required':unit_ids,'additionalProperties':False}}
     required=['request_hash',key]
@@ -188,7 +196,16 @@ Rejeite delegated fora de other-only e condição pertinente descartada por dele
 continua responsabilidade deste especialista. accept exige issues vazios; reject exige issues apropriados.
 complete refere-se somente às necessidades locais: todas assigned pertinentes suportadas ou negadas
 explicitamente, nenhuma condição pertinente omitida e nenhum check rejeitado. Outras unidades delegated
-válidas não ganham crédito factual nem tornam a resposta GLOBAL completa. Não escreva resposta factual."""
+válidas não ganham crédito factual nem tornam a resposta GLOBAL completa. Não escreva resposta factual.
+Para cada check informe affected_unit_ids: [] se accept; se reject, os IDs canônicos de TODAS
+as unidades cujo fato pode ser invalidado pelo problema, incluindo a própria unidade rejeitada.
+Revise esse vínculo no ORIGINAL INTEIRO, nunca apenas na análise/subquery/rationale. Uma condição,
+exceção ou negação anexa pode invalidar fatos de outra unidade, inclusive delegated: inclua seus IDs.
+Pedidos independentes de países ou campos diferentes não se qualificam automaticamente entre si:
+se apenas a pergunta independente estrangeira é desconhecida, preserve o fato local verificado.
+Se não puder delimitar a dependência, use null; a aplicação bloqueia conservadoramente os fatos.
+Unknown corretamente identificado pode ser accept com [] e continua pendente. Falta de cobertura
+não exige reject de fatos independentes. complete=false não apaga fatos aceitos por unidade."""
 
 
 class SemanticEvidenceAuthorizer:
@@ -282,8 +299,14 @@ class SemanticEvidenceAuthorizer:
                 _VERIFICATION_PROMPT,{**payload,'analysis':analysis.model_dump()},stage,tracer)
             if verification.request_hash!=digest:raise SemanticProtocolError(stage,'REQUEST_IDENTITY')
             if set(verification.checks)!=set(unit_ids):raise SemanticProtocolError(stage,'VERIFICATION_KEYSET')
-            for check in verification.checks.values():
+            for uid,check in verification.checks.items():
                 if (check.verdict=='accept')!=(not check.issues):raise SemanticProtocolError(stage,'VERIFICATION_STATE')
+                affected=check.affected_unit_ids
+                if affected is not None and (
+                    len(set(affected))!=len(affected) or not set(affected)<=set(unit_ids)
+                    or (check.verdict=='accept' and affected)
+                    or (check.verdict=='reject' and uid not in affected)):
+                    raise SemanticProtocolError(stage,'DEPENDENCY_SCOPE')
             approved={};coverage=[];unresolved=[];covered=[];delegated=[]
             assigned=set(scope['assigned_unit_ids'])
             for canonical in units:
@@ -298,18 +321,33 @@ class SemanticEvidenceAuthorizer:
                 if answerable and uid in assigned:
                     for sid in unit.span_ids:
                         selected=available[sid];approved.setdefault(selected['chunk_id'],[]).append(selected)
-            # A discarded condition can qualify another unit regardless of
-            # ownership. Without a verified dependency proof, no conditioned
-            # fact may escape through a different accepted unit.
-            cross_condition_veto=any(check.verdict=='reject' and
-                bool(set(check.issues)&{'omitted_condition','omitted_exception','scope_mismatch','invalid_delegation','polarity_mismatch'})
-                for check in verification.checks.values())
-            if cross_condition_veto or (not verification.complete and not unresolved):
-                unresolved=list(dict.fromkeys(unresolved+[uid for uid in unit_ids if uid in assigned]))
-                covered=[]
+            # Dependency scope is a declaration from the existing second model
+            # pass, not independent semantic proof. Missing declarations retain
+            # the original fail-closed behavior. Explicit attached conditions and
+            # conditions hidden as context cannot narrow a cross-unit veto.
+            danger={'omitted_condition','omitted_exception','scope_mismatch','invalid_delegation','polarity_mismatch'}
+            invalidated=set()
+            for canonical in units:
+                uid=canonical['unit_id'];check=verification.checks[uid]
+                if check.verdict!='reject' or not set(check.issues)&danger:continue
+                text=''.join(c for c in unicodedata.normalize('NFD',canonical['text'].lower()) if unicodedata.category(c)!='Mn')
+                attached=bool(re.match(r'^[\s;,.]*(?:(?:and|e|mas|but)\s+)?(?:only\s+if|if|se|desde\s+que|provided(?:\s+that)?|unless|except|exceto|for|para|without|sem)\b',text))
+                if check.affected_unit_ids is None or attached or analysis.units[uid].kind in {'context','courtesy','delegated'}:
+                    invalidated.update(assigned)
+                else:invalidated.update(check.affected_unit_ids)
+            if not verification.complete and not unresolved:
+                invalidated.update(assigned)
+            if invalidated:
+                unresolved=list(dict.fromkeys(unresolved+[uid for uid in unit_ids if uid in assigned and uid in invalidated]))
+                covered=[uid for uid in covered if uid not in invalidated]
+                # Rebuild by unit so a span shared with a rejected fact is retained
+                # only when another independently accepted fact still selects it.
                 approved={}
                 for row in coverage:
-                    if row['unit_id'] in assigned:row['answered']=False
+                    if row['unit_id'] in invalidated:row['answered']=False
+                    if row['answered']:
+                        for sid in row['span_ids']:
+                            selected=available[sid];approved.setdefault(selected['chunk_id'],[]).append(selected)
             complete=bool(covered) and not unresolved and verification.complete
             selected_chunks=[{**c,'approved_spans':list({s['span_id']:s for s in approved[c['chunk_id']]}.values()),
                 'semantic_mode':'native_semantic'} for c in chunks if c['chunk_id'] in approved]

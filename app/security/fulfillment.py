@@ -131,7 +131,7 @@ def _read_prefix(norm: str) -> str:
     # Consume a finite leading request prefix only. These forms ask to show a
     # property; residue still has to satisfy the same bounded field grammar.
     norm = re.sub(r'^(?:(?:por favor|please)[,\s]+)?(?:(?:voce pode|pode|can you|could you)\s+)?'
-                  r'(?:(?:me\s+)?(?:diga|informe|mostre)|(?:tell|show)\s+me)\b[,\s]*', 'check ', norm)
+                  r'(?:(?:me\s+)?(?:diga|informe|mostre)|(?:give|tell|show)\s+me)\b[,\s]*', 'check ', norm)
     return re.sub(r'^(?:pode|voce pode|can you|could you)\s+(?=(?:' + _READ_VERB_PATTERN + r')\b)', '', norm)
 
 
@@ -157,7 +157,7 @@ def _property_read_shape(text: str, domain: str) -> bool:
         'this', 'same', 'my', 'our', 'meu', 'minha', 'meus', 'minhas', 'nosso',
         'nossa', 'esse', 'essa', 'aquele', 'aquela', 'mesmo', 'mesma', 'dele',
         'dela', 'ele', 'ela', 'please', 'por', 'favor', 'what', 'which', 'qual', 'quais', 'sua', 'seu', 'atual',
-        'current', 'que', 'citei', 'anteriormente', 'mencionado', 'mencionada',
+        'plus', 'mais', 'alem', 'well', 'current', 'que', 'citei', 'anteriormente', 'mencionado', 'mencionada',
         'referido', 'referida', 'acima', 'mentioned', 'earlier', 'above', 'previously',
     }
     fields = {
@@ -287,6 +287,8 @@ def canonical_terminal_read_text(text: str, original: str, context: dict | None 
     literal = text.lstrip(' ;,.').strip()
     if not any(unit['text'].lstrip(' ;,.').strip() == literal for unit in request_units(original)):
         return text
+    from app.security.request_units import operational_unit_text
+    text = operational_unit_text(text, original)
     authority = extract_constraints(original, context)
     local = extract_constraints(text, context)
     if local.terminal_ids or len(authority.terminal_ids) != 1 or authority.transaction_ids:
