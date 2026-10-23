@@ -412,3 +412,104 @@ def test_split_named_external_authority_survives_without_unassigned_subject(docu
     assert name == "web_search_general"
     assert "Banco Central" in query
     assert "firmware" not in query and "GET-CLASSICA-QA-84257" not in query
+
+
+P06_SCOPED_REPLAN_CASES = [
+    (
+        "Explain the published Crediário settlement terms in Brasil documentation.",
+        "Find current central bank rules for Crediário in Norway using an external source.",
+        "Explain what the documentation says about the same Crediário terms in Norway.",
+    ),
+    (
+        "Explique as condições publicadas de recebimento do Crediário na documentação do Brasil.",
+        "Pesquise as regras atuais do banco central para Crediário na Noruega usando fonte externa.",
+        "Explique o que a documentação informa sobre os mesmos termos do Crediário na Noruega.",
+    ),
+]
+
+
+def country_gap_orchestrator(monkeypatch, tmp_path, brazil_text, norway_text, *, knowledge_status, abstained,
+                             external_result="unavailable"):
+    """Script specialist results and planning proposals, retain server scope and composition."""
+    from app.schemas import ToolExecutionResult
+    module = importlib.import_module("app.agents.orchestrator")
+    monkeypatch.setattr(module, "state_store", StateStore(tmp_path / "country-gap.sqlite"))
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "AUTH_ENFORCE_STRICT", False)
+    message = brazil_text + " " + norway_text
+    brazil, norway = request_units(message)
+    orch = MultiAgentOrchestrator()
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: RoutingPlan(
+        primary_agent="KNOWLEDGE_AGENT", confidence=.9, reasoning="country clauses",
+        plan_steps=[PlanStep(step_order=1, target_agent="KNOWLEDGE_AGENT", sub_query=message,
+                            rationale="local documentation", request_unit_ids=["u1", "u2"])]))
+    replans, delegations = [], []
+
+    def replan(**kwargs):
+        replans.append(kwargs)
+        return RoutingPlan(primary_agent="WEB_SEARCH_AGENT", confidence=.9, reasoning="external gap",
+            plan_steps=[PlanStep(step_order=1, target_agent="WEB_SEARCH_AGENT", sub_query=norway_text,
+                                rationale="explicit external source", request_unit_ids=["u2"])])
+
+    def delegate(**kwargs):
+        delegations.append(kwargs)
+        if kwargs["target_agent"] == "KNOWLEDGE_AGENT":
+            return SpecialistOutput(agent_name="KNOWLEDGE_AGENT",
+                response="Brasil: recebimento em 2 dias úteis, taxa única e sem custo de antecipação.",
+                request_unit_ids=["u1", "u2"], covered_unit_ids=["u1"], unresolved_unit_ids=["u2"],
+                semantic_mode="limited_offline", answer_status=knowledge_status, abstained=abstained,
+                tools_called=["search_getnet_knowledge"], evidence=[{"chunk_id": "getnet_crediario_s1_9ea682"}])
+        assert kwargs["target_agent"] == "WEB_SEARCH_AGENT"
+        assert kwargs["delegation_scope"]["assigned_unit_ids"] == ["u2"]
+        assert "u1" in kwargs["delegation_scope"]["other_unit_ids"]
+        assert kwargs["sub_query"].strip() == norway_text
+        return SpecialistOutput(agent_name="WEB_SEARCH_AGENT", response="Norway/Noruega: fonte externa sem confirmação suficiente.",
+            request_unit_ids=["u2"], unresolved_unit_ids=["u2"], semantic_mode="limited_offline",
+            answer_status="partial" if external_result == "partial" else "abstained", abstained=True,
+            tools_called=["web_search_general"], tool_results=[ToolExecutionResult(
+                tool_name="web_search_general", success=external_result == "partial",
+                data={"results": []} if external_result == "partial" else None,
+                error_code=None if external_result == "partial" else "EXTERNAL_SERVICE_UNAVAILABLE")])
+
+    monkeypatch.setattr(orch.router, "replan", replan)
+    monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+    return orch, message, replans, delegations
+
+
+@pytest.mark.parametrize("brazil_text,external,documentary", P06_SCOPED_REPLAN_CASES)
+@pytest.mark.parametrize("knowledge_status,abstained", [("partial", True), ("partial", False), ("abstained", True)])
+@pytest.mark.parametrize("external_result", ["partial", "unavailable"])
+def test_country_gap_replans_explicit_external_norway_once_and_preserves_brazil(
+        monkeypatch, tmp_path, brazil_text, external, documentary, knowledge_status, abstained, external_result):
+    orch, message, replans, delegations = country_gap_orchestrator(monkeypatch, tmp_path,
+        brazil_text, external, knowledge_status=knowledge_status, abstained=abstained, external_result=external_result)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert len(replans) == 1
+    assert [call["target_agent"] for call in delegations] == ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"]
+    assert "2 dias úteis, taxa única e sem custo de antecipação" in out.response
+    assert "fonte externa sem confirmação suficiente" in out.response
+    assert out.answer_status == "partial"
+    assert [(row["unit_id"], row["state"]) for row in out.request_coverage] == [
+        ("u1", "fulfilled"), ("u2", "unresolved")]
+    assert out.request_coverage[0]["assigned_agents"] == ["KNOWLEDGE_AGENT"]
+    assert out.tools_called == ["search_getnet_knowledge", "web_search_general"]
+    assert out.evidence == [{"chunk_id": "getnet_crediario_s1_9ea682"}]
+
+
+@pytest.mark.parametrize("brazil_text,external,documentary", P06_SCOPED_REPLAN_CASES)
+@pytest.mark.parametrize("knowledge_status,abstained", [("partial", True), ("partial", False), ("abstained", True)])
+@pytest.mark.parametrize("fulfilled_external", [False, True])
+def test_country_gap_documentary_only_does_not_replan_when_brazil_is_preserved(
+        monkeypatch, tmp_path, brazil_text, external, documentary, knowledge_status, abstained, fulfilled_external):
+    if fulfilled_external:
+        brazil_text = brazil_text.rstrip(".") + " (external source)."
+    orch, message, replans, delegations = country_gap_orchestrator(monkeypatch, tmp_path,
+        brazil_text, documentary, knowledge_status=knowledge_status, abstained=abstained)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert replans == []
+    assert [call["target_agent"] for call in delegations] == ["KNOWLEDGE_AGENT"]
+    assert "2 dias úteis, taxa única e sem custo de antecipação" in out.response
+    assert out.answer_status == "partial"
+    assert out.tools_called == ["search_getnet_knowledge"]
+    assert [(row["unit_id"], row["state"]) for row in out.request_coverage] == [
+        ("u1", "fulfilled"), ("u2", "unresolved")]

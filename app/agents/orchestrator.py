@@ -19,6 +19,7 @@ from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
 from app.security.request_units import RequestCoverageLedger, request_units
 from app.security.operational_intent import classify_operational_intent
+from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
 from app.security.fulfillment import canonical_terminal_read_text
 from app.security.planning_policy import independent_veto_unit_ids
 from app.security.request_constraints import extract_constraints
@@ -750,6 +751,18 @@ class MultiAgentOrchestrator:
             tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_not_needed", status="skipped",
                             details={"reason": "no_actionable_observation"})
             return False
+        # Reuse the same source-intent boundary as Router/Knowledge. A source
+        # modifier can be split into another literal unit, but it qualifies only
+        # its sentence/semicolon clause, never an already fulfilled country.
+        pending_external_ids = set()
+        source_message = PIIRedactor.mask_text(original_message)
+        for unit in canonical_units:
+            if unit['unit_id'] not in available_ids:
+                continue
+            offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;\t\r\n'))
+            start, end = documentary_clause_span(source_message, offset)
+            if asks_explicit_external_evidence(source_message[start:end]):
+                pending_external_ids.add(unit['unit_id'])
         country_documentation_comparison = (
             bool(re.search(r'\bcredi[aá]rio\b', original_message, re.I))
             and bool(re.search(r'\bbrasil\b', original_message, re.I))
@@ -761,11 +774,14 @@ class MultiAgentOrchestrator:
         has_independent_supported_fact = any(
             row.get('state') == 'fulfilled' for row in request_coverage or []
         )
-        if (spec_output.agent_name == 'KNOWLEDGE_AGENT' and spec_output.answer_status == 'partial'
-                and spec_output.evidence and country_documentation_comparison
-                and has_independent_supported_fact and unresolved_rows
-                and all(re.search(r'\b(?:noruega|norway)\b', row.get('text', ''), re.I)
-                        for row in unresolved_rows)
+        country_documentation_gap = (
+            country_documentation_comparison and has_independent_supported_fact and bool(unresolved_rows)
+            and all(re.search(r'\b(?:noruega|norway)\b', row.get('text', ''), re.I)
+                    for row in unresolved_rows)
+        )
+        if (spec_output.agent_name == 'KNOWLEDGE_AGENT'
+                and spec_output.answer_status in {'partial', 'abstained'}
+                and spec_output.evidence and country_documentation_gap and not pending_external_ids
                 and not (spec_output.requires_escalation or failed_tools)):
             tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='replan_not_needed', status='skipped',
                 details={'reason': 'independent_country_documentation_unavailable',
@@ -773,8 +789,17 @@ class MultiAgentOrchestrator:
                                                      for row in request_coverage or []),
                          'unresolved_unit_count': len(unresolved_rows)})
             return False
-        # A completed support result can reveal a dependent query even without a failure.
+        if (spec_output.agent_name == 'WEB_SEARCH_AGENT' and country_documentation_gap
+                and pending_external_ids and available_ids <= set(spec_output.request_unit_ids)
+                and not spec_output.requires_escalation):
+            tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='replan_not_needed', status='skipped',
+                details={'reason': 'explicit_external_scope_already_attempted',
+                         'unresolved_unit_count': len(unresolved_rows)})
+            return False
+        # A completed support result or explicit pending source can justify
+        # another specialist even without a failure or blanket abstention.
         if not (spec_output.requires_escalation or spec_output.abstained or failed_tools
+                or (pending_external_ids and country_documentation_gap)
                 or spec_output.agent_name == "CUSTOMER_SUPPORT_AGENT"):
             return False
         try:
