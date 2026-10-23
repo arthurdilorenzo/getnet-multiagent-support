@@ -271,6 +271,28 @@ def _property_read(text: str, context: dict | None) -> PropertyRead | None:
     return PropertyRead('diagnose_terminal_issue', tuple(dict.fromkeys(paths))) if paths else None
 
 
+def canonical_terminal_read_text(text: str, original: str, context: dict | None = None) -> str:
+    """Resolve an elliptical property unit only within a pure, single-subject read.
+
+    The unit must be a literal server-owned span. The entire original must fit
+    the finite terminal property grammar; arbitrary predicates or other subjects
+    cannot donate a target or a read relation to an isolated keyword.
+    """
+    from app.security.request_units import request_units
+    literal = text.lstrip(' ;,.').strip()
+    if not any(unit['text'].lstrip(' ;,.').strip() == literal for unit in request_units(original)):
+        return text
+    authority = extract_constraints(original, context)
+    local = extract_constraints(text, context)
+    if local.terminal_ids or len(authority.terminal_ids) != 1 or authority.transaction_ids:
+        return text
+    if (SCOPE_MODIFIER.search(_normalize(original))
+            or not _property_read_shape(original, 'terminal')
+            or _property_read(original, context) is None):
+        return text
+    return f"{text.rstrip(' .!?')} of {authority.terminal_ids[0]}"
+
+
 def evaluate_operational_unit(text: str, results: Iterable[ToolExecutionResult],
                               context: dict | None = None, *, original: str | None = None,
                               authenticated_user_id: str | None = None) -> FulfillmentDecision:
@@ -279,6 +301,8 @@ def evaluate_operational_unit(text: str, results: Iterable[ToolExecutionResult],
     Different observations cannot donate unrelated fields to fabricate a complete
     row. Multiple targets/dates require separate unequivocal units or clarification.
     """
+    if original is not None:
+        text = canonical_terminal_read_text(text, original, context)
     norm = _normalize(text)
     scope_norm = _normalize(original if original is not None else text)
     if _connectivity_advice(scope_norm):

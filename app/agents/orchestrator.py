@@ -17,7 +17,9 @@ from app.observability.tracer import SystemTracer
 from app.schemas import ChatRequest, ChatResponse, Citation, PlanStep, SpecialistOutput, RoutingPlan
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
-from app.security.request_units import RequestCoverageLedger
+from app.security.request_units import RequestCoverageLedger, request_units
+from app.security.operational_intent import classify_operational_intent
+from app.security.fulfillment import canonical_terminal_read_text
 
 
 class MultiAgentOrchestrator:
@@ -573,6 +575,27 @@ class MultiAgentOrchestrator:
                 tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR",action="replan_not_needed",status="skipped",
                                 details={"reason":"remaining_request_units_scheduled","unit_count":len(remaining)})
                 return False
+        # A provider/protocol rejection supplies no new actionable fact. Do not
+        # spend another provider call inventing a private recovery for a public
+        # request; an explicitly requested private unit can still need work.
+        canonical_units = request_units(PIIRedactor.mask_text(original_message))
+        known_ids = {unit['unit_id'] for unit in canonical_units}
+        remaining_ids = ({row['unit_id'] for row in request_coverage
+                          if row['state'] not in {'fulfilled', 'exempt'}}
+                         if request_coverage is not None else known_ids)
+        unit_intents = {unit['unit_id']: classify_operational_intent(
+            canonical_terminal_read_text(unit['text'].lstrip(' ;,.'),
+                PIIRedactor.mask_text(original_message), conversation_context), conversation_context)
+            for unit in canonical_units}
+        private_ids = {uid for uid, intent in unit_intents.items()
+                       if intent.private_scope and not intent.documentary_scope}
+        semantic_error = (spec_output.structured_data or {}).get('semantic_error') or {}
+        if (spec_output.agent_name in {'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT'}
+                and isinstance(semantic_error, dict) and semantic_error.get('code')
+                and not (remaining_ids & private_ids) and not spec_output.requires_escalation):
+            tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_not_needed", status="skipped",
+                            details={"reason": "no_actionable_observation"})
+            return False
         # A completed support result can reveal a dependent query even without a failure.
         if not (spec_output.requires_escalation or spec_output.abstained or failed_tools
                 or spec_output.agent_name == "CUSTOMER_SUPPORT_AGENT"):
@@ -589,6 +612,29 @@ class MultiAgentOrchestrator:
             if step.target_agent in scheduled:
                 tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_no_progress", status="skipped",
                                 details={"target_agent": step.target_agent, "reason": "already_executed_or_pending"})
+                continue
+            # Native delegation proposes work; canonical pending units authorize
+            # its scope. Rationale/sub_query cannot create a private need.
+            try:
+                rebound = RouterAgent.bind_request_units(
+                    RoutingPlan(primary_agent=step.target_agent, plan_steps=[step],
+                                confidence=0.0, reasoning="Server replan scope validation"),
+                    PIIRedactor.mask_text(original_message), conversation_context,
+                    complete_assignment=False)
+                step = rebound.plan_steps[0]
+                ids = set(step.request_unit_ids)
+                if step.target_agent == 'HUMAN_ESCALATION_AGENT':
+                    permitted = spec_output.requires_escalation or failed_tools or bool(ids & remaining_ids)
+                else:
+                    permitted = bool(ids) and ids <= remaining_ids
+                    if step.target_agent == 'CUSTOMER_SUPPORT_AGENT':
+                        permitted = permitted and ids <= private_ids
+            except (ValueError, RouterPlanningError):
+                permitted = False
+            if not permitted:
+                tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_scope_rejected", status="skipped",
+                                details={"target_agent": step.target_agent,
+                                         "reason": "no_authorized_pending_units"})
                 continue
             if len(agents_executed) + len(pending_steps) >= settings.MAX_ORCHESTRATION_ITERATIONS:
                 # Keep one pending step so the final answer explicitly reports the limit.

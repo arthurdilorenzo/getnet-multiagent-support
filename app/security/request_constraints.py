@@ -123,7 +123,8 @@ def extract_constraints(message: str, conversation_context: dict | None = None) 
     return RequestConstraints(clean, terminals, transactions, tuple(dates), ambiguous)
 
 
-def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstraints) -> dict:
+def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstraints,
+                   *, assigned_unit_ids: list[str] | None = None) -> dict:
     """Return a copy, bind a single omitted value, reject divergent/ambiguous calls."""
     result: dict[str, Any] = dict(arguments)
 
@@ -140,14 +141,57 @@ def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstrai
             else:
                 result[field] = normalized
 
+    # Read authority is a canonical original unit, never a model-written subquery.
+    # Explicit independent targets can be inspected separately. Transaction pairs
+    # remain local to that target's unit; an ambiguous list is not a Cartesian product.
+    read_constraints = constraints
+    if (tool_name == 'diagnose_terminal_issue' and constraints.terminal_ids
+            and (assigned_unit_ids is not None or len(constraints.terminal_ids) > 1)
+            and re.search(TERMINAL_PATTERN, constraints.original_message, re.I)):
+        from app.security.request_units import request_units
+        from app.security.fulfillment import canonical_terminal_read_text
+        candidates = []
+        for unit in request_units(constraints.original_message):
+            if assigned_unit_ids is not None and unit['unit_id'] not in assigned_unit_ids:
+                continue
+            canonical = canonical_terminal_read_text(unit['text'].lstrip(' ;,.'), constraints.original_message)
+            local = extract_constraints(canonical)
+            if len(local.terminal_ids) == 1:
+                candidates.append(local)
+        requested_target = str(result.get('terminal_id') or '').upper()
+        if not requested_target:
+            targets = tuple(dict.fromkeys(target for item in candidates for target in item.terminal_ids))
+            if len(targets) != 1:
+                raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION', 'Informe um alvo inequívoco para esta consulta.')
+            requested_target = targets[0]
+        matching = [item for item in candidates if requested_target in item.terminal_ids]
+        if not matching:
+            raise RequestConstraintError('REQUEST_TARGET_MISMATCH', 'O alvo não pertence a uma unidade original atribuída inequívoca.')
+        transaction = str(result.get('transaction_id') or '').upper()
+        if transaction:
+            matching = [item for item in matching if transaction in item.transaction_ids]
+            if not matching:
+                raise RequestConstraintError('REQUEST_TRANSACTION_MISMATCH', 'A transação não pertence à unidade original deste terminal.')
+        transaction_sets = {item.transaction_ids for item in matching}
+        if len(transaction_sets) != 1:
+            raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION', 'Confirme a transação para este terminal.')
+        transactions = next(iter(transaction_sets))
+        if len(transactions) > 1:
+            raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION', 'Informe uma única transação para esta consulta.')
+        # An explicitly supplied unrelated transaction must not pass when the
+        # assigned unit is merely a firmware/status read.
+        read_constraints = RequestConstraints(constraints.original_message, (requested_target,), transactions,
+            constraints.sales_dates, constraints.ambiguous_date)
+        result['terminal_id'] = requested_target
+
     if tool_name in ('diagnose_terminal_issue', 'execute_terminal_remote_action'):
         if not constraints.terminal_ids and _new_device_target(_normalize(constraints.original_message)):
             raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION','Informe o ID do novo terminal; o terminal anterior não será substituído silenciosamente.')
         if not constraints.terminal_ids and re.search(r'\b(?:mesm[oa]|same)\s+(?:terminal|maquina|maquininha|machine)\b', _normalize(constraints.original_message)):
             raise RequestConstraintError('REQUEST_NEEDS_CLARIFICATION', 'Não há um terminal de referência inequívoco. Informe o ID do terminal.')
-        bind('terminal_id', constraints.terminal_ids, 'REQUEST_TARGET_MISMATCH')
+        bind('terminal_id', read_constraints.terminal_ids, 'REQUEST_TARGET_MISMATCH')
     if tool_name == 'diagnose_terminal_issue':
-        bind('transaction_id', constraints.transaction_ids, 'REQUEST_TRANSACTION_MISMATCH')
+        bind('transaction_id', read_constraints.transaction_ids, 'REQUEST_TRANSACTION_MISMATCH')
     if tool_name == 'get_sales_settlement':
         if constraints.ambiguous_date:
             raise RequestConstraintError('REQUEST_DATE_AMBIGUOUS', 'A data é ambígua ou inválida. Informe dia, mês e ano por extenso ou em ISO (AAAA-MM-DD).')

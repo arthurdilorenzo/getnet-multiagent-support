@@ -72,11 +72,11 @@ class CustomerSupportAgent:
                 confidence=0.0,abstained=True,abstention_reason="INVALID_DELEGATION_SCOPE",answer_status="abstained")
         if settings.GEMINI_API_KEY:
             output = self._run_with_gemini(
-                message, security_context, session_id, conversation_context, tracer, original_message
+                message, security_context, session_id, conversation_context, tracer, original_message, scope["assigned_unit_ids"]
             )
         else:
             output = self._run_offline(
-                message, security_context, session_id, conversation_context, tracer, original_message
+                message, security_context, session_id, conversation_context, tracer, original_message, scope["assigned_unit_ids"]
             )
         return self._with_unit_coverage(output,original_message,scope,conversation_context,
                                         security_context.authenticated_user_id)
@@ -158,6 +158,7 @@ class CustomerSupportAgent:
         self, message: str, security_context: SecurityContext, session_id: str,
         conversation_context: Optional[Dict[str, Any]], tracer: Optional[SystemTracer],
         authorization_message: str,
+        assigned_unit_ids: Optional[List[str]] = None,
     ) -> SpecialistOutput:
         constraints = extract_constraints(authorization_message, conversation_context)
         contents = initial_contents(message, conversation_context)
@@ -237,7 +238,7 @@ class CustomerSupportAgent:
                         )
                     else:
                         try:
-                            arguments = constrain_call(name, call.args or {}, constraints)
+                            arguments = constrain_call(name, call.args or {}, constraints, assigned_unit_ids=assigned_unit_ids)
                         except RequestConstraintError as exc:
                             # Preserve the public consent-denial code for a remote
                             # command aimed at a machine the original request did not authorize.
@@ -305,6 +306,7 @@ class CustomerSupportAgent:
         conversation_context: Optional[Dict[str, Any]] = None,
         tracer: Optional[SystemTracer] = None,
         authorization_message: str = "",
+        assigned_unit_ids: Optional[List[str]] = None,
     ) -> SpecialistOutput:
         trace_id = tracer.trace_id if tracer else ""
         constraints = extract_constraints(authorization_message or message, conversation_context)
@@ -318,6 +320,23 @@ class CustomerSupportAgent:
 
         # Modo offline explícito: seleção determinística, sem chamada de LLM.
         pending_calls = self._plan_initial_tools(contextual_msg, tracer=tracer)
+        # Offline selection can fan out literal explicit read targets. The native
+        # path still requires the model to select every tool call itself.
+        if len(constraints.terminal_ids) > 1 and 'action' not in classify_operational_intent(authorization_message or message).intents:
+            diagnostic_calls = []
+            for unit in request_units(authorization_message or message):
+                if assigned_unit_ids is not None and unit['unit_id'] not in assigned_unit_ids:
+                    continue
+                local = extract_constraints(unit['text'])
+                property_text = re.sub(TERMINAL_PATTERN, ' ', unit['text'], flags=re.I)
+                property_text = re.sub(TRANSACTION_PATTERN, ' ', property_text, flags=re.I)
+                explicit_property = re.search(r'\b(?:firmware|version|versao|status|estado|situacao|signal|sinal|connect\w*|conect\w*|conex\w*|telemetr\w*|hardware|battery|bateria|declin\w*|recus\w*|codigo|code|erro|error)\b',
+                    BilingualDenseEmbedder.normalize(property_text))
+                if len(local.terminal_ids) == 1 and explicit_property:
+                    diagnostic_calls.extend(call for call in self._plan_initial_tools(unit['text'], tracer=tracer)
+                                            if call.tool_name == 'diagnose_terminal_issue')
+            if diagnostic_calls:
+                pending_calls = [call for call in pending_calls if call.tool_name != 'diagnose_terminal_issue'] + diagnostic_calls
         if not pending_calls:
             return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT",
                 response="Não identifiquei uma consulta operacional privada inequívoca. Informe se deseja consultar liquidação, perfil ou um terminal/transação específico.",
@@ -331,7 +350,7 @@ class CustomerSupportAgent:
             tools_called.append(call_spec.tool_name)
 
             try:
-                arguments = constrain_call(call_spec.tool_name, call_spec.arguments, constraints)
+                arguments = constrain_call(call_spec.tool_name, call_spec.arguments, constraints, assigned_unit_ids=assigned_unit_ids)
             except RequestConstraintError as exc:
                 res = ToolExecutionResult(tool_name=call_spec.tool_name, success=False,
                                           error_code=exc.code, error_message=exc.message)
