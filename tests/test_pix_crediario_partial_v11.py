@@ -186,6 +186,7 @@ class BatchProvider:
 def test_verified_pix_correction_handles_native_batches_without_dropping_unrelated_calls(monkeypatch, mixed):
     from app.schemas import ToolExecutionResult
     from app.tools.registry import tool_registry
+    from app.rag.answerability import offline_request_coverage
     pix = "Name the account types accepted for Pix in Brazil."
     external = "Find the current external rules for Pix account eligibility in Brazil."
     message = pix + (" " + external + " Find weather in Porto Alegre." if mixed else "")
@@ -504,6 +505,56 @@ def test_country_gap_replans_explicit_external_norway_once_and_preserves_brazil(
     assert out.request_coverage[0]["assigned_agents"] == ["KNOWLEDGE_AGENT"]
     assert out.tools_called == ["search_getnet_knowledge", "web_search_general"]
     assert out.evidence == [{"chunk_id": "getnet_crediario_s1_9ea682"}]
+
+
+def test_native_c04_exact_brazil_terms_survive_independent_norway_web_failure(monkeypatch, tmp_path):
+    """Exact native C04 request uses local retrieval and retains it after only Web fails."""
+    from app.rag.answerability import offline_request_coverage
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    module = importlib.import_module('app.agents.orchestrator')
+    monkeypatch.setattr(module, 'state_store', StateStore(tmp_path / 'native-c04.sqlite'))
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
+    monkeypatch.setattr(settings, 'AUTH_ENFORCE_STRICT', False)
+    message = ('For Getnet Crediário in Brasil, state the published settlement timing, fee, and '
+               'anticipation cost using Getnet documentation. Find current central bank rules for the '
+               'same Crediário terms in Norway using an external source; do not assume the Brazil terms apply there.')
+    units = request_units(message)
+    # The conjunction split makes anticipation its own literal unit, but it
+    # belongs to the Brazil clause; the last two units belong to Norway.
+    assert len(units) == 4
+    brazil_ids = [units[0]['unit_id'], units[1]['unit_id']]
+    norway_ids = [units[2]['unit_id'], units[3]['unit_id']]
+    brazil_query = units[0]['text'] + units[1]['text']
+    assert offline_request_coverage(brazil_query)['complete_parse']
+    plan = RoutingPlan(primary_agent='KNOWLEDGE_AGENT', confidence=.9, reasoning='independent countries',
+        plan_steps=[
+            PlanStep(step_order=1, target_agent='KNOWLEDGE_AGENT', sub_query=brazil_query, rationale='local Brazil documentation', request_unit_ids=brazil_ids),
+            PlanStep(step_order=2, target_agent='WEB_SEARCH_AGENT', sub_query='Find current central bank rules for the same Crediário terms in Norway using an external source; do not assume the Brazil terms apply there.', rationale='independent Norway source', request_unit_ids=norway_ids),
+        ])
+    orch = MultiAgentOrchestrator()
+    monkeypatch.setattr(orch.router, 'plan', lambda **kwargs: plan)
+    actual_execute = tool_registry.execute
+    dispatched_queries = []
+    def fail_only_norway_web(**kwargs):
+        if kwargs['tool_name'] == 'web_search_general':
+            dispatched_queries.append(kwargs['raw_arguments']['query'])
+            return ToolExecutionResult(tool_name='web_search_general', success=False,
+                error_code='EXTERNAL_SERVICE_UNAVAILABLE', error_message='synthetic Norway Web outage')
+        return actual_execute(**kwargs)
+    monkeypatch.setattr(tool_registry, 'execute', fail_only_norway_web)
+    out = orch.process(ChatRequest(message=message, user_id='synthetic', session_id='native-c04'),
+                       SecurityContext('synthetic'))
+    assert dispatched_queries
+    assert all('Norway' in query or 'Brazil terms' in query for query in dispatched_queries)
+    assert '2 dias úteis' in out.response and 'taxa única' in out.response
+    assert 'sem custo de antecipação' in out.response
+    assert 'Noruega' in out.response or 'Norway' in out.response
+    assert out.answer_status == 'partial'
+    brazil_evidence = [item for item in out.evidence if item.get('chunk_id') == 'getnet_crediario_s1_9ea682']
+    assert brazil_evidence and '2 dias úteis' in brazil_evidence[0]['excerpt']
+    assert all(row['state'] == 'fulfilled' for row in out.request_coverage if row['unit_id'] in brazil_ids)
+    assert all(row['state'] == 'unresolved' for row in out.request_coverage if row['unit_id'] in norway_ids)
 
 
 @pytest.mark.parametrize("brazil_text,external,documentary", P06_SCOPED_REPLAN_CASES)

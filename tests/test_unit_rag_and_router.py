@@ -57,6 +57,36 @@ def test_hybrid_rag_threshold_abstention_on_out_of_domain_query():
     assert outcome["citations"] == []
 
 
+def test_brazil_scope_requires_dot_bounded_verified_getnet_host(tmp_path):
+    """A lookalike registrable domain must not inherit Getnet Brazil scope."""
+    from app.rag.retriever import HybridKnowledgeRetriever
+
+    content = ("O Crediário permite parcelar em até 48x no cartão de crédito. "
+               "O limite efetivo e os juros variam conforme o emissor do cartão. "
+               "O lojista recebe o valor total em até 2 dias úteis, com taxa única "
+               "e sem custo de antecipação.")
+    outcomes = {}
+    for label, host in {
+        "lookalike": "notgetnet.com.br",
+        "actual_corpus_subdomain": "site.getnet.com.br",
+        "apex": "getnet.com.br",
+    }.items():
+        data_dir = tmp_path / label
+        data_dir.mkdir()
+        (data_dir / "product.md").write_text(
+            f"---\nsource_url: https://{host}/crediario/\ntitle: Crediário\n"
+            "verification_status: reviewed_against_official_page\n---\n"
+            f"## Crediário\n{content}\n", encoding="utf-8")
+        ret = HybridKnowledgeRetriever(data_dir=data_dir,
+            corpus_path=data_dir / "corpus.json", vector_index_path=data_dir / "vec.json")
+        outcomes[label] = ret.retrieve_hybrid(
+            "For Getnet Crediário in Brasil, state the published settlement timing, fee, and anticipation cost using Getnet documentation.")
+
+    assert outcomes["lookalike"]["abstained"] is True
+    assert outcomes["actual_corpus_subdomain"]["abstained"] is False
+    assert outcomes["apex"]["abstained"] is False
+
+
 def test_knowledge_agent_dynamic_grounding_not_hardcoded(tmp_path: Path):
     """
     Prova que o KnowledgeAgent NÃO usa strings fixas hardcoded para responder:

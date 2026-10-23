@@ -7,6 +7,7 @@ from google.genai import types
 
 from app.rag.semantic import (SemanticEvidenceAuthorizer, candidate_spans, content_hash)
 from app.security.request_units import request_units
+from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +69,40 @@ def test_independent_country_rejection_keeps_verified_brazilian_fact():
     assert out.unresolved_unit_ids == [second]
     assert out.approved_chunks[0]['approved_spans'][0] == candidate_spans(source())[0]
     assert len(requests) == 2
+
+
+@pytest.mark.parametrize('message', [
+    "Which Pix account types are accepted? Use Getnet's own guidance, please.",
+    'Para habilitar recebimentos por Pix no Brasil, que modalidades de conta são aceitas pela documentação da Getnet? Use a orientação da própria Getnet, por favor.',
+    'What are the current Crediário terms in Norway? Consulte fontes atuais e deixe claro se não houver confirmação.',
+])
+def test_source_qualifier_stays_attached_to_its_factual_subject(message):
+    units = request_units(message)
+    assert len(units) == 1
+    from app.security.request_units import RequestCoverageLedger
+    assert len(RequestCoverageLedger(message).snapshot()) == 1
+    assert RequestCoverageLedger(message).snapshot()[0]['text'] == message
+    start, end = documentary_clause_span(message, 0)
+    assert message[start:end] == message
+
+
+def test_request_for_current_sources_is_an_external_source_constraint():
+    assert asks_explicit_external_evidence(
+        'What are the Norway terms? Consulte fontes atuais e deixe claro se não houver confirmação.')
+
+
+def test_native_search_replan_query_retains_topic_when_model_returns_source_qualifier_only():
+    from app.agents.router_agent import RouterAgent
+    from app.schemas import PlanStep, RoutingPlan
+    message = ('What are the current Crediário settlement terms in Norway? '
+               'Consulte fontes atuais e deixe claro se não houver confirmação.')
+    unit = request_units(message)[0]
+    plan = RoutingPlan(primary_agent='WEB_SEARCH_AGENT', confidence=.9, reasoning='synthetic',
+        plan_steps=[PlanStep(step_order=1, target_agent='WEB_SEARCH_AGENT',
+            sub_query='Consulte fontes atuais e deixe claro se não houver confirmação.',
+            rationale='replan', request_unit_ids=[unit['unit_id']])])
+    bound = RouterAgent.bind_request_units(plan, message, complete_assignment=False)
+    assert 'Crediário settlement terms in Norway' in bound.plan_steps[0].sub_query
 
 
 @pytest.mark.parametrize('issue', ['omitted_condition', 'omitted_exception', 'scope_mismatch', 'polarity_mismatch', 'invalid_delegation'])
@@ -200,6 +235,89 @@ def test_native_web_proposal_is_not_rebound_to_unverified_candidate(monkeypatch)
     provider = Provider(completion(('WEB_SEARCH_AGENT', dict(sub_query=message, rationale='external update'))))
     plan = RouterAgent(provider).plan(message, 'synthetic')
     assert plan.primary_agent == 'WEB_SEARCH_AGENT'
+
+
+def test_router_binding_keeps_the_actual_sim_task_when_model_subquery_uses_context_only():
+    from app.agents.router_agent import RouterAgent
+    from app.schemas import PlanStep, RoutingPlan
+    message = 'I found an Algar SIM in the reader box. Walk me through safe placement and how to confirm communication.'
+    units = request_units(message)
+    plan = RoutingPlan(primary_agent='KNOWLEDGE_AGENT', confidence=.9, reasoning='synthetic',
+        plan_steps=[PlanStep(step_order=1, target_agent='KNOWLEDGE_AGENT',
+            sub_query=units[0]['text'], rationale='manual', request_unit_ids=[units[0]['unit_id']])])
+    bound = RouterAgent.bind_request_units(plan, message)
+    query = bound.plan_steps[0].sub_query.lower()
+    assert 'safe placement' in query
+    assert 'confirm communication' in query
+
+
+def test_knowledge_execution_keeps_sim_task_when_native_tool_query_is_context_only(monkeypatch):
+    from app.agents.knowledge_agent import KnowledgeAgent
+    from app.config import settings
+    from app.schemas import ToolCallSpec, ToolExecutionResult
+    from app.security.auth import SecurityContext
+    from app.tools.registry import tool_registry
+    message = ('I found an Algar SIM in the reader box. Walk me through safe placement '
+               'and how to confirm communication.')
+    units = request_units(message)
+    assigned = [unit['unit_id'] for unit in units]
+    agent = KnowledgeAgent()
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
+    context_query = units[0]['text']
+    monkeypatch.setattr(agent, '_plan_tool_calls', lambda **kwargs: [ToolCallSpec(
+        tool_name='search_getnet_knowledge', arguments={'query': context_query, 'top_k': 3}, rationale='synthetic')])
+    dispatched = []
+    def stop(**kwargs):
+        dispatched.append(kwargs['raw_arguments']['query'])
+        return ToolExecutionResult(tool_name='search_getnet_knowledge', success=False,
+                                   error_code='SYNTHETIC_STOP', error_message='stop after dispatch')
+    monkeypatch.setattr(tool_registry, 'execute', stop)
+    agent.run(message=context_query, request_message=message, security_context=SecurityContext('synthetic'),
+        delegation_scope={'assigned_unit_ids': assigned, 'other_unit_ids': []})
+    assert len(dispatched) == 1
+    assert 'safe placement' in dispatched[0].lower()
+    assert 'confirm communication' in dispatched[0].lower()
+
+
+def test_knowledge_execution_repair_excludes_private_clause_from_sim_query(monkeypatch):
+    from app.agents.knowledge_agent import KnowledgeAgent
+    from app.config import settings
+    from app.schemas import ToolCallSpec, ToolExecutionResult
+    from app.security.auth import SecurityContext
+    from app.tools.registry import tool_registry
+    message = ('I found an Algar SIM in the reader box. Walk me through safe placement. '
+               'Also check my account balance.')
+    units = request_units(message)
+    agent = KnowledgeAgent()
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
+    context_query = units[0]['text']
+    monkeypatch.setattr(agent, '_plan_tool_calls', lambda **kwargs: [ToolCallSpec(
+        tool_name='search_getnet_knowledge', arguments={'query': context_query, 'top_k': 3}, rationale='synthetic')])
+    dispatched = []
+    def stop(**kwargs):
+        dispatched.append(kwargs['raw_arguments']['query'])
+        return ToolExecutionResult(tool_name='search_getnet_knowledge', success=False, error_code='SYNTHETIC_STOP')
+    monkeypatch.setattr(tool_registry, 'execute', stop)
+    agent.run(message=context_query, request_message=message, security_context=SecurityContext('synthetic'),
+        delegation_scope={'assigned_unit_ids': [u['unit_id'] for u in units], 'other_unit_ids': []})
+    assert len(dispatched) == 1
+    assert 'safe placement' in dispatched[0].lower()
+    assert 'account balance' not in dispatched[0].lower()
+
+
+def test_context_repair_does_not_append_private_or_unrelated_followup_units():
+    from app.agents.router_agent import RouterAgent
+    from app.schemas import PlanStep, RoutingPlan
+    message = ('I found an Algar SIM in the reader box. Walk me through safe placement. '
+               'Also check my account balance.')
+    units = request_units(message)
+    plan = RoutingPlan(primary_agent='KNOWLEDGE_AGENT', confidence=.9, reasoning='synthetic',
+        plan_steps=[PlanStep(step_order=1, target_agent='KNOWLEDGE_AGENT', sub_query=units[0]['text'],
+            rationale='manual', request_unit_ids=[unit['unit_id'] for unit in units])])
+    bound = RouterAgent.bind_request_units(plan, message)
+    query = bound.plan_steps[0].sub_query.lower()
+    assert 'safe placement' in query
+    assert 'account balance' not in query
 
 
 def test_mixed_firmware_has_separate_native_delegations(monkeypatch):

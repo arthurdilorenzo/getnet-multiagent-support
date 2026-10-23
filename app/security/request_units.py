@@ -1,6 +1,7 @@
 """Literal server-owned units and an evidence-report ledger; no SDK dependency."""
 import re
 from typing import Any
+from app.security.documentary_intent import _source_qualifier_sentence_spans
 
 
 # Additive markers only introduce a fresh bounded read when followed by a
@@ -32,7 +33,10 @@ def operational_unit_text(text: str, original: str) -> str:
 
 def request_units(message: str) -> list[dict[str, Any]]:
     boundaries={0,len(message)}
+    attached_source_spans = _source_qualifier_sentence_spans(message)
     for match in re.finditer(r';|(?<=[.!?])\s+(?=\S)|\b(?:e|and|mas|but|tambem|also|exceto|except|unless|se|if|desde que|provided that)\b',message,flags=re.I):
+        if any(start <= match.start() < end for start, end in attached_source_spans):
+            continue
         boundaries.add(match.start())
     for match in _ADDITIVE_START.finditer(message):
         boundaries.add(match.start())

@@ -31,6 +31,27 @@ Diretrizes inegociáveis de Grounding e Confiabilidade:
 """
 
 
+def _sim_context_only_query(text: str) -> bool:
+    return bool(re.fullmatch(
+        r"(?i)\s*(?:I\s+found|I\s+have|there\s+is|there's|I\s+see|"
+        r"Encontrei|Achei|Tenho|H[aá]\s+um)\b[^.!?]*\b(?:SIM|chip)\b[^.!?]*[.!?]?\s*",
+        text))
+
+
+def _safe_sim_instruction_clause(text: str) -> bool:
+    """Recognize bounded public installation/connectivity tasks, not account state."""
+    if re.search(r"(?i)\b(?:my|meu|minha|firmware|status|saldo|conta|perfil|"
+                 r"transa[cç][aã]o|terminal\s+GET-[A-Z0-9-]+)\b", text):
+        return False
+    return bool(re.search(
+        r"(?i)\b(?:safe\s+placement|walk\s+me\s+through|SIM\s+installation|"
+        r"install(?:ing)?\s+(?:the\s+)?SIM|how\s+to\s+(?:place|install|test)|"
+        r"confirm\s+(?:communication|connectivity)|test\s+(?:the\s+)?(?:connection|connectivity)|"
+        r"colocar\s+o\s+chip|instalar\s+o\s+chip|encaixar\s+o\s+chip|"
+        r"testar\s+(?:a\s+)?conex[aã]o|confirmar\s+(?:a\s+)?comunica[cç][aã]o)\b",
+        text))
+
+
 class KnowledgeAgent:
     """
     Agente 2: Knowledge & External Search Agent.
@@ -335,10 +356,22 @@ class KnowledgeAgent:
         if not data.get('abstained') and whole['complete_parse']:
             covered=[u['unit_id'] for u in canonical if u['unit_id'] in assigned]
         else:
-            for unit in canonical:
-                if unit['unit_id'] not in assigned or not offline_request_coverage(unit['text'])['complete_parse']:continue
-                if any(assess(unit['text'],chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
-                    covered.append(unit['unit_id'])
+            # Router assignments may combine adjacent literal units into one
+            # complete scoped query (for example, timing + fee + anticipation
+            # for Brazil). Authorize that group only when the finite parser
+            # accepts the whole scoped text and actual retrieved spans cover it.
+            assigned_text=''.join(unit['text'] for unit in canonical
+                                  if unit['unit_id'] in assigned).strip(' ;')
+            scoped_parse=offline_request_coverage(assigned_text)
+            if (not data.get('abstained') and scoped_parse['complete_parse'] and chunks
+                    and any(chunk.get('answerability',{}).get('answerable')
+                            for chunk in chunks)):
+                covered=[unit['unit_id'] for unit in canonical if unit['unit_id'] in assigned]
+            else:
+                for unit in canonical:
+                    if unit['unit_id'] not in assigned or not offline_request_coverage(unit['text'])['complete_parse']:continue
+                    if any(assess(unit['text'],chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
+                        covered.append(unit['unit_id'])
         unresolved=[u['unit_id'] for u in canonical if u['unit_id'] in assigned and u['unit_id'] not in covered]
         data.update(semantic_mode='limited_offline',request_unit_ids=scope['assigned_unit_ids'],
                     covered_unit_ids=covered,unresolved_unit_ids=unresolved,
@@ -586,6 +619,19 @@ class KnowledgeAgent:
                                 == BilingualDenseEmbedder.normalize(authoritative_query).strip())
             selected = clauses if whole_assignment else [
                 clause for clause, score in zip(clauses, scores) if score == best]
+            # Router binding preserves the full original query, but native
+            # function calling can still propose only the contextual SIM
+            # sentence. Keep its explicitly assigned public manual steps in
+            # the actual retrieval call; never widen to unrelated/private units.
+            if (_sim_context_only_query(proposed_query)
+                    and re.search(r"(?i)\b(?:SIM|chip)\b", original_request)):
+                sim_tasks = [clause for clause in clauses
+                             if _safe_sim_instruction_clause(clause['text'])]
+                for clause in sim_tasks:
+                    if clause not in selected:
+                        selected.append(clause)
+                selected.sort(key=lambda clause: min(
+                    unit['start'] for unit in canonical if unit['unit_id'] in clause['ids']))
             mixed_sources = len({clause['external'] for clause in selected}) > 1
             if not whole_assignment and len(selected) > 1 and mixed_sources:
                 raise ValueError('Não foi possível associar a consulta a um escopo documental único com segurança.')

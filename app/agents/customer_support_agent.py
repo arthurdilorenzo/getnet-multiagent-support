@@ -78,8 +78,188 @@ class CustomerSupportAgent:
             output = self._run_offline(
                 message, security_context, session_id, conversation_context, tracer, original_message, scope["assigned_unit_ids"]
             )
-        return self._with_unit_coverage(output,original_message,scope,conversation_context,
-                                        security_context.authenticated_user_id)
+        output = self._with_unit_coverage(output,original_message,scope,conversation_context,
+                                          security_context.authenticated_user_id)
+        return self._minimize_multi_terminal_fields(
+            output, original_message, security_context.authenticated_user_id)
+
+    @staticmethod
+    def _minimize_multi_terminal_fields(output: SpecialistOutput, original: str,
+                                        authenticated_user_id: Optional[str] = None) -> SpecialistOutput:
+        """Project multi-terminal diagnostic output onto each unit's requested fields.
+
+        The underlying operational tool returns a broad snapshot. That snapshot is
+        useful internally, but it must not become user-visible when the request
+        names a smaller, target-specific set of fields.
+        """
+        units = request_units(original)
+        pairs: dict[str, set[str]] = {}
+        profile_requested = False
+        for unit in units:
+            ids = extract_constraints(unit['text']).terminal_ids
+            norm = BilingualDenseEmbedder.normalize(unit['text'])
+            if not ids:
+                context_only = re.sub(r"[^a-z0-9 ]", " ", norm).strip()
+                if context_only in {'no meu cadastro', 'in my account', 'on my account'}:
+                    continue
+                profile_match = re.search(
+                    r"\b(?:full profile|my profile|customer profile|profile details|account details|perfil completo|meu perfil|perfil cadastral|perfil|dados cadastrais|cadastro completo)\b",
+                    norm)
+                if profile_match:
+                    residue = norm[:profile_match.start()] + ' ' + norm[profile_match.end():]
+                    if set(re.findall(r"[a-z0-9]+", residue)) - {
+                        'show', 'see', 'get', 'view', 'check', 'tell', 'please', 'my', 'the',
+                        'consulte', 'consultar', 'veja', 'verifique', 'meu', 'o', 'a', 'por', 'favor'}:
+                        return output
+                    profile_requested = True
+                    continue
+                return output
+            if len(ids) != 1:
+                return output
+            fields: set[str] = set()
+            if re.search(r"\b(?:connection(?: type)?|connectivity|conexao|conectividade)\b", norm):
+                fields.add('connection_type')
+            if re.search(r"\b(?:signal(?: strength)?|sinal|strength|forca)\b", norm):
+                fields.add('signal_strength')
+            if len(fields) != 1 or ids[0] in pairs:
+                return output
+            # Permit a finite set of request/context words around the supported
+            # field and ID. Residual tasks (for example, "full profile") disable
+            # projection so independently requested work remains intact.
+            residue = re.sub(re.escape(BilingualDenseEmbedder.normalize(ids[0])), ' ', norm, flags=re.I)
+            residue = re.sub(r"\b(?:connection(?: type)?|connectivity|conexao|conectividade|signal(?: strength)?|sinal|strength|forca|tipo|type)\b", ' ', residue)
+            residue = re.sub(r"\b(?:no meu cadastro|in my account|on my account)\b", ' ', residue)
+            allowed = {'check', 'inspect', 'verify', 'confirm', 'show', 'tell', 'please', 'consulte', 'inform', 'informe',
+                       'only', 'apenas', 'por', 'favor', 'the', 'a', 'an', 'o', 'as',
+                       'os', 'de', 'do', 'da', 'dos', 'das', 'of', 'for', 'to', 'and', 'plus', 'e',
+                       'identifying', 'identify', 'identificando', 'each', 'cada', 'machine', 'machines', 'maquina',
+                       'terminal', 'device', 'my', 'me', 'meu'}
+            if set(re.findall(r"[a-z0-9]+", residue)) - allowed:
+                return output
+            pairs[ids[0]] = fields
+        if len(pairs) < 2:
+            return output
+
+        projected: list[ToolExecutionResult] = []
+        rendered: list[str] = []
+        rendered_ids: set[str] = set()
+        owner_by_target: dict[str, Optional[str]] = {}
+        profile_results: list[ToolExecutionResult] = []
+        for result in output.tool_results:
+            # The minimization mode represents only explicitly requested
+            # per-terminal reads. Drop other tool payloads as out-of-scope,
+            # including a full-profile result caused by "No meu cadastro".
+            if result.tool_name == 'get_customer_profile' and profile_requested:
+                profile_data = result.data if isinstance(result.data, dict) else {}
+                profile_owned = (
+                    result.success
+                    and profile_data.get('found') is True
+                    and authenticated_user_id is not None
+                    and profile_data.get('user_id') == authenticated_user_id
+                )
+                if profile_owned:
+                    profile_results.append(result)
+                continue
+            if result.tool_name != 'diagnose_terminal_issue':
+                continue
+            if not result.success:
+                # Keep an auditable denial/failure record but never its payload.
+                projected.append(result.model_copy(update={
+                    'data': None,
+                    'error_message': 'Consulta operacional recusada ou indisponível.',
+                }))
+                continue
+            if not isinstance(result.data, dict):
+                continue
+            source = result.data
+            terminal = source.get('terminal') or {}
+            target = terminal.get('terminal_id') or source.get('requested_terminal_id')
+            requested = pairs.get(target)
+            if requested is None:
+                # An unknown/missing target cannot be safely paired with any
+                # requested fields, so do not carry its broad tool payload on.
+                continue
+            owner_by_target[target] = source.get('user_id')
+            identity_matches = (authenticated_user_id is None
+                                or source.get('user_id') == authenticated_user_id)
+            if (result.success and identity_matches and source.get('found') is True
+                    and terminal.get('terminal_id') == target):
+                fields = next(iter(requested))
+                data = {'found': True, 'terminal': {'terminal_id': target}}
+                field_value = terminal.get(fields)
+                if isinstance(field_value, str) and field_value.strip():
+                    data['terminal'][fields] = field_value
+                else:
+                    data['found'] = False
+                    data['requested_terminal_id'] = target
+                label = 'Tipo de conexão' if fields == 'connection_type' else 'Força do sinal'
+                if data['found'] and fields in data['terminal']:
+                    rendered.append(f"- `{target}` — **{label}:** {field_value}")
+                else:
+                    rendered.append(f"- `{target}` — dado solicitado não disponível na consulta.")
+                rendered_ids.add(target)
+                projected.append(result.model_copy(update={'data': data}))
+            else:
+                # A matching identifier does not make a negative or malformed
+                # successful shape safe to forward; retain only the unavailable
+                # state and the exact requested ID.
+                projected.append(result.model_copy(update={'data': {
+                    'found': False, 'requested_terminal_id': target,
+                }}))
+                rendered.append(f"- `{target}` — dado solicitado não disponível na consulta.")
+                rendered_ids.add(target)
+
+        for target in pairs:
+            if target not in rendered_ids:
+                rendered.append(f"- `{target}` — dado solicitado não disponível na consulta.")
+        visible_results = [*profile_results, *projected]
+        output.tool_results = visible_results
+        output.structured_data = {}
+        if profile_requested:
+            successful_profile = next((r.data for r in profile_results
+                if r.success and isinstance(r.data, dict) and r.data.get('found') is True
+                and authenticated_user_id is not None and r.data.get('user_id') == authenticated_user_id), None)
+            if successful_profile is not None:
+                output.structured_data['get_customer_profile'] = successful_profile
+        output.structured_data['diagnose_terminal_issue'] = [r.data for r in projected
+            if r.tool_name == 'diagnose_terminal_issue' and isinstance(r.data, dict)]
+        output.evidence = CustomerSupportAgent._result_evidence(visible_results)
+        field_response = "**Campos solicitados por terminal**\n\n" + "\n".join(rendered)
+        profile_response = ''
+        if profile_requested:
+            if output.structured_data.get('get_customer_profile') is not None:
+                profile_response = CustomerSupportAgent()._synthesize_support_response(
+                    original, authenticated_user_id or '', {'get_customer_profile': output.structured_data['get_customer_profile']})
+            else:
+                profile_response = 'A consulta de perfil solicitada não pôde ser concluída.'
+        output.response = '\n\n---\n\n'.join(text for text in (profile_response, field_response) if text)
+        scoped_units = [unit for unit in units
+                        if not output.request_unit_ids or unit['unit_id'] in output.request_unit_ids]
+        output.request_unit_ids = [unit['unit_id'] for unit in scoped_units]
+        coverage_results = []
+        for result in visible_results:
+            if result.tool_name == 'diagnose_terminal_issue' and result.success and isinstance(result.data, dict):
+                data = dict(result.data)
+                terminal = dict(data.get('terminal') or {})
+                target = terminal.get('terminal_id') or data.get('requested_terminal_id')
+                if target in owner_by_target:
+                    data['user_id'] = owner_by_target[target]
+                coverage_results.append(result.model_copy(update={'data': data}))
+            else:
+                coverage_results.append(result)
+        output.covered_unit_ids = [unit['unit_id'] for unit in scoped_units
+            if evaluate_operational_unit(unit['text'], coverage_results, original=original,
+                authenticated_user_id=authenticated_user_id).fulfilled]
+        output.unresolved_unit_ids = [unit_id for unit_id in output.request_unit_ids
+            if unit_id not in output.covered_unit_ids]
+        if output.unresolved_unit_ids:
+            output.answer_status = 'partial' if output.covered_unit_ids else 'abstained'
+            output.abstained = True
+            if not output.covered_unit_ids:
+                output.abstention_reason = output.abstention_reason or 'REQUESTED_TERMINAL_DATA_UNAVAILABLE'
+        elif not output.abstained:
+            output.answer_status = 'complete'
+        return output
 
     @staticmethod
     def _with_unit_coverage(output: SpecialistOutput, original: str, scope: dict,

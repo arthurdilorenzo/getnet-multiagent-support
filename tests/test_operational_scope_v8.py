@@ -77,8 +77,10 @@ def local_tools(monkeypatch, tmp_path):
     monkeypatch.setattr(action_policy, 'state_store', store)
     monkeypatch.setattr(importlib.import_module('app.tools.registry'), 'state_store', store)
     path = tmp_path/'customers.json'
+    west = observation(WEST, signal_strength='3/4').data['terminal']
+    east = observation(EAST, signal_strength='4/4').data['terminal']
     path.write_text(json.dumps({'customers': {'synthetic': {'company_name': 'Synthetic',
-        'terminals': [observation(WEST).data['terminal'], observation(EAST).data['terminal']]}}}))
+        'terminals': [west, east]}}}))
     monkeypatch.setattr(settings, 'MOCK_CUSTOMERS_PATH', path)
     monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
     breaker_registry.reset_all()
@@ -111,6 +113,201 @@ def test_offline_scoped_read_cannot_query_other_assigned_target(local_tools):
         delegation_scope={'assigned_unit_ids': ['u1'], 'other_unit_ids': ['u2']})
     assert len(output.tool_results) == 1
     assert output.tool_results[0].data['terminal']['terminal_id'] == WEST
+
+
+@pytest.mark.parametrize('message', [
+    f'No meu cadastro, informe apenas o tipo de conexão da {WEST} e a força do sinal da {EAST}, identificando cada máquina.',
+    f'Please tell me only connection of {WEST} and signal of {EAST}.',
+    f'Consulte conexão de {WEST} e sinal de {EAST}.',
+])
+def test_multitarget_answer_minimizes_fields_per_requested_terminal(local_tools, message):
+    output = CustomerSupportAgent().run(message, SecurityContext(authenticated_user_id='synthetic'))
+
+    assert output.response.count(WEST) == 1
+    assert output.response.count(EAST) == 1
+    assert 'WIFI' in output.response
+    assert '4/4' in output.response
+    assert 'ONLINE' not in output.response
+    assert 'v8.2' not in output.response
+    assert '3/4' not in output.response
+    assert 'Firmware' not in output.response
+    assert 'Status Atual' not in output.response
+    assert 'recomenda' not in output.response.lower()
+
+    diagnostic = output.structured_data['diagnose_terminal_issue']
+    assert set(output.structured_data) == {'diagnose_terminal_issue'}
+    assert all(result.tool_name == 'diagnose_terminal_issue' for result in output.tool_results)
+    assert len(diagnostic) == 2
+    by_id = {item['terminal']['terminal_id']: item for item in diagnostic}
+    assert set(by_id) == {WEST, EAST}
+    assert set(by_id[WEST]['terminal']) == {'terminal_id', 'connection_type'}
+    assert by_id[WEST]['terminal']['connection_type'] == 'WIFI'
+    assert set(by_id[EAST]['terminal']) == {'terminal_id', 'signal_strength'}
+    assert by_id[EAST]['terminal']['signal_strength'] == '4/4'
+    evidence = json.dumps(output.evidence)
+    assert 'ONLINE' not in evidence and 'v8.2' not in evidence and '3/4' not in evidence
+    assert output.tool_results == [] or all(
+        set((result.data.get('terminal') or {})) <= {'terminal_id', 'connection_type', 'signal_strength'}
+        for result in output.tool_results if result.success and result.tool_name == 'diagnose_terminal_issue'
+    )
+
+
+@pytest.mark.parametrize('unexpected_terminal', ['GET-SYNTH-OTHER-999', None])
+def test_minimizer_drops_unrequested_or_unidentified_diagnostic_result(unexpected_terminal):
+    message = f'Check connection type of {WEST} and signal strength of {EAST}.'
+    requested = [
+        observation(WEST, signal_strength='3/4'),
+        observation(EAST, signal_strength='4/4'),
+    ]
+    unexpected = observation(unexpected_terminal, firmware_version='private-raw-fw-99.9')
+    if unexpected_terminal is None:
+        unexpected.data['terminal'].pop('terminal_id')
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='raw broad response',
+        tool_results=[*requested, unexpected], structured_data={'diagnose_terminal_issue': [
+            item.data for item in [*requested, unexpected]]})
+
+    minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+
+    assert len(minimized.tool_results) == 2
+    assert all(result.data['terminal']['terminal_id'] in {WEST, EAST}
+               for result in minimized.tool_results)
+    assert 'private-raw-fw-99.9' not in json.dumps(minimized.model_dump())
+    assert unexpected_terminal is None or unexpected_terminal not in minimized.response
+
+
+def test_minimizer_sanitizes_matching_but_unavailable_result():
+    message = f'Check connection of {WEST} and signal of {EAST}.'
+    unavailable = ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
+        'found': False,
+        'requested_terminal_id': WEST,
+        'terminal': {'terminal_id': WEST, 'status': 'PRIVATE-ONLINE',
+                     'firmware_version': 'private-raw-fw-99.9'},
+    })
+    available = observation(EAST, signal_strength='4/4')
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='raw broad response',
+        tool_results=[unavailable, available], structured_data={'diagnose_terminal_issue': [
+            unavailable.data, available.data]})
+
+    minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+
+    assert len(minimized.tool_results) == 2
+    unavailable_result = minimized.tool_results[0]
+    assert unavailable_result.data == {
+        'found': False, 'requested_terminal_id': WEST,
+    }
+    serialized = json.dumps(minimized.model_dump())
+    assert 'PRIVATE-ONLINE' not in serialized and 'private-raw-fw-99.9' not in serialized
+    assert f'`{WEST}` — dado solicitado não disponível' in minimized.response
+
+
+def test_minimizer_abstains_per_pair_when_every_requested_read_is_missing():
+    message = f'Check connection of {WEST} and signal of {EAST}.'
+    broad = ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
+        'found': True, 'terminal': {'terminal_id': 'GET-SYNTH-OTHER-999',
+            'connection_type': 'PRIVATE-CONNECTION', 'firmware_version': 'private-raw-fw-99.9'},
+    })
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='raw broad response PRIVATE-CONNECTION',
+        tool_results=[broad], structured_data={'diagnose_terminal_issue': [broad.data]})
+
+    minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+
+    assert minimized.response.count('dado solicitado não disponível') == 2
+    assert WEST in minimized.response and EAST in minimized.response
+    assert 'PRIVATE-CONNECTION' not in json.dumps(minimized.model_dump())
+    assert 'private-raw-fw-99.9' not in json.dumps(minimized.model_dump())
+    assert minimized.tool_results == []
+    assert minimized.structured_data == {'diagnose_terminal_issue': []}
+    assert minimized.answer_status == 'abstained'
+    assert minimized.abstained is True
+    assert minimized.covered_unit_ids == []
+    assert minimized.unresolved_unit_ids == ['u1', 'u2']
+
+
+def test_minimizer_is_not_activated_for_independent_profile_request():
+    message = f'Show my full profile. Check connection of {WEST} and signal of {EAST}.'
+    profile = ToolExecutionResult(tool_name='get_customer_profile', success=True, data={
+        'found': True, 'user_id': 'synthetic', 'company_name': 'Synthetic Corp', 'tax_id': '00.000.000/0001-00',
+    })
+    first = observation(WEST, connection_type='WIFI', firmware_version='fw-8.2')
+    second = observation(EAST, signal_strength='4/4', status='ONLINE')
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='full scoped response',
+        tool_results=[profile, first, second], structured_data={'get_customer_profile': profile.data,
+            'diagnose_terminal_issue': [first.data, second.data]})
+
+    result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message, 'synthetic')
+
+    assert 'Synthetic Corp' in result.response
+    assert '**Tipo de conexão:** WIFI' in result.response
+    assert '**Força do sinal:** 4/4' in result.response
+    assert 'fw-8.2' not in result.response and 'ONLINE' not in result.response
+    assert result.structured_data['get_customer_profile'] == profile.data
+    assert len(result.tool_results) == 3
+
+
+@pytest.mark.parametrize('owner_fields', [{}, {'user_id': 'other-tenant'}])
+def test_minimizer_drops_profile_without_verified_owner(owner_fields):
+    message = f'Show my full profile. Check connection of {WEST} and signal of {EAST}.'
+    profile_data = {'found': True, 'company_name': 'PRIVATE-COMPANY', **owner_fields}
+    profile = ToolExecutionResult(tool_name='get_customer_profile', success=True, data=profile_data)
+    first = observation(WEST, connection_type='WIFI', firmware_version='fw-8.2')
+    second = observation(EAST, signal_strength='4/4', status='ONLINE')
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='broad response PRIVATE-COMPANY',
+        tool_results=[profile, first, second], structured_data={'get_customer_profile': profile_data,
+            'diagnose_terminal_issue': [first.data, second.data]})
+
+    result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message, 'synthetic')
+
+    assert 'A consulta de perfil solicitada não pôde ser concluída.' in result.response
+    assert 'PRIVATE-COMPANY' not in json.dumps(result.model_dump())
+    assert 'get_customer_profile' not in result.structured_data
+    assert all(r.tool_name != 'get_customer_profile' for r in result.tool_results)
+    assert 'fw-8.2' not in result.response and 'ONLINE' not in result.response
+
+
+def test_minimizer_identity_check_does_not_recover_foreign_observation():
+    message = f'Check connection of {WEST} and signal of {EAST}.'
+    foreign = observation(WEST, connection_type='PRIVATE-WIFI')
+    foreign.data['user_id'] = 'other-tenant'
+    owned = observation(EAST, signal_strength='4/4')
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='raw response',
+        request_unit_ids=['u1', 'u2'], covered_unit_ids=['u1', 'u2'], answer_status='complete',
+        tool_results=[foreign, owned], structured_data={'diagnose_terminal_issue': [foreign.data, owned.data]})
+
+    result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message, 'synthetic')
+
+    assert result.covered_unit_ids == ['u2']
+    assert result.unresolved_unit_ids == ['u1']
+    assert result.answer_status == 'partial' and result.abstained is True
+    assert 'PRIVATE-WIFI' not in json.dumps(result.model_dump())
+
+
+def test_minimizer_declines_projection_when_one_target_has_multiple_requested_fields():
+    message = (f'Check connection of {WEST} and signal of {WEST} plus signal of {EAST}.')
+    raw = observation(WEST, signal_strength='3/4', firmware_version='v8.2')
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='ordinary scoped response',
+        tool_results=[raw], structured_data={'diagnose_terminal_issue': raw.data})
+
+    result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+
+    assert result.response == 'ordinary scoped response'
+    assert result.structured_data['diagnose_terminal_issue'] == raw.data
+
+
+def test_minimizer_recomputes_coverage_from_projected_fields():
+    message = f'Check connection of {WEST} and signal of {EAST}.'
+    first = observation(WEST, signal_strength='3/4')
+    second = observation(EAST, signal_strength=None)
+    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='broad response',
+        request_unit_ids=['u1', 'u2'], covered_unit_ids=['u1', 'u2'],
+        answer_status='complete', tool_results=[first, second],
+        structured_data={'diagnose_terminal_issue': [first.data, second.data]})
+
+    result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+
+    assert result.covered_unit_ids == ['u1']
+    assert result.unresolved_unit_ids == ['u2']
+    assert result.answer_status == 'partial'
+    assert result.abstained is True
 
 
 def test_explicit_target_requires_original_scoped_unit():

@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import replace
+from urllib.parse import urlsplit
 from app.config import settings
 from app.observability.logger import logger
 from app.rag.embeddings import BilingualDenseEmbedder
@@ -301,6 +303,17 @@ class HybridKnowledgeRetriever:
             # Score heurístico de BM25 e cosseno; não é probabilidade de correção.
             calibrated_score = round(min(1.0, (0.50 * b_norm) + (0.50 * d_raw)), 4)
             facts = self.fact_catalog.for_chunk(chunk.chunk_id, chunk.content) if self.catalog_required else extract_facts(chunk.chunk_id, chunk.content)
+            source_url = urlsplit(chunk.source_url)
+            hostname = (source_url.hostname or '').lower()
+            official_getnet_host = hostname == 'getnet.com.br' or hostname.endswith('.getnet.com.br')
+            if (source_url.scheme == 'https' and official_getnet_host
+                    and chunk.origin_type == 'verified_markdown_mirror'
+                    and chunk.provenance.get('verification_status') == 'reviewed_against_official_page'):
+                # This verified official host is the Brazil Getnet property.
+                # Its region can scope otherwise generic facts, but never to
+                # another country; an explicit foreign query therefore fails.
+                facts = [replace(fact, geographic_scope='brasil')
+                         if not fact.geographic_scope else fact for fact in facts]
             answerability = assess(query, chunk.content, chunk.title, facts=facts, chunk_id=chunk.chunk_id)
 
             fused_items.append(
@@ -326,7 +339,14 @@ class HybridKnowledgeRetriever:
 
         # Ordena primariamente pelo score calibrado + desempate por RRF
         fused_items.sort(key=lambda x: (x["relevance_score"], x["rrf_score"]), reverse=True)
-        eligible = [item for item in fused_items if item["relevance_score"] >= min_thresh and item['approved_facts']]
+        # Exact relation coverage against verified body spans is stronger than
+        # the coarse retrieval score gate. Keep such a source even when noisy
+        # surrounding wording lowers the heuristic score slightly.
+        eligible = [item for item in fused_items if item['approved_facts'] and (
+            item["relevance_score"] >= min_thresh or
+            (item['answerability']['answerable'] and item['origin_type'] == 'verified_markdown_mirror'
+             and item.get('provenance', {}).get('verification_status') == 'reviewed_against_official_page'))]
+        eligible.sort(key=lambda item: (item['answerability']['answerable'], item['relevance_score'], item['rrf_score']), reverse=True)
         # Select contributing chunks, then verify every requested relation across
         # the selected evidence set. One covered subquestion is not global coverage.
         top_Matches = eligible[:top_k]

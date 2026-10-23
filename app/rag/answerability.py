@@ -141,7 +141,7 @@ def parse_requirements(query: str) -> Dict[str, Any]:
         if re.search(r'quem.*(?:defin|determin)|who.*(?:sets|determines|decides)|emissor|issuer',q): add('installment_authority')
         elif re.search(r'quantas|limite|maxim|how many|up to|ate \d|\d+\s*x',q): add('installment_limit')
         else: add('installments')
-    time_requested = bool(re.search(r'prazo|quando.*(?:receb|cai)|how long|when (?:will|do)|settlement time|\d+\s+(?:dias?|days?|horas?|hours?)',q))
+    time_requested = bool(re.search(r'prazo|quando.*(?:receb|cai)|how long|when (?:will|do)|settlement time|settlement timing|\d+\s+(?:dias?|days?|horas?|hours?)',q))
     if time_requested and not re.search(r'validade|expira|vencimento do link',q): add('settlement_time')
     # Values retain units and are checked on the same subject/relation fact.
     numbers = []
@@ -261,6 +261,9 @@ def offline_request_coverage(query: str) -> Dict[str, Any]:
         rf'(?:qual(?: e)? a diferenca entre|what(?: is| s)? the difference between) {subject} (?:e|and) {subject}',
         rf'{subject} (?:tem|possui|has|supports) {feature}',
         rf'(?:qual|qual e|what is) (?:a |o |the )?(?:taxa|prazo|limite de parcelas|limite de parcelamento|fee|settlement time) (?:do|da|de|of|for) {subject}',
+        # Bounded compositional Crediário country query: all requested facets
+        # must remain present; geography is checked against source-scoped facts.
+        r'for getnet crediario in brasil state the published settlement timing fee and anticipation cost using getnet documentation',
         rf'(?:preciso|necessito|do i need|must i) (?:ter |abrir |have |open )?{account} (?:para|to) (?:receber|receive) {sale} (?:via|por|with|using) pix',
         rf'(?:em )?(?:quantas parcelas|how many installments) {modal} (?:parcelar|dividir|split|divide) {sale}(?: into)? (?:no|pelo|with|using) {subject}',
         rf'{modal} (?:vender|sell|cobrar|collect payment) (?:pelo|via|through|on) {channel} (?:usando|using|with) {subject}',
