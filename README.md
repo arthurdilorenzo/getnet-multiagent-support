@@ -193,7 +193,9 @@ O segundo comando avalia somente o componente semântico, sem provar routing/cha
 
 O terceiro passa pelo endpoint HTTP autenticado, router, especialistas e renderer com uma conta sintética conhecida e estado temporário. Tem limite padrão4, máximo12; preserva observações e falhas sem atribuir aprovação semântica por HTTP200. A adjudicação por necessidade permanece independente. As falhas de uma amostra não são substituídas por novas tentativas.
 
-O plano atual está em [SPEC_V8.md](SPEC_V8.md); os ciclos anteriores estão em [SPEC_V7.md](SPEC_V7.md), [SPEC_V6.md](SPEC_V6.md), [SPEC_V5.md](SPEC_V5.md), [SPEC_V4.md](SPEC_V4.md), [SPEC_V3.md](SPEC_V3.md) e [SPEC.md](SPEC.md). O score95+ depende da auditoria do candidato exato, sem inferência pelo número de testes. Não há nota oficial nova do avaliador Getnet.
+O plano atual está em [SPEC_V8.md](SPEC_V8.md); os ciclos anteriores estão em [SPEC_V7.md](SPEC_V7.md), [SPEC_V6.md](SPEC_V6.md), [SPEC_V5.md](SPEC_V5.md), [SPEC_V4.md](SPEC_V4.md), [SPEC_V3.md](SPEC_V3.md) e [SPEC.md](SPEC.md). Os refinamentos de escopo e avaliação estão em [SPEC_V8_SCOPE_ADDENDUM.md](SPEC_V8_SCOPE_ADDENDUM.md) e [SPEC_V8_EVAL_ADDENDUM.md](SPEC_V8_EVAL_ADDENDUM.md). O score95+ depende da auditoria do candidato exato, sem inferência pelo número de testes. Não há nota oficial nova do avaliador Getnet.
+
+A CLI `python -m app.evals.evaluator`, sem chave Gemini, isola clima/câmbio com respostas HTTP brutas sintéticas e mantém parsers, tools, renderer e juiz reais. A saída identifica `synthetic_external_api_fixtures`. URLs dos provedores e flags de frescor internas ao contrato simulado não comprovam consultas, previsões ou cotações reais; disponibilidade é avaliada separadamente. Com chave, a CLI usa serviços externos reais. Abstenção limpa quando uma resposta pública era exigida mantém a segurança factual, mas reprova cumprimento.
 
 ## Trade-offs e Limitações Declaradas
 

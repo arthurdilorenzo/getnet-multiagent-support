@@ -141,6 +141,37 @@ def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstrai
             else:
                 result[field] = normalized
 
+    # Tool choice belongs to the model; access purpose belongs to the original
+    # assigned literal units. A rewritten "full profile" subquery is not consent
+    # to inspect registration when only a firmware read was requested.
+    purpose = {'get_customer_profile': 'profile', 'get_sales_settlement': 'settlement',
+               'diagnose_terminal_issue': 'diagnosis'}.get(tool_name)
+    if purpose is not None:
+        from app.security.request_units import request_units
+        from app.security.operational_intent import classify_operational_intent
+        from app.security.fulfillment import canonical_terminal_read_text, _property_read, _independent_action_veto
+        authorized = False
+        for unit in request_units(constraints.original_message):
+            if assigned_unit_ids is not None and unit['unit_id'] not in assigned_unit_ids:
+                continue
+            if _independent_action_veto(unit['text']):
+                continue
+            canonical = canonical_terminal_read_text(unit['text'].lstrip(' ;,.'), constraints.original_message)
+            # Persisted subject slots were already resolved by extract_constraints
+            # with the trusted conversation context, never by the subquery.
+            reference_context = ({'entities': {'terminal_id': constraints.terminal_ids[0]}}
+                                 if len(constraints.terminal_ids) == 1 and
+                                 re.search(r'\b(?:diagnostico|diagnosis|firmware|hardware|status|estado|situacao|signal|sinal|connect\w*|conect\w*|conex\w*|telemetr\w*|declin\w*|recus\w*|codigo|code)\b',
+                                           _normalize(canonical)) else None)
+            intent = classify_operational_intent(canonical, reference_context)
+            read = _property_read(canonical, reference_context)
+            if purpose in intent.intents or (read is not None and read.tool_name == tool_name):
+                authorized = True
+                break
+        if not authorized:
+            raise RequestConstraintError('REQUEST_PURPOSE_MISMATCH',
+                'A ferramenta diverge do propósito da unidade original atribuída; confirme a consulta desejada.')
+
     # Read authority is a canonical original unit, never a model-written subquery.
     # Explicit independent targets can be inspected separately. Transaction pairs
     # remain local to that target's unit; an ambiguous list is not a Cartesian product.
@@ -153,6 +184,8 @@ def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstrai
         candidates = []
         for unit in request_units(constraints.original_message):
             if assigned_unit_ids is not None and unit['unit_id'] not in assigned_unit_ids:
+                continue
+            if _independent_action_veto(unit['text']):
                 continue
             canonical = canonical_terminal_read_text(unit['text'].lstrip(' ;,.'), constraints.original_message)
             local = extract_constraints(canonical)

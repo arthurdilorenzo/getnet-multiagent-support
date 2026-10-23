@@ -27,3 +27,7 @@ Root: orchestrator.py e testes test_replan_scope_v8.py, documentação/integraç
 3. Congelar SHA limpo no branch candidato, preservar main. Nova amostra criada e labels congelados pelo auditor independente APÓS freeze, antes das execuções. Uma rodada nativa previamente definida, sem substituir falhas; disponibilidade e fidelidade separadas. Casos V7 agora são regressões conhecidas.
 4. DockerPython3.11/smoke6checks e CI exato via gh. Avaliação onze pesos/gates sem inventar95 por contagem de testes; nota nominal nãooficial, limites explícitos. Main somente se95+ sustentado E CIverde; confirmar também CI de main após publicação autorizada condicional.
 5. Preservar recibos/falhas, relatório detalhado fora do produto congelado e resumo no WORKLOG. Se abaixo95, entregar nota/pendências reais e manter main.
+
+## Refinamentos documentados antes das alterações
+
+O primeirofreeze3d46c72/8nativos é predecessor preservado, não candidato final. Review encontrou pertinênciaprivada genérica insuficiente; CIexpôsHTTPexternoegramáticapública/juiz deabstenção. Contratos/testes prévios de refinamento em SPEC_V8_SCOPE_ADDENDUM.md e SPEC_V8_EVAL_ADDENDUM.md. Novofreeze depois integração; novos4casos separados, jamais substituem8oumisturamrevisões.

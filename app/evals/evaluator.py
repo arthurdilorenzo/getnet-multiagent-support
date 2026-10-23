@@ -3,6 +3,8 @@ import re
 import math
 import unicodedata
 import uuid
+from contextlib import nullcontext
+from app.evals.offline_transport import synthetic_external_transport, external_services_mode
 from decimal import Decimal, InvalidOperation
 from app.rag.embeddings import BilingualDenseEmbedder as Text
 from pathlib import Path
@@ -179,8 +181,10 @@ class GroundednessJudge:
             if not clean:
                 return fail('Flag de abstenção acompanhada de alegação factual sem suporte.')
             if abstention_expected or case.get('category')=='web_search':
-                return {'groundedness_score':1.0,'passed':True,'reason':'Abstenção sem alegações materiais não suportadas.',
-                        'judge_scope':'limited_abstention_claim_check','availability_passed':False if case.get('category')=='web_search' else None}
+                return {'groundedness_score':1.0,'passed':abstention_expected,
+                        'reason':'Abstenção limpa; atendimento não comprovado.' if not abstention_expected else 'Abstenção sem alegações materiais não suportadas.',
+                        'judge_scope':'limited_abstention_claim_check','availability_passed':False if case.get('category')=='web_search' else None,
+                        'fulfillment_passed':abstention_expected}
             return fail('Absteve quando o caso exigia uma resposta coberta.')
         if abstention_expected:
             return fail('Falhou em abster-se diante de evidência insuficiente.')
@@ -395,7 +399,8 @@ class SystemEvaluator:
         summary = {
             "evaluation_run_id": run_id,
             "dataset_version": raw.get("dataset_version", "2.0.0"),
-            "execution_mode": "gemini" if settings.GEMINI_API_KEY else "offline_deterministic",
+            "execution_mode": "gemini" if settings.GEMINI_API_KEY else ("offline_deterministic" if external_services_mode() == "synthetic_external_api_fixtures" else "offline_llm_live_external_services"),
+            "external_services_mode": external_services_mode(),
             "judge_type": "limited_evidence_numeric_polarity_and_extract_consistency",
             "judge_limitations": "Não verifica entailment universal; revisão independente por alegação continua necessária.",
             "total_cases": len(cases),
@@ -427,8 +432,10 @@ def main() -> int:
     import sys
     import math
 
-    report = evaluator.run_suite()
-    cli_metrics = {**report['metrics'], 'execution_mode': report.get('execution_mode'),
+    mode = 'live_external_services' if settings.GEMINI_API_KEY else 'synthetic_external_api_fixtures'
+    with (nullcontext() if settings.GEMINI_API_KEY else synthetic_external_transport()):
+        report = evaluator.run_suite()
+    cli_metrics = {**report['metrics'], 'external_services_mode': mode, 'execution_mode': report.get('execution_mode'),
                    'metrics_by_mode': report.get('metrics_by_mode', {}),
                    'mode_metrics_limitations': report.get('mode_metrics_limitations', '')}
     sys.stdout.write(json.dumps(cli_metrics, indent=2, ensure_ascii=False) + "\n")

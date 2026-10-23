@@ -11,7 +11,7 @@ from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
 from app.security.request_units import request_units, validate_scope
-from app.security.fulfillment import evaluate_operational_unit
+from app.security.fulfillment import evaluate_operational_unit, _independent_action_veto
 from app.security.request_constraints import (
     TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints,
 )
@@ -322,10 +322,15 @@ class CustomerSupportAgent:
         pending_calls = self._plan_initial_tools(contextual_msg, tracer=tracer)
         # Offline selection can fan out literal explicit read targets. The native
         # path still requires the model to select every tool call itself.
-        if len(constraints.terminal_ids) > 1 and 'action' not in classify_operational_intent(authorization_message or message).intents:
+        action_units = [unit for unit in request_units(authorization_message or message)
+                        if 'action' in classify_operational_intent(unit['text']).intents]
+        read_fanout_safe = not action_units or all(_independent_action_veto(unit['text']) for unit in action_units)
+        if len(constraints.terminal_ids) > 1 and read_fanout_safe:
             diagnostic_calls = []
             for unit in request_units(authorization_message or message):
                 if assigned_unit_ids is not None and unit['unit_id'] not in assigned_unit_ids:
+                    continue
+                if _independent_action_veto(unit['text']):
                     continue
                 local = extract_constraints(unit['text'])
                 property_text = re.sub(TERMINAL_PATTERN, ' ', unit['text'], flags=re.I)

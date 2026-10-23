@@ -1,6 +1,7 @@
 import json
 import math
 import re
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 from google.genai import types
 from app.agents.function_calling import generate_turn, text_from_content, native_config, initial_contents
@@ -289,18 +290,29 @@ class KnowledgeAgent:
         if call.tool_name=='get_currency_exchange_rate':
             if not number(data.get('current_rate_brl')) or not data.get('updated_at'):return False
             if data.get('currency_pair')!=f"{args.get('base_currency')}/{args.get('target_currency')}":return False
+            if re.search(r'\b(?:hoje|today|agora|now)\b',norm):
+                from app.tools.search_tools import _today_local
+                try: observed_date=date.fromisoformat(str(data['updated_at'])[:10])
+                except (ValueError,TypeError):return False
+                if data.get('live') is not True or observed_date!=_today_local():return False
             currency=r'(?:eur|euro|usd|dolar|dollar|brl|real|reais|gbp|libra|pound|jpy|iene|yen|chf|franco suico|cny|yuan|cad|dolar canadense|ars|peso argentino)'
             prefix=r'(?:qual(?: e)? (?:a )?(?:cotacao|taxa de cambio)|what(?: s| is)? (?:the )?(?:exchange rate|rate)|cotacao|exchange rate)'
-            return bool(re.fullmatch(prefix+rf' (?:do |de |of |for |from )?{currency}(?: (?:para |to |em |in )?{currency})?(?: (?:hoje|today|agora|now))?',norm))
+            suffix=rf'(?: (?:para |to |em |in )?{currency})?(?: (?:hoje|today|agora|now))?'
+            return bool(re.fullmatch(prefix+rf' (?:do |de |of |for |from )?{currency}'+suffix,norm)
+                        or re.fullmatch(rf'(?:what(?: s| is)? (?:the )?)?{currency} (?:exchange rate|rate)'+suffix,norm))
         if call.tool_name=='get_weather_forecast':
             try:city=' '.join(BilingualDenseEmbedder.normalize(KnowledgeAgent._extract_city(text)).split())
             except ValueError:return False
             if not data.get('target_date') or not all(number(data.get(key)) for key in ('min_temp_celsius','max_temp_celsius')):return False
+            from app.tools.search_tools import _today_local
+            try:
+                if date.fromisoformat(str(data['target_date']))!=_today_local()+timedelta(days=args['days_ahead']):return False
+            except (ValueError,TypeError,KeyError):return False
             if re.search(r'chuva|chove|chover|rain',norm) and not number(data.get('rain_probability_percent')):return False
             observed=' '.join(BilingualDenseEmbedder.normalize(str(data.get('city',''))).split())
             if not (observed==city or observed.startswith(city+' ')):return False
             horizon=r'(?:hoje|amanha|depois de amanha|today|tomorrow|day after tomorrow)'
-            weather=r'(?:previsao(?: do tempo)?|tempo|clima|temperatura|weather|forecast|rain probability)'
+            weather=r'(?:previsao(?: do tempo)?|tempo|clima|temperatura|weather(?: forecast)?|forecast|rain probability)'
             return bool(re.fullmatch(rf'(?:qual(?: e)? a |what(?: s| is)? the )?{weather} (?:em |no |na |in |for )?{re.escape(city)}(?: (?:para )?{horizon})?',norm)
                         or re.fullmatch(rf'(?:chove|chover|rain) {horizon} (?:em|no|na|in) {re.escape(city)}',norm))
         return False
@@ -628,7 +640,9 @@ class KnowledgeAgent:
             undated=data.get('rate_type')=='undated_market_quote'
             label='Taxa de referência diária' if reference else 'Cotação histórica informada pelo provedor' if historical else 'Cotação sem data informada pelo provedor' if undated else 'Cotação informada pelo provedor'
             value=f'{rate:.4f}' if isinstance(rate,(int,float)) else 'não informada'
-            out=f"{label} para **{pair}**: **{value}**.\n\nData da observação: {updated}."
+            target=pair.rsplit('/',1)[-1] if isinstance(pair,str) and '/' in pair else ''
+            monetary_value=f'R$ {value}' if target=='BRL' else f'{value} {target}'.strip()
+            out=f"{label} para **{pair}**: **{monetary_value}**.\n\nData da observação: {updated}."
             if reference:
                 out+=' Esta referência não representa uma cotação intradiária atual.'
             else:

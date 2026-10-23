@@ -143,7 +143,7 @@ def test_support_model_selects_real_tools_and_receives_dependent_results():
 
     provider = Provider(completion(("get_customer_profile", {}), signature=b"signature-for-round-trip"),
                         after_profile, after_diagnosis)
-    out = CustomerSupportAgent(provider).run("Verifique a ocorrência Q7 e prossiga.", ctx(), session_id="sess-Q7")
+    out = CustomerSupportAgent(provider).run("Consulte meu perfil; diagnostique minha maquininha.", ctx(), session_id="sess-Q7")
     assert out.tools_called == ["get_customer_profile", "diagnose_terminal_issue"]
     assert all(r.success for r in out.tool_results)
     assert "GET-CLASSICA-10442" in out.response
@@ -169,7 +169,9 @@ def test_support_returns_rejected_tool_result_to_model(name, args, error):
         result = function_results(request)[-1].response
         assert result["success"] is False and result["error_code"] == error
         return completion(text="Não foi possível executar a consulta com segurança.")
-    out = CustomerSupportAgent(Provider(completion((name, args)), observe)).run("Ocorrência Q7", ctx(), session_id="sess-Q7")
+    original = ("Consulte minhas vendas." if name == "get_sales_settlement" else
+                "Consulte meu perfil." if name == "get_customer_profile" else "Ocorrência Q7")
+    out = CustomerSupportAgent(Provider(completion((name, args)), observe)).run(original, ctx(), session_id="sess-Q7")
     assert out.abstained
     assert out.tool_results[0].error_code == error
     assert out.structured_data == {}
@@ -181,7 +183,7 @@ def test_support_recovers_invalid_arguments_with_model_selected_retry():
         return completion(("get_sales_settlement", {"payment_modality": "pix"}))
     provider = Provider(completion(("get_sales_settlement", {"payment_modality": "unknown"})), fix,
                         completion(text="Consulta corrigida."))
-    out = CustomerSupportAgent(provider).run("Ocorrência Q7", ctx())
+    out = CustomerSupportAgent(provider).run("Consulte minhas vendas Pix.", ctx())
     assert [r.success for r in out.tool_results] == [False, True]
     assert out.structured_data["get_sales_settlement"]["payment_modality_filter"] == "pix"
     # Protocol recovery does not establish that an opaque original was fulfilled.
@@ -198,7 +200,7 @@ def test_support_abstains_without_tool_evidence_instead_of_offline_selection(fai
 
 def test_support_preserves_hardware_escalation_after_provider_failure():
     provider = Provider(completion(("diagnose_terminal_issue", {"symptom": "hardware"})), RuntimeError("down"))
-    out = CustomerSupportAgent(provider).run("Ocorrência Q7", ctx("cliente3012"))
+    out = CustomerSupportAgent(provider).run("Diagnostique o hardware da minha maquininha.", ctx("cliente3012"))
     assert out.abstained and out.requires_escalation
     assert out.structured_data["diagnose_terminal_issue"]["requires_hardware_replacement"] is True
 

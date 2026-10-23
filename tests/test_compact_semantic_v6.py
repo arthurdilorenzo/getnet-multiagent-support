@@ -236,13 +236,15 @@ def test_offline_metadata_separates_supported_and_unknown_literal_clauses(monkey
 @pytest.mark.parametrize('rate,covered',[(6.15,['u1']),(None,[])])
 def test_typed_currency_coverage_requires_an_observed_rate(monkeypatch,rate,covered):
     from app.config import settings
+    from app.tools.search_tools import _today_local
     from app.agents.knowledge_agent import KnowledgeAgent
     from app.schemas import ToolExecutionResult
     from app.security.auth import SecurityContext
     from app.tools.registry import tool_registry
     monkeypatch.setattr(settings,'GEMINI_API_KEY','')
     monkeypatch.setattr(tool_registry,'execute',lambda tool_name,**kwargs:ToolExecutionResult(tool_name=tool_name,success=True,
-        data={'currency_pair':'EUR/BRL','current_rate_brl':rate,'rate_type':'daily_reference','updated_at':'2026-10-23'}))
+        data={'currency_pair':'EUR/BRL','current_rate_brl':rate,'rate_type':'market_quote','live':True,
+              'updated_at':_today_local().isoformat()}))
     out=KnowledgeAgent().run('Qual a cotação do euro hoje?',SecurityContext(authenticated_user_id='synthetic'),is_web_search=True)
     assert out.request_unit_ids==['u1'] and out.covered_unit_ids==covered
     assert out.unresolved_unit_ids==([] if covered else ['u1'])

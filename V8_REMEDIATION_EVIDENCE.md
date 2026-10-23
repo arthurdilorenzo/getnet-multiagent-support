@@ -14,3 +14,12 @@
 ## Próximas evidências, depois do freeze
 
 Criar amostra inédita com labels congelados antes de executar; novo auditor independente dos implementadores. Uma rodada nativa predefinida sem substituir falhas. DockerPython3.11/smoke6checks e CI do SHAexato. Nota nominal nãooficial onze pesos/gates; main somente95+ sustentado eCIverde. Falhas externas e disponibilidade separadas de correção semântica; nenhuma garantia de disponibilidade geral atribuída pelo fix.
+
+## Revisão após auditoria do predecessor3d46c72
+
+- O CI39998017921reprovou overall0.8462; Dockerharnesslimpo0.7692, weather/FXparciais+snapshotparcialesperado. Falhas preservadas ci-failed.log/docker-evaluator-report.json. Não houve reexecução seletiva para apagar erro.
+- Oito nativos do predecessor preservados:3pedidos comfatosintegrais(2complete+1partialconservador),5semresolução;429reais e circuitbreakerlocal não são todosfalhasHTTPexternas. Recibos/adjudicação independente separados; nenhum novoSHA atribuído aessasexecuções.
+- Review encontrouperfil escolhido paraunidadefirmware. Gateagora exige propósito específico original por tool eIDatribuído, semautorizarsubquerymodel; testesSDKgenéricosQ7passaramainputsexplícitospertinentes(asserçõesintactas), comnovosnegativosQ7. Prefixospolidosconsumidosporgramáticafinita; vetoremotoindepintegralnãoocultaleitura, continúanegativaunitpending/zeroescrita.
+- IsolamentodeCLI:rawHTTPsintéticoidentificado/parsersreais, requestsinesperadosfailclosed, contextorestaura, nativeinalterado. DadosinválidosNaN/datastale ainda rejeitados. Defeitorealdegramáticapublicamultiword/ordemmonetáriacorrigido; atualidade/horizonte exigeobservação. RendererR$somenteBRL. Juiznão dápassedporabstençãohonestawebquandopedidoexigiaresposta, groundednessseparada. Labels/gatesmantidos.
+- Suíte905pass/1warningupstream após alterações funcionais, mais testeV6fixturefresh importsemanticequivalente2pass; juiz/coberturapública22casos e isolamento7 novos. Harness0.9231/routingtoolsgrounds1, external_services_mode=synthetic_external_api_fixtures, não disponibilidade real. Logs pytest-revised-final/evaluator-revised-final.
+- Diagnóstico429separado singleboundedmínimorecebeuresposta, semretrydecase/semdadosdeerro/chaveguardados; não provaresetquota ouSLO. Novos4casossomenteapósnovofreeze, comcadênciapré-declarada60sentreiníciosparaexplicitarlimitedoensaio, semapagar8anteriores.

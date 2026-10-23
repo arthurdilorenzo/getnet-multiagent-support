@@ -127,7 +127,12 @@ def _decline_incident(text: str) -> bool:
 
 
 def _read_prefix(norm: str) -> str:
-    return re.sub(r'^(?:pode|voce pode|can you|could you)\s+(?=(?:' + _READ_VERB_PATTERN + r')\b)', '', norm.strip())
+    norm = norm.strip()
+    # Consume a finite leading request prefix only. These forms ask to show a
+    # property; residue still has to satisfy the same bounded field grammar.
+    norm = re.sub(r'^(?:(?:por favor|please)[,\s]+)?(?:(?:voce pode|pode|can you|could you)\s+)?'
+                  r'(?:(?:me\s+)?(?:diga|informe|mostre)|(?:tell|show)\s+me)\b[,\s]*', 'check ', norm)
+    return re.sub(r'^(?:pode|voce pode|can you|could you)\s+(?=(?:' + _READ_VERB_PATTERN + r')\b)', '', norm)
 
 
 def _property_read_shape(text: str, domain: str) -> bool:
@@ -293,6 +298,39 @@ def canonical_terminal_read_text(text: str, original: str, context: dict | None 
     return f"{text.rstrip(' .!?')} of {authority.terminal_ids[0]}"
 
 
+def _independent_action_veto(text: str) -> bool:
+    """A fully consumed veto of a supported action, with an explicit target."""
+    norm = _normalize(re.sub(TERMINAL_PATTERN, ' target ', text, flags=re.I)).strip(' ;,.!?')
+    prefix = r'(?:(?:please|por favor)[,\s]+)?(?:do not|don[’\']t|never|nao|nunca)\s+'
+    subject = r'(?:(?:the|my|our|o|a|meu|minha|nosso|nossa|terminal|pos|machine|maquina|maquininha|device)\s+)*target'
+    reboot = r'(?:reboot|restart|reinicie|reinicia|reiniciar)\s+' + subject
+    table = r'(?:update|atualize|atualizar)\s+(?:(?:the|a)\s+)?(?:parameter table|tabela(?: de parametros)?)\s+(?:(?:of|de|do|da)\s+)?' + subject
+    carrier = r'(?:switch|troque|mude|trocar)\s+(?:(?:the|a)\s+)?(?:carrier|operadora)\s+(?:(?:of|de|do|da)\s+)?' + subject
+    return bool(re.fullmatch(prefix + '(?:' + '|'.join((reboot, table, carrier)) + ')', norm))
+
+
+def _unit_scope_text(text: str, original: str) -> str:
+    """Exclude only fully known independent action vetoes from another unit.
+
+    Standalone/attached conditions retain global scope. Conjunctions are never
+    independence boundaries, and the negative unit itself is never exempted.
+    """
+    from app.security.request_units import request_units
+    literal = text.lstrip(' ;,.').strip()
+    units = [unit for unit in request_units(original) if unit['text'].lstrip(' ;,.').strip() == literal]
+    if len(units) != 1:
+        return original
+    position = units[0]['start'] + units[0]['text'].find(literal)
+    spans = []
+    start = 0
+    for boundary in re.finditer(r';|(?<=[.!?])\s+(?=\S)', original):
+        spans.append((start, boundary.start()))
+        start = boundary.end()
+    spans.append((start, len(original)))
+    return '; '.join(original[a:b] for a, b in spans
+                     if a <= position < b or not _independent_action_veto(original[a:b]))
+
+
 def evaluate_operational_unit(text: str, results: Iterable[ToolExecutionResult],
                               context: dict | None = None, *, original: str | None = None,
                               authenticated_user_id: str | None = None) -> FulfillmentDecision:
@@ -301,10 +339,11 @@ def evaluate_operational_unit(text: str, results: Iterable[ToolExecutionResult],
     Different observations cannot donate unrelated fields to fabricate a complete
     row. Multiple targets/dates require separate unequivocal units or clarification.
     """
+    scope_text = _unit_scope_text(text, original) if original is not None else text
     if original is not None:
         text = canonical_terminal_read_text(text, original, context)
     norm = _normalize(text)
-    scope_norm = _normalize(original if original is not None else text)
+    scope_norm = _normalize(scope_text)
     if _connectivity_advice(scope_norm):
         scope_norm = _advice_shape(scope_norm)
     if SCOPE_MODIFIER.search(scope_norm):
