@@ -19,11 +19,6 @@ class TerminalCondition:
 
 
 _VERSION = r"(?=[A-Za-z0-9._-]*\d)[A-Za-z0-9][A-Za-z0-9._-]*"
-_EXTRA_CONDITION = re.compile(
-    r"\b(?:if|se|quando|unless|provided(?:\s+that)?|as\s+long\s+as|"
-    r"only\s+when|contanto\s+que|desde\s+que|exceto\s+se|a\s+menos\s+que)\b",
-    flags=re.IGNORECASE,
-)
 
 
 def parse_terminal_condition(message: str, terminal_id: str) -> Optional[TerminalCondition]:
@@ -41,9 +36,9 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
         return None
     if clauses:
         recognized = re.search(r"\b(?:if|se)\s+([^,;]+)", message, flags=re.IGNORECASE)
-        outside = message[:recognized.start()] + " " + message[recognized.end():]
-        if _EXTRA_CONDITION.search(outside) or re.match(
-            r"\s*[,;]\s*(?:and|e)\b", message[recognized.end():], flags=re.IGNORECASE,
+        if message[:recognized.start()].strip() or not re.fullmatch(
+            r",\s*(?:tell\s+me\s+(?:the\s+eligible\s+)?benefits|informe\s+os\s+benefícios)\.",
+            message[recognized.end():].strip(), flags=re.IGNORECASE,
         ):
             return None
         patterns = (
@@ -55,7 +50,11 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
         clause = clauses[0].strip()
     else:
         recognized = re.search(r"\bquando\s+(.+)$", message, flags=re.IGNORECASE)
-        if _EXTRA_CONDITION.search(message[:recognized.start()]):
+        if not re.fullmatch(
+            r"O\s+(?:recebimento|prazo(?:\s+de\s+recebimento)?)\s+do\s+Crediário\s+"
+            r"só\s+deve\s+ser\s+explicado\s+",
+            message[:recognized.start()], flags=re.IGNORECASE,
+        ):
             return None
         patterns = (
             rf"o\s+{target}\s+tiver\s+firmware\s+({_VERSION})\s+com\s+conexão\s+(online)\.",
