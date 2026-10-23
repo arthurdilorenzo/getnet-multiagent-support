@@ -19,5 +19,6 @@ Candidate: `c8b32ba3f9f5f9deac8752097b54160551fd77e7`.
 
 - Regressão do pedido P06 original: Brasil sustentado + Noruega documentalmente sem cobertura -> preserva fatos brasileiros, informa limitação norueguesa e não faz busca externa/replano redundante.
 - Caso contrastante: mesma composição temática mas unidade Noruega pede explicitamente fonte externa/regras atuais -> a unidade pendente chega ao plano Web uma única vez; a unidade brasileira cumprida não é refeita nem perde seus fatos.
+- Cobrir formulações explícitas equivalentes sem a frase literal "external source": `Search the web for current Crediário settlement terms in Norway` e `Pesquise na web as condições atuais de recebimento do Crediário na Noruega`. Ambas são pedidos explícitos de busca atual e não podem cair na parada documental.
 - Cobrir inglês e português, cobertura parcial/abstained e fonte externa indisponível; nenhuma condição pode fabricar evidência ou repetir unidade cumprida.
 - TDD focado, regressões P06/M08 e suíte completa; auditoria independente do SHA novo. Não atribuir ganho de nota V4 sem freeze nativo vinculado ao SHA exato.
