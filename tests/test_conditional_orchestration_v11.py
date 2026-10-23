@@ -160,3 +160,57 @@ def test_blocked_dependency_cannot_return_through_independent_abstention_replan(
     assert calls == (["CUSTOMER_SUPPORT_AGENT"] if predicate == "false" else []) + ["WEB_SEARCH_AGENT"]
     assert "search_getnet_knowledge" not in out.tools_called
     assert next(r for r in out.request_coverage if r["unit_id"] == dependent)["state"] == "unresolved"
+
+
+@pytest.mark.parametrize("workflow_source", ["initial", "replan"])
+@pytest.mark.parametrize("trigger", ["critical", "failure"])
+def test_blocked_condition_preserves_authorized_workflow_handoff(monkeypatch, tmp_path, workflow_source, trigger):
+    _run_blocked_condition_handoff(monkeypatch, tmp_path, workflow_source, trigger, expected=True)
+
+
+def test_blocked_condition_does_not_authorize_unrequested_workflow_handoff(monkeypatch, tmp_path):
+    _run_blocked_condition_handoff(monkeypatch, tmp_path, "replan", "abstention", expected=False)
+
+
+def _run_blocked_condition_handoff(monkeypatch, tmp_path, workflow_source, trigger, *, expected):
+    from app.security.request_units import request_units
+    from app.tools.registry import tool_registry
+    message = "Verifique meu terminal; " + MESSAGE
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    units = request_units(message)
+    independent = units[0]["unit_id"]
+    dependent = next(unit["unit_id"] for unit in units if "Crediário" in unit["text"])
+    handoff = PlanStep(step_order=2, target_agent="HUMAN_ESCALATION_AGENT",
+        sub_query="Encaminhe ao suporte humano", rationale="Operational workflow handoff", request_unit_ids=[])
+    initial = [PlanStep(step_order=1, target_agent="CUSTOMER_SUPPORT_AGENT", sub_query=units[0]["text"],
+        rationale="Independent diagnosis", request_unit_ids=[independent])]
+    if workflow_source == "initial":
+        initial.append(handoff)
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: RoutingPlan(
+        primary_agent="CUSTOMER_SUPPORT_AGENT", confidence=.9, reasoning="diagnosis", plan_steps=initial))
+    monkeypatch.setattr(orch.router, "replan", lambda **kwargs: RoutingPlan(
+        primary_agent="HUMAN_ESCALATION_AGENT", confidence=.9, reasoning="workflow with forbidden factual retry",
+        plan_steps=[handoff, PlanStep(step_order=3, target_agent="KNOWLEDGE_AGENT", sub_query=MESSAGE,
+            rationale="Must remain blocked", request_unit_ids=[dependent])]))
+    monkeypatch.setattr(orch.customer_support_agent, "run", lambda **kwargs: SpecialistOutput(
+        agent_name="CUSTOMER_SUPPORT_AGENT", response="Independent diagnosis needs attention",
+        requires_escalation=trigger == "critical", abstained=True, request_unit_ids=[independent],
+        unresolved_unit_ids=[independent], tools_called=["diagnose_terminal_issue"] if trigger != "abstention" else [],
+        tool_results=[diagnostic(success=trigger != "failure")] if trigger != "abstention" else []))
+    monkeypatch.setattr(orch.knowledge_agent, "run", lambda **kwargs: pytest.fail("Blocked factual lookup executed"))
+    tools = []
+    def execute(**kwargs):
+        tools.append(kwargs["tool_name"])
+        assert kwargs["tool_name"] == "create_escalation_ticket"
+        return ToolExecutionResult(tool_name="create_escalation_ticket", success=True, outcome_state="completed",
+            data={"ticket_id":"GET-ESC-CONDITIONAL-V11", "status":"OPEN"})
+    # The real escalation agent and orchestration run; isolate only ticket storage.
+    monkeypatch.setattr(tool_registry, "execute", execute)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic", session_id="handoff-blocked"),
+                       SecurityContext("synthetic"))
+    assert out.escalated is expected
+    assert out.ticket_id == ("GET-ESC-CONDITIONAL-V11" if expected else None)
+    assert tools == (["create_escalation_ticket"] if expected else [])
+    assert "search_getnet_knowledge" not in out.tools_called
+    assert "web_search_general" not in out.tools_called
+    assert next(row for row in out.request_coverage if row["unit_id"] == dependent)["state"] == "unresolved"

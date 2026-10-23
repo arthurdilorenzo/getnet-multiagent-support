@@ -106,6 +106,10 @@ class MultiAgentOrchestrator:
         """Canonical allowed text, never a model query carrying a blocked clause."""
         if not blocked_ids:
             return step
+        if step.target_agent == 'HUMAN_ESCALATION_AGENT' and not step.request_unit_ids:
+            # Empty-ID handoffs are workflow actions, not factual assignments.
+            # Replanning still applies its critical/failure authorization below.
+            return step.model_copy(update={'sub_query': 'Encaminhe este atendimento ao suporte humano.'})
         allowed = [unit for unit in request_units(message)
                    if unit['unit_id'] in step.request_unit_ids and unit['unit_id'] not in blocked_ids]
         if not allowed:
