@@ -65,6 +65,9 @@ class HybridKnowledgeRetriever:
         "account": ["conta", "get", "corrente"],
         "receive": ["receber", "recebimento"],
         "machine": ["maquininha", "maquina", "terminal"],
+        # SIM is the English acronym used on some terminal manuals; the
+        # indexed Getnet article uses the Portuguese term "chip".
+        "sim": ["chip"],
         "connect": ["conecta", "conexao", "sinal", "rede"],
         "internet": ["internet", "wifi", "chip", "sinal"],
         "receivables": ["recebiveis", "vendas"],

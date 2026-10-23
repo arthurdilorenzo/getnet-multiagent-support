@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 import re
 import json
+from urllib.parse import urlsplit
 from app.config import settings
 from app.observability.logger import logger
 from app.observability.tracer import SystemTracer
@@ -119,7 +120,8 @@ class RouterAgent:
                         "CUSTOMER_SUPPORT_AGENT", "HUMAN_ESCALATION_AGENT"} for s in steps),
                     "is_multi_step": len(steps) > 1,
                 })
-                return self.bind_request_units(plan,message,conversation_context)
+                plan = self.bind_request_units(plan, message, conversation_context)
+                return self._prefer_local_documentary_evidence(plan, message)
             except Exception as exc:
                 logger.warning(
                     "router_native_function_call_failed",
@@ -133,6 +135,89 @@ class RouterAgent:
         plan = self.bind_request_units(self._semantic_decompose_and_plan(message, user_id, conversation_context),message,conversation_context)
         if tracer:
             tracer.record_tokens(prompt_text=message, completion_text=plan.model_dump_json())
+        return plan
+
+    @staticmethod
+    def _prefer_local_documentary_evidence(plan: RoutingPlan, message: str) -> RoutingPlan:
+        """Keep native tool selection, but validate web proposals against local evidence.
+
+        This is a post-function-calling purpose check, not a keyword router. Only
+        a high-ranking HTTPS Getnet corpus candidate can move an assigned public
+        unit from generic web search to the knowledge specialist. The specialist
+        still performs its normal evidence authorization before answering.
+        Retrieval errors and weak matches leave the model's web choice intact.
+        """
+        from app.rag.retriever import retriever
+
+        units = {unit["unit_id"]: unit for unit in request_units(PIIRedactor.mask_text(message))}
+        threshold = settings.RAG_MIN_RELEVANCE_THRESHOLD
+        revised: List[PlanStep] = []
+
+        def is_relevant_getnet_candidate(unit_id: str) -> bool:
+            unit = units.get(unit_id)
+            if not unit:
+                return False
+            try:
+                ranked = retriever.retrieve_candidates(query=unit["text"], top_k=1)
+                candidates = ranked.get("candidate_chunks", [])
+                if not candidates:
+                    return False
+                candidate = candidates[0]
+                parsed = urlsplit(str(candidate.get("source_url", "")))
+                host = (parsed.hostname or "").lower()
+                official = parsed.scheme == "https" and (
+                    host == "getnet.com.br" or host.endswith(".getnet.com.br")
+                )
+                provenance = candidate.get("provenance") or {}
+                verified_mirror = (
+                    candidate.get("origin_type") == "verified_markdown_mirror"
+                    and provenance.get("verification_status") == "reviewed_against_official_page"
+                )
+                score = float(candidate.get("relevance_score", 0.0))
+                return official and verified_mirror and score >= threshold
+            except Exception as exc:
+                logger.warning("router_local_documentary_check_failed", error_type=type(exc).__name__)
+                return False
+
+        for step in plan.plan_steps:
+            if step.target_agent != "WEB_SEARCH_AGENT" or not step.request_unit_ids:
+                revised.append(step)
+                continue
+
+            documentary_ids = [uid for uid in step.request_unit_ids if is_relevant_getnet_candidate(uid)]
+            if not documentary_ids:
+                revised.append(step)
+                continue
+
+            remaining_ids = [uid for uid in step.request_unit_ids if uid not in documentary_ids]
+            documentary_query = " ".join(units[uid]["text"].strip() for uid in documentary_ids)
+            documentary_step = PlanStep(
+                step_order=step.step_order,
+                target_agent="KNOWLEDGE_AGENT",
+                sub_query=documentary_query,
+                rationale=("Candidato local oficial Getnet acima do limiar de pertinência; "
+                           "a autorização factual continua no especialista documental."),
+                request_unit_ids=documentary_ids,
+            )
+            if not remaining_ids:
+                revised.append(documentary_step)
+            else:
+                revised.append(documentary_step)
+                remaining_query = " ".join(units[uid]["text"].strip() for uid in remaining_ids)
+                revised.append(step.model_copy(update={
+                    "step_order": step.step_order + 1,
+                    "sub_query": remaining_query,
+                    "request_unit_ids": remaining_ids,
+                }))
+
+        for order, step in enumerate(revised, start=1):
+            step.step_order = order
+        plan.plan_steps = revised
+        if revised:
+            plan.primary_agent = revised[0].target_agent
+        plan.is_multi_step = len(revised) > 1
+        plan.requires_user_context = any(step.target_agent in {
+            "CUSTOMER_SUPPORT_AGENT", "HUMAN_ESCALATION_AGENT"} for step in revised)
         return plan
 
     @staticmethod

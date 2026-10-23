@@ -153,9 +153,53 @@ def test_documentary_native_priority_instructions_preserve_native_choice(monkeyp
         return completion(('search_getnet_knowledge', {'query': message}))
     specialist = KnowledgeAgent(Provider(choose))
     assert specialist._plan_native(message)[0].tool_name == 'search_getnet_knowledge'
-    # The provider is still allowed to choose web; there is no keyword override.
-    web = Provider(completion(('WEB_SEARCH_AGENT', dict(sub_query=message, rationale='external update'))))
-    assert RouterAgent(web).plan(message, 'synthetic').primary_agent == 'WEB_SEARCH_AGENT'
+
+
+@pytest.mark.parametrize('message', [
+    'Where do I insert the Algar SIM in the Getnet terminal and how do I test connectivity?',
+    'Como colocar o chip Algar na Getnet e testar a conexão?',
+    'Explain the SIM installation steps for my Getnet device.',
+])
+def test_native_web_proposal_moves_to_knowledge_when_local_getnet_evidence_is_relevant(monkeypatch, message):
+    from app.agents.router_agent import RouterAgent
+    from app.config import settings
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
+    provider = Provider(completion(('WEB_SEARCH_AGENT', dict(sub_query=message, rationale='external update'))))
+    plan = RouterAgent(provider).plan(message, 'synthetic')
+    assert plan.primary_agent == 'KNOWLEDGE_AGENT'
+    assert all(step.target_agent == 'KNOWLEDGE_AGENT' for step in plan.plan_steps)
+    assert {uid for step in plan.plan_steps for uid in step.request_unit_ids} == {
+        unit['unit_id'] for unit in request_units(message)
+    }
+
+
+def test_native_web_choice_is_preserved_without_relevant_local_document(monkeypatch):
+    from app.agents.router_agent import RouterAgent
+    from app.config import settings
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
+    message = 'What is the current weather in Porto Alegre tomorrow?'
+    provider = Provider(completion(('WEB_SEARCH_AGENT', dict(sub_query=message, rationale='current forecast'))))
+    plan = RouterAgent(provider).plan(message, 'synthetic')
+    assert plan.primary_agent == 'WEB_SEARCH_AGENT'
+
+
+def test_native_web_proposal_is_not_rebound_to_unverified_candidate(monkeypatch):
+    from app.agents.router_agent import RouterAgent
+    from app.config import settings
+    from app.rag.retriever import retriever
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
+    message = 'Where do I insert the Algar SIM in the Getnet terminal and how do I test connectivity?'
+    monkeypatch.setattr(retriever, 'retrieve_candidates', lambda **kwargs: {
+        'candidate_chunks': [{
+            'source_url': 'https://site.getnet.com.br/duvidas/',
+            'origin_type': 'live_web_scrape',
+            'provenance': {'verification_status': 'unreviewed'},
+            'relevance_score': 0.99,
+        }]
+    })
+    provider = Provider(completion(('WEB_SEARCH_AGENT', dict(sub_query=message, rationale='external update'))))
+    plan = RouterAgent(provider).plan(message, 'synthetic')
+    assert plan.primary_agent == 'WEB_SEARCH_AGENT'
 
 
 def test_mixed_firmware_has_separate_native_delegations(monkeypatch):

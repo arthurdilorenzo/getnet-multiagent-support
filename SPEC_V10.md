@@ -42,3 +42,15 @@ Auditor avalia onze pesos e quatro gates; nota nominal não oficial e limites ex
 - [ ] Registrar entrega/WORKLOG e verificar main remoto. Publicação em main depende simultaneamente da auditoria >=95 sustentada e CI verde; confirmar novo CI de main se houver promoção.
 
 Foco da revisão cruzada: condições globais não podem desaparecer ao permitir parcial; fragmentos entre alvos não podem doar identidade/propósito; conectores em nomes não devem criar leituras; fonte web genérica não satisfaz instrução Getnet; ausência de campo e país desconhecido não justificam apagar fato independente verificado.
+
+## Addendum V10.1 — correção empírica do desvio documental
+
+Após a implementação V10 congelada em `0bb3b32`, revisão independente reproduziu que RouterAgent sem chave envia o pedido em inglês para instalação do SIM Algar a `CUSTOMER_SUPPORT_AGENT` (e, no trace V9, Gemini escolheu busca web genérica apesar do manual local). O teste anterior só verificava o prompt e permitia escolha WEB_SEARCH; portanto, o aceite D04 não estava demonstrado. A suite local mantém evidência do corpus com instruções Algar/SIM1/SIM2/teste de comunicação.
+
+Contrato corrigido: function calling nativo continua escolhendo a ação inicialmente. Depois da seleção, um validador local de elegibilidade pode redirecionar uma necessidade de procedimento/funcionamento de produto Getnet para KNOWLEDGE_AGENT somente quando o próprio retrieval retorna fonte primária local pertinente acima de limiar já definido pelo sistema. O validador usa resultado/capacidade de retrieval e escopo tipado; não usa lista de palavras-chave nem substitui a chamada Gemini. Sem evidência local suficiente, preservar busca web para informação externa atual quando pertinente ou declarar necessidade sem resolução. Nunca responder instruções SIM/campo técnico com snippet web genérico; não inventar instruções ausentes do span.
+
+RED/GREEN: reproduzir variações PT/EN e paráfrases de instalação Getnet, incluindo request realmente coberto e um request sem conteúdo local; comprovar que a consulta coberta recebe apenas os spans/citações existentes do manual através do caminho de Knowledge/RAG/ledger, enquanto pedido fora do corpus não é falsamente respondido. Guardar a escolha inicial do modelo e o redirecionamento justificado, sem alegar aderência do Gemini real sem execução. O restante das invariantes e critérios da matriz V10 continua vigente.
+
+## Addendum V10.2 — lacuna de integração de resposta parcial
+
+Revisão independente encontrou contratos V10 para parcial documental e leitura operacional, mas nenhum teste de integração que combine no mesmo turno um fato público coberto (prazo Pix) e firmware `None` do terminal. Integrador deve acrescentar teste RED/GREEN pelo handler/orquestrador, garantindo resposta com o fato coberto, firmware explicitamente pendente/indisponível, status `partial`, ledger coberto/unresolved e sem emprestar campo de outro alvo. Não altera expected labels nem critérios; apenas demonstra o contrato já declarado.
