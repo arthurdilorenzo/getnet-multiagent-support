@@ -62,10 +62,15 @@ def test_compact_protocol_reconstructs_exact_canonical_evidence_and_dynamic_sche
     units=schema['properties']['units']
     assert units['required']==['u1'] and units['additionalProperties'] is False
     item=units['properties']['u1']
-    assert item['additionalProperties'] is False
-    assert item['properties']['span_ids']['items']['enum']==['synthetic-lumen:p0']
-    assert 'maxItems' not in item['properties']['span_ids']
-    assert not ({'text','start','end','quote','content_hash'} & set(item['properties']))
+    assert set(item)=={'anyOf'}
+    assert len(item['anyOf'])==4
+    for branch in item['anyOf']:
+        assert branch['additionalProperties'] is False
+        assert set(branch['required'])==set(branch['properties'])
+        assert not ({'text','start','end','quote','content_hash'} & set(branch['properties']))
+    supported=item['anyOf'][0]
+    assert supported['properties']['span_ids']['items']['enum']==['synthetic-lumen:p0']
+    assert 'maxItems' not in supported['properties']['span_ids']
     assert out.covered_unit_ids==['u1']
 
 
@@ -146,7 +151,7 @@ def test_delegated_unit_has_no_factual_credit_and_does_not_hide_a_condition():
     assert payload['original_request']==message and payload['delegation_scope']==scope
     second=verification(message);second.update(complete=False);second['checks']['u2']={'verdict':'reject','issues':['omitted_condition']}
     rejected,_=run(message,first=first,second=second,scope=scope)
-    assert rejected.status=='partial' and 'u2' in rejected.unresolved_unit_ids
+    assert rejected.status=='abstained' and not rejected.approved_chunks and 'u2' in rejected.unresolved_unit_ids
     assert not rejected.covered_unit_ids  # discarded condition cannot release local facts
 
 
@@ -257,5 +262,5 @@ def test_uncertain_global_verification_does_not_report_overlapping_credit():
     message='Explique Lumen.'
     second=verification(message);second['complete']=False
     out,_=run(message,second=second)
-    assert out.status=='partial' and not out.covered_unit_ids
+    assert out.status=='abstained' and not out.approved_chunks and not out.covered_unit_ids
     assert out.unresolved_unit_ids==['u1']

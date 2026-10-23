@@ -106,9 +106,9 @@ def test_rejected_condition_classified_as_context_prevents_complete():
     split=message.index(';')
     units=[unit('u1',message,0,split,selections=[selection()]),unit('u2',message,split,len(message),kind='context',decision='not_applicable')]
     out=authorize(message,first=analysis(message,units=units),second=verification(message,('u1','u2'),rejected=('u2',),complete=False,issue='omitted_condition'))
-    assert out.status=='partial'
-    assert out.unresolved_units==[message[split:]]
-    assert len(out.approved_chunks)==1
+    assert out.status=='abstained' and not out.approved_chunks
+    assert out.unresolved_units==[message[:split],message[split:]]
+    assert not out.approved_chunks
 
 
 @pytest.mark.parametrize('issue',['subject_mismatch','unit_mismatch','scope_mismatch','polarity_mismatch','omitted_exception'])

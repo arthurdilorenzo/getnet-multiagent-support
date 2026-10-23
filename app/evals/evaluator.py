@@ -53,6 +53,19 @@ class GroundednessJudge:
         return [part.strip() for part in re.split(r'(?<!\d)[.!?](?:\s|$)|\n+',text) if part.strip()]
 
     @classmethod
+    def _reference_claim(cls, text):
+        """Normalize only complete known source-attribution formatter suffixes.
+
+        The factual predicate remains literal. Unknown tails and added conditions
+        stay in the claim; this does not authorize unrestricted paraphrases.
+        """
+        clean = cls._strip_links(text).strip().rstrip('.')
+        canonical = re.sub(
+            r', (?:conforme o manual de uso(?: dispon[ií]vel no [ií]ndice p[úu]blico da fonte prim[áa]ria)?|'
+            r'como mostra seu manual de uso)$', '', clean, flags=re.I)
+        return Text.normalize(canonical).strip()
+
+    @classmethod
     def _abstention_is_clean(cls,text):
         stripped=cls._strip_links(text)
         for sentence in cls._sentences(stripped):
@@ -220,11 +233,12 @@ class GroundednessJudge:
         # only; unrestricted paraphrases require independent semantic review.
         if references:
             reference_text = Text.normalize(cls._strip_links(support))
+            canonical_references = {cls._reference_claim(sentence) for sentence in support_sentences}
             for sentence in response_sentences:
                 if sentence.startswith('['):
                     continue
                 claim = Text.normalize(cls._strip_links(sentence)).strip()
-                if claim and claim not in reference_text:
+                if claim and claim not in reference_text and cls._reference_claim(sentence) not in canonical_references:
                     return fail('Alegação não extrativa exige revisão semântica independente.',
                                 unsupported_claim=sentence, semantic_review_required=True)
         # For attached extracts, substantive non-source text must be verbatim.

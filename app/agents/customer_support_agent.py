@@ -11,6 +11,7 @@ from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
 from app.security.request_units import request_units, validate_scope
+from app.security.fulfillment import evaluate_operational_unit
 from app.security.request_constraints import (
     TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints,
 )
@@ -77,43 +78,23 @@ class CustomerSupportAgent:
             output = self._run_offline(
                 message, security_context, session_id, conversation_context, tracer, original_message
             )
-        return self._with_unit_coverage(output,original_message,scope,conversation_context)
+        return self._with_unit_coverage(output,original_message,scope,conversation_context,
+                                        security_context.authenticated_user_id)
 
     @staticmethod
     def _with_unit_coverage(output: SpecialistOutput, original: str, scope: dict,
-                            context: Optional[Dict[str,Any]]) -> SpecialistOutput:
+                            context: Optional[Dict[str,Any]],
+                            authenticated_user_id: Optional[str] = None) -> SpecialistOutput:
         assigned=scope['assigned_unit_ids']
         covered=[]
-        successful={result.tool_name:result.data for result in output.tool_results
-                    if result.success and result.outcome_state=='completed' and isinstance(result.data,dict) and result.data.get('found',True)}
-        tools={'profile':'get_customer_profile','settlement':'get_sales_settlement',
-               'diagnosis':'diagnose_terminal_issue','action':'execute_terminal_remote_action'}
-        coverage_context=dict(context or {})
-        terminal=(successful.get('diagnose_terminal_issue',{}).get('terminal') or {}).get('terminal_id')
-        if isinstance(terminal,str) and re.fullmatch(TERMINAL_PATTERN,terminal):
-            coverage_context['entities']={**(coverage_context.get('entities') or {}),'terminal_id':terminal}
         for unit in request_units(original):
-            if unit['unit_id'] not in assigned: continue
-            text=unit['text'].lstrip(' ;,.')
-            norm=BilingualDenseEmbedder.normalize(text)
-            intent=classify_operational_intent(text,coverage_context)
-            if not intent.intents or intent.documentary_scope or intent.ambiguous: continue
-            # This tool only prepares proposals. A successfully created pending
-            # proposal is never proof of the execution requested by the user.
-            if 'action' in intent.intents: continue
-            if not all(tools[item] in successful for item in intent.intents): continue
-            if re.search(r'\b(?:se|if|unless|exceto|except|desde que|provided that|garant\w*|guarantee\w*)\b',norm): continue
-            if 'settlement' in intent.intents:
-                constraints=extract_constraints(text,context)
-                data=successful['get_sales_settlement']
-                if not constraints.sales_dates or constraints.ambiguous_date or data.get('requested_sales_date') not in constraints.sales_dates: continue
-            if 'diagnosis' in intent.intents:
-                relation=re.search(r'\b(?:versao|version|firmware|status|estado|signal|sinal|connect\w*|conect\w*|conex\w*|telemetr\w*|hardware|declin\w*|recus\w*|code|codigo|transacao|transaction)\b',norm)
-                bare=re.fullmatch(r'(?:check|inspect|verifique|cheque|diagnostique)\s+(?:(?:o|the|terminal)\s+)*get [a-z0-9 ]+',norm)
-                hardware_relation=(successful['diagnose_terminal_issue'].get('requires_hardware_replacement')
-                    and re.search(r'\b(?:defeit\w*|falha|leitor|chip|reader|fault|broken)\b',norm))
-                if not relation and not bare and not hardware_relation: continue
-            covered.append(unit['unit_id'])
+            if unit['unit_id'] not in assigned:
+                continue
+            decision=evaluate_operational_unit(
+                unit['text'].lstrip(' ;,.'), output.tool_results, context,
+                original=original, authenticated_user_id=authenticated_user_id)
+            if decision.fulfilled:
+                covered.append(unit['unit_id'])
         unresolved=[unit_id for unit_id in assigned if unit_id not in covered]
         output.request_unit_ids=list(assigned)
         output.covered_unit_ids=covered
@@ -594,7 +575,8 @@ class CustomerSupportAgent:
                 continue
             data = result.data if isinstance(result.data, dict) else {}
             fields = {
-                "get_sales_settlement": ("user_id", "company_name", "sales_data", "error"),
+                "get_sales_settlement": ("user_id", "company_name", "sales_data", "error",
+                                         "data_scope", "temporal_notice", "requested_sales_date"),
                 "get_customer_profile": ("user_id", "company_name", "cnpj", "account_plan", "antecipacao_automatica",
                                          "domicilio_bancario", "terminals_count", "terminals_summary"),
                 "execute_terminal_remote_action": ("proposal_id", "action_type", "terminal_id", "payload_hash", "expires_at", "status", "confirmation_instruction"),
@@ -709,6 +691,8 @@ class CustomerSupportAgent:
                         parts.append("**Orientações de diagnóstico (não executadas remotamente):**\n" + "\n".join(steps))
                 if diag.get("requires_hardware_replacement"):
                     parts.append("**Falha física de hardware identificada:** o diagnóstico indica necessidade de substituição. Encaminhamento humano necessário; esta consulta não comprova abertura de protocolo.")
+                elif diag.get("requires_hardware_replacement") is False:
+                    parts.append("A telemetria consultada não indica necessidade de substituição de hardware.")
 
         if "execute_terminal_remote_action" in collected_data:
             action = collected_data["execute_terminal_remote_action"]

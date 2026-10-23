@@ -112,11 +112,32 @@ def valid_selection(selection: Dict[str,Any],chunk: Dict[str,Any]) -> bool:
 def compact_schema(phase: str,digest: str,unit_ids: List[str],span_ids: List[str]) -> Dict[str,Any]:
     """Exact dynamic keysets; singleton enum instead of unsupported raw const."""
     if phase=='semantic_analysis':
-        item=UnitDecision.model_json_schema()
-        # The local unique/allowlist check also bounds cardinality. Avoid a
-        # repeated remote maxItems constraint; backend compatibility is tested
-        # separately, without weakening that server-owned validation.
-        item['properties']['span_ids']={'type':'array','items':{'type':'string','enum':span_ids}}
+        # Each union branch is a complete independently constrained object.
+        # A common sibling base plus constraint-only anyOf branches was valid
+        # JSON Schema, but real STOP payloads still violated its invariants.
+        # Keep the wire DTO unchanged and retain all local validation below.
+        branches=[]
+        for kinds,decisions,factual in (
+            (['requirement'],['supported','contradicted'],True),
+            (['requirement'],['unknown','ambiguous'],True),
+            (['context','courtesy','delegated'],['not_applicable'],False),
+            (['unresolved'],['unknown','ambiguous'],False),
+        ):
+            props={'kind':{'type':'string','enum':kinds},
+                'decision':{'type':'string','enum':decisions}}
+            for name in ('subject','relation','value','unit'):
+                props[name]={'type':'string'}
+                if not factual:props[name]['enum']=['']
+                elif name in {'subject','relation'}:props[name]['minLength']=1
+            props['qualifiers']={'type':'array','items':{'type':'string'}}
+            props['span_ids']={'type':'array','items':{'type':'string'}}
+            if 'supported' in decisions:
+                props['span_ids'].update(minItems=1)
+                props['span_ids']['items']['enum']=span_ids
+            else:props['span_ids']['maxItems']=0
+            if not factual:props['qualifiers']['maxItems']=0
+            branches.append({'type':'object','properties':props,'required':list(props),'additionalProperties':False})
+        item={'anyOf':branches}
         key='units'
     else:
         item=VerificationCheck.model_json_schema();key='checks'
@@ -217,13 +238,17 @@ class SemanticEvidenceAuthorizer:
         if set(analysis.units)!=known:raise SemanticProtocolError(stage,'UNIT_KEYSET')
         other_only=set(scope['other_unit_ids'])-set(scope['assigned_unit_ids'])
         for uid,unit in analysis.units.items():
+            def invalid(invariant):
+                raise SemanticProtocolError(stage,'UNIT_STATE',{'unit_id':uid,'invariant':invariant,
+                    'kind':unit.kind,'decision':unit.decision,'span_count':len(unit.span_ids)})
             if unit.kind=='delegated' and uid not in other_only:raise SemanticProtocolError(stage,'DELEGATION_STATE')
             if unit.kind in {'context','courtesy','unresolved','delegated'}:
                 expected={'unknown','ambiguous'} if unit.kind=='unresolved' else {'not_applicable'}
-                if unit.decision not in expected or unit.span_ids or any((unit.subject,unit.relation,unit.value,unit.unit,unit.qualifiers)):
-                    raise SemanticProtocolError(stage,'UNIT_STATE')
-            elif not unit.subject or not unit.relation or unit.decision=='not_applicable':raise SemanticProtocolError(stage,'UNIT_STATE')
-            if (unit.decision in {'supported','contradicted'}) != bool(unit.span_ids):raise SemanticProtocolError(stage,'UNIT_STATE')
+                if unit.decision not in expected:invalid('KIND_DECISION')
+                if unit.span_ids or any((unit.subject,unit.relation,unit.value,unit.unit,unit.qualifiers)):invalid('NON_FACTUAL_FIELDS')
+            elif not unit.subject.strip() or not unit.relation.strip():invalid('REQUIREMENT_IDENTITY')
+            elif unit.decision=='not_applicable':invalid('KIND_DECISION')
+            if (unit.decision in {'supported','contradicted'}) != bool(unit.span_ids):invalid('DECISION_SPANS')
             if len(set(unit.span_ids))!=len(unit.span_ids):raise SemanticProtocolError(stage,'SPAN_DUPLICATE')
             if any(sid not in available for sid in unit.span_ids):raise SemanticProtocolError(stage,'SPAN_UNKNOWN')
 
@@ -268,17 +293,21 @@ class SemanticEvidenceAuthorizer:
                 valid_delegated=unit.kind=='delegated' and check.verdict=='accept'
                 if valid_delegated:delegated.append(uid)
                 relevant=unit.kind in {'requirement','unresolved'} or check.verdict=='reject'
-                if relevant and not answerable:unresolved.append(uid)
-                coverage.append({**canonical,**unit.model_dump(),'verification':check.model_dump(),'answered':answerable})
-                if answerable:
+                if relevant and not answerable and (uid in assigned or check.verdict=='reject'):unresolved.append(uid)
+                coverage.append({**canonical,**unit.model_dump(),'verification':check.model_dump(),'answered':answerable and uid in assigned})
+                if answerable and uid in assigned:
                     for sid in unit.span_ids:
                         selected=available[sid];approved.setdefault(selected['chunk_id'],[]).append(selected)
+            # A discarded condition can qualify another unit regardless of
+            # ownership. Without a verified dependency proof, no conditioned
+            # fact may escape through a different accepted unit.
             cross_condition_veto=any(check.verdict=='reject' and
-                bool(set(check.issues)&{'omitted_condition','omitted_exception','scope_mismatch','invalid_delegation'})
-                for uid,check in verification.checks.items() if uid not in assigned)
+                bool(set(check.issues)&{'omitted_condition','omitted_exception','scope_mismatch','invalid_delegation','polarity_mismatch'})
+                for check in verification.checks.values())
             if cross_condition_veto or (not verification.complete and not unresolved):
                 unresolved=list(dict.fromkeys(unresolved+[uid for uid in unit_ids if uid in assigned]))
                 covered=[]
+                approved={}
                 for row in coverage:
                     if row['unit_id'] in assigned:row['answered']=False
             complete=bool(covered) and not unresolved and verification.complete

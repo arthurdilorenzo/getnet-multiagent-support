@@ -26,6 +26,8 @@ HTTP → autenticação/tenant → guardrails → memória SQLite
 
 A execução automática de tools pelo SDK fica desativada: as chamadas passam pelo `ToolRegistry`, que valida schemas, permite apenas ferramentas registradas e vincula identidade e sessão no servidor. Com chave, erro de protocolo/provedor não aciona planejador ou aprovação factual lexical silenciosos. A resposta de suporte é renderizada de campos retornados pelas ferramentas; texto livre do provedor não confirma ações ou pagamentos. No caminho documental nativo, falha de análise/verificação impede cobertura completa; não há seleção redundante de um único chunk depois dessas fases.
 
+O crédito de cumprimento operacional usa um contrato delimitado também quando a seleção de ferramentas é nativa: exige propriedade/relação reconhecida, campos úteis, alvo, data e tenant correspondentes. Sucesso da ferramenta sozinho não comprova resposta. Campos ausentes, condições não comprovadas e relações fora da gramática ficam pendentes. Orientações de conectividade exigem a lista tipada de passos; são recomendações, sem execução remota. Isso não é entailment universal nem cobertura aberta de linguagem.
+
 O supervisor executa até `MAX_ORCHESTRATION_ITERATIONS` passos. Ao observar `requires_escalation` no diagnóstico de suporte, pode acrescentar uma etapa humana. Observações e resultados estruturados também alimentam etapas seguintes e um replanejamento limitado do router. A política offline é explícita; o sistema não é um planner irrestrito. Chamadas de suporte também têm limites de turnos e de quantidade de tools.
 
 ## Retrieval local: o pipeline implementado
@@ -175,7 +177,7 @@ O harness usa `data/eval_dataset.json` (13 regressões locais com labels revisto
 
 O relatório também separa modos e status declarados. Não chama taxa de não abstenção de utilidade real. Em respostas parciais, o juiz separa extratos apoiados de unidades literalmente não respondidas: consistência de um subconjunto não aprova cumprimento integral. Só um caso explicitamente rotulado como parcial pode passar dessa forma. Julgamento semântico por necessidade continua separado.
 
-`GroundednessJudge` é um **validador limitado de consistência de evidências**. Rejeita números não suportados, conflitos explícitos de polaridade, extratos alterados e abstenções com alegações materiais. Quando existe referência independente, só certifica alegações extrativas dessa referência: paráfrases não verificáveis ficam reprovadas para revisão semântica, mesmo que possam estar corretas. Isso impede aprovar inversões de autoridade apenas por repetir termos e números. Uma URL ou termos esperados sozinhos não aprovam a resposta. Ainda não prova entailment universal, cobertura ou autenticidade externa; pode haver falsos positivos/negativos. Métricas automáticas não são nota V4 nem garantia contra alucinações.
+`GroundednessJudge` é um **validador limitado de consistência de evidências**. Rejeita números não suportados, conflitos explícitos de polaridade, extratos alterados e abstenções com alegações materiais. Quando existe referência independente, exige o núcleo factual literal; canoniza apenas sufixos completos conhecidos de atribuição ao manual, sem remover condições ou novos predicados. Paráfrases livres não verificáveis ficam reprovadas para revisão semântica, mesmo que possam estar corretas. Uma URL ou termos esperados sozinhos não aprovam a resposta. Ainda não prova entailment universal, cobertura ou autenticidade externa; pode haver falsos positivos/negativos. Métricas automáticas não são nota V4 nem garantia contra alucinações.
 
 A suíte comum desliga Gemini mesmo com `.env` configurado. A integração real é opt-in, usa dados sintéticos e estado temporário:
 
@@ -191,7 +193,7 @@ O segundo comando avalia somente o componente semântico, sem provar routing/cha
 
 O terceiro passa pelo endpoint HTTP autenticado, router, especialistas e renderer com uma conta sintética conhecida e estado temporário. Tem limite padrão4, máximo12; preserva observações e falhas sem atribuir aprovação semântica por HTTP200. A adjudicação por necessidade permanece independente. As falhas de uma amostra não são substituídas por novas tentativas.
 
-O plano atual está em [SPEC_V6.md](SPEC_V6.md); os ciclos anteriores estão em [SPEC_V5.md](SPEC_V5.md), [SPEC_V4.md](SPEC_V4.md), [SPEC_V3.md](SPEC_V3.md) e [SPEC.md](SPEC.md). O score95+ depende da auditoria do candidato exato, sem inferência pelo número de testes. Não há nota oficial nova do avaliador Getnet.
+O plano atual está em [SPEC_V7.md](SPEC_V7.md); os ciclos anteriores estão em [SPEC_V6.md](SPEC_V6.md), [SPEC_V5.md](SPEC_V5.md), [SPEC_V4.md](SPEC_V4.md), [SPEC_V3.md](SPEC_V3.md) e [SPEC.md](SPEC.md). O score95+ depende da auditoria do candidato exato, sem inferência pelo número de testes. Não há nota oficial nova do avaliador Getnet.
 
 ## Trade-offs e Limitações Declaradas
 

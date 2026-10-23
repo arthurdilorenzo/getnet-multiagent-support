@@ -238,7 +238,7 @@ class MultiAgentOrchestrator:
             current_step = pending_steps.popleft()
             target_agent = current_step.target_agent
             try:
-                scoped_plan=RouterAgent.bind_request_units(RoutingPlan(primary_agent=target_agent,plan_steps=[current_step],confidence=0.0,reasoning="Server unit binding"),original_request,conversation_context)
+                scoped_plan=RouterAgent.bind_request_units(RoutingPlan(primary_agent=target_agent,plan_steps=[current_step],confidence=0.0,reasoning="Server unit binding"),original_request,conversation_context,complete_assignment=False)
                 current_step=scoped_plan.plan_steps[0]
                 ledger.assign(target_agent,current_step.request_unit_ids)
             except (ValueError,RouterPlanningError):
@@ -312,6 +312,7 @@ class MultiAgentOrchestrator:
                 observations=observations,
                 conversation_context=conversation_context,
                 tracer=tracer,
+                request_coverage=ledger.snapshot(),
             ) or replan_failed
 
         # Condição de parada atingida
@@ -554,11 +555,24 @@ class MultiAgentOrchestrator:
         observations: List[Dict[str, Any]],
         conversation_context: Dict[str, Any],
         tracer: SystemTracer,
+        request_coverage: Optional[List[Dict[str,Any]]] = None,
     ) -> bool:
         """Bounded feedback planning; failures preserve every completed/partial result."""
         if spec_output.agent_name == "HUMAN_ESCALATION_AGENT":
             return False
+        if (request_coverage and not spec_output.requires_escalation
+                and all(row['state'] in {'fulfilled','exempt'} for row in request_coverage)):
+            tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR",action="replan_not_needed",status="skipped",
+                            details={"reason":"all_request_units_covered","unit_count":len(request_coverage)})
+            return False
         failed_tools = any(not r.success for r in spec_output.tool_results)
+        if request_coverage and not (spec_output.requires_escalation or spec_output.abstained or failed_tools):
+            remaining={row['unit_id'] for row in request_coverage if row['state'] not in {'fulfilled','exempt'}}
+            scheduled_ids={uid for step in pending_steps for uid in step.request_unit_ids}
+            if remaining and remaining<=scheduled_ids:
+                tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR",action="replan_not_needed",status="skipped",
+                                details={"reason":"remaining_request_units_scheduled","unit_count":len(remaining)})
+                return False
         # A completed support result can reveal a dependent query even without a failure.
         if not (spec_output.requires_escalation or spec_output.abstained or failed_tools
                 or spec_output.agent_name == "CUSTOMER_SUPPORT_AGENT"):

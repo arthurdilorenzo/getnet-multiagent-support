@@ -85,36 +85,35 @@ def generate_turn(
     tracer: Optional[SystemTracer] = None,
     *, phase: str = "generation",
 ) -> types.Content:
-    if client is None:
-        raise RuntimeError("Cliente Gemini indisponível com chave configurada.")
-    elapsed = tracer.get_total_execution_time_ms() / 1000 if tracer else 0.0
-    remaining = settings.REQUEST_TIMEOUT_SECONDS - elapsed
-    if remaining <= 0:
-        raise TimeoutError("Request deadline exceeded before provider call")
-    payload = "\n".join(c.model_dump_json(exclude_none=True) for c in contents)
-    # Instructions, tool declarations and constrained schema also consume input
-    # context. This remains a conservative local estimate, not billed usage.
-    estimated_input = payload + '\n' + config.model_dump_json(exclude_none=True)
-    consumed = tracer.get_token_usage().total_tokens if tracer else 0
-    estimate = SystemTracer.estimate_tokens(estimated_input)
-    if consumed + estimate + settings.LLM_MAX_OUTPUT_TOKENS > settings.LLM_REQUEST_TOKEN_BUDGET:
-        raise ProviderTurnError('TOKEN_BUDGET')
-    config = config.model_copy(deep=True)
-    if config.thinking_config is None:
-        config.thinking_config = _minimal_thinking()
-    timeout_ms = max(1, int(min(remaining, settings.LLM_TIMEOUT_SECONDS) * 1000))
-    config.http_options = types.HttpOptions(timeout=timeout_ms,
-        retry_options=types.HttpRetryOptions(attempts=1))
     safe_phase = phase if phase in {"generation", "routing", "replanning", "support",
         "knowledge", "semantic_analysis", "semantic_verification"} else "generation"
     started = time.perf_counter()
-    finish_reason = None
-    thoughts = None
-    error_type = None
-    provider_error_type = None
-    provider_error_code = None
-    turn_error_code = None
+    finish_reason = thoughts = error_type = None
+    provider_error_type = provider_error_code = turn_error_code = None
+    estimated_input = ""
+    estimate = consumed = timeout_ms = 0
+    call_started = response_received = False
     try:
+        if client is None:
+            raise RuntimeError("Cliente Gemini indisponível com chave configurada.")
+        elapsed = tracer.get_total_execution_time_ms() / 1000 if tracer else 0.0
+        remaining = settings.REQUEST_TIMEOUT_SECONDS - elapsed
+        if remaining <= 0:
+            raise TimeoutError("Request deadline exceeded before provider call")
+        payload = "\n".join(c.model_dump_json(exclude_none=True) for c in contents)
+        # Include instructions, declarations and constrained schema in local estimate.
+        estimated_input = payload + '\n' + config.model_dump_json(exclude_none=True)
+        consumed = tracer.get_token_usage().total_tokens if tracer else 0
+        estimate = SystemTracer.estimate_tokens(estimated_input)
+        if consumed + estimate + settings.LLM_MAX_OUTPUT_TOKENS > settings.LLM_REQUEST_TOKEN_BUDGET:
+            raise ProviderTurnError('TOKEN_BUDGET')
+        config = config.model_copy(deep=True)
+        if config.thinking_config is None:
+            config.thinking_config = _minimal_thinking()
+        timeout_ms = max(1, int(min(remaining, settings.LLM_TIMEOUT_SECONDS) * 1000))
+        config.http_options = types.HttpOptions(timeout=timeout_ms,
+            retry_options=types.HttpRetryOptions(attempts=1))
+        call_started = True
         response = call_with_resilience(
             "gemini_api",
             lambda: client.models.generate_content(
@@ -122,6 +121,7 @@ def generate_turn(
             ),
             max_retries=0,
         )
+        response_received = True
         usage = getattr(response, "usage_metadata", None)
         thoughts = getattr(usage, "thoughts_token_count", None)
         # Completed server generations consumed tokens even if their protocol
@@ -149,8 +149,10 @@ def generate_turn(
             'TOKEN_BUDGET', 'SDK_CANDIDATE_COUNT', 'SDK_FINISH_REASON', 'SDK_EMPTY_CONTENT'
         }:
             turn_error_code = exc.code
+        if isinstance(exc, TimeoutError) and not call_started:
+            turn_error_code = "DEADLINE"
         cause = exc.__cause__ or exc
-        provider_error_type = type(cause).__name__
+        provider_error_type = type(cause).__name__ if call_started else None
         code = getattr(cause, "code", None)
         provider_error_code = code if isinstance(code, int) and not isinstance(code, bool) else None
         raise
@@ -164,6 +166,8 @@ def generate_turn(
             "timeout_ms": timeout_ms, "finish_reason": finish_reason,
             "thoughts_token_count": thoughts, "error_type": error_type,
             "turn_error_code": turn_error_code,
+            "call_started": call_started,
+            "failure_stage": ("preflight" if not call_started else "protocol" if response_received else "provider") if error_type else None,
             "provider_error_type": provider_error_type, "provider_error_code": provider_error_code}
         if tracer:
             tracer.add_step(agent="GEMINI_PROVIDER", action="provider_generation", details=details,

@@ -9,11 +9,30 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import date
 
 
 def command(*args, capture=False, env=None):
     result = subprocess.run(args, check=True, text=True, capture_output=capture, env=env)
     return result.stdout.strip() if capture else None
+
+
+def validate_historical_chat(response):
+    """This scenario cannot prove today's deposit from a static old snapshot."""
+    assert 'get_sales_settlement' in response.get('tools_called', [])
+    assert response.get('abstained') is True and response.get('answer_status') == 'partial'
+    facts = {item.get('fact_path'): item.get('value') for item in response.get('evidence', [])
+             if item.get('kind') == 'tool_fact' and item.get('tool_name') == 'get_sales_settlement'}
+    assert facts.get('data_scope') == 'synthetic_historical_snapshot'
+    snapshot_date = facts.get('sales_data.date')
+    assert isinstance(snapshot_date, str)
+    assert date.fromisoformat(snapshot_date).isoformat() == snapshot_date
+    text = response.get('response', '')
+    assert snapshot_date in text and 'históric' in text.lower()
+    assert 'não confirma depósito' in text.lower()
+    pending = [row for row in response.get('request_coverage', [])
+               if row.get('state') == 'unresolved' and row.get('text', '').strip()]
+    assert pending and all(row['text'].strip() in text for row in pending)
 
 
 def main():
@@ -87,7 +106,8 @@ def main():
         assert code == 200
         headers = {"Authorization": "Bearer " + issued["access_token"]}
         code, response = request("/api/chat", "POST", body, headers)
-        assert code == 200 and "get_sales_settlement" in response["tools_called"] and not response["abstained"]
+        assert code == 200
+        validate_historical_chat(response)
         checks.append("authenticated_chat")
         assert request("/api/hitl/tickets", headers=headers)[0] == 403
         assert request("/api/sessions/smoke-persist?user_id=cliente2045", headers=headers)[0] == 403

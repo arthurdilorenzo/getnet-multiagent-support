@@ -123,7 +123,8 @@ class RouterAgent:
         return plan
 
     @staticmethod
-    def bind_request_units(plan: RoutingPlan, message: str, context: Optional[Dict[str,Any]]=None) -> RoutingPlan:
+    def bind_request_units(plan: RoutingPlan, message: str, context: Optional[Dict[str,Any]]=None,
+                           *, complete_assignment: bool = True) -> RoutingPlan:
         units=request_units(PIIRedactor.mask_text(message))
         known={unit['unit_id'] for unit in units}
         recognized={unit['unit_id']:classify_operational_intent(unit['text'],context) for unit in units}
@@ -148,6 +149,20 @@ class RouterAgent:
                 # Legacy/external/human step has no proof of ownership of an
                 # unknown clause. It may run, but receives no factual credit.
                 step.request_unit_ids=[]
+        # Provider ownership is a proposal, not permission to omit an original
+        # clause. Bind every leftover clause to an existing factual specialist;
+        # assignment alone grants no evidence credit and unknowns stay visible.
+        assigned={uid for step in plan.plan_steps for uid in step.request_unit_ids}
+        factual=[step for step in plan.plan_steps if step.target_agent!='HUMAN_ESCALATION_AGENT']
+        for unit in units if complete_assignment else []:
+            uid=unit['unit_id']
+            if uid in assigned or not factual:continue
+            intent=recognized[uid]
+            preferred='CUSTOMER_SUPPORT_AGENT' if intent.private_scope and not intent.documentary_scope else 'KNOWLEDGE_AGENT'
+            owner=next((step for step in factual if step.target_agent==preferred),factual[0])
+            owner.request_unit_ids.append(uid)
+        for step in plan.plan_steps:
+            step.request_unit_ids=[unit['unit_id'] for unit in units if unit['unit_id'] in step.request_unit_ids]
         return plan
 
     def route(self, message: str, user_id: str) -> Dict[str, Any]:
