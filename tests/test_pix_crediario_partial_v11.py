@@ -285,3 +285,130 @@ def test_pix_only_assignment_binds_vague_or_invented_external_queries_to_actual_
         ("web_search_general", {"query": "external rules on Pix account eligibility"}),
     ])).run(message, SecurityContext("synthetic"))
     assert executed == [("search_getnet_knowledge", message)]
+
+
+@pytest.fixture
+def documentary_boundary(monkeypatch):
+    """Script only the provider and stop before live retrieval/HTTP dispatch."""
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    executed = []
+
+    def stop(**kwargs):
+        executed.append((kwargs["tool_name"], kwargs["raw_arguments"]["query"]))
+        return ToolExecutionResult(tool_name=kwargs["tool_name"], success=False,
+                                   error_code="SYNTHETIC_STOP")
+
+    monkeypatch.setattr(tool_registry, "execute", stop)
+    return executed
+
+
+@pytest.mark.parametrize("local_first", [False, True])
+def test_pix_web_correction_keeps_unrelated_local_crediario_scope(documentary_boundary, local_first):
+    pix = "Name the account types accepted for Pix in Brazil."
+    crediario = "Explain the published Crediário settlement terms in Brazil."
+    proposals = [("web_search_general", {"query": "Pix account categories"}),
+                 ("search_getnet_knowledge", {"query": "Crediário settlement terms"})]
+    if local_first:
+        proposals.reverse()
+    KnowledgeAgent(BatchProvider(proposals)).run(pix + " " + crediario, SecurityContext("synthetic"))
+    expected = [("search_getnet_knowledge", pix), ("search_getnet_knowledge", crediario)]
+    assert documentary_boundary == (list(reversed(expected)) if local_first else expected)
+
+
+def test_equivalent_pix_scopes_dedup_without_losing_crediario(documentary_boundary):
+    pix = "Name the account types accepted for Pix in Brazil."
+    crediario = "Explain the published Crediário settlement terms in Brazil."
+    KnowledgeAgent(BatchProvider([
+        ("web_search_general", {"query": "Pix account categories"}),
+        ("search_getnet_knowledge", {"query": "Pix accepted account types"}),
+        ("search_getnet_knowledge", {"query": "Crediário settlement terms"}),
+    ])).run(pix + " " + crediario, SecurityContext("synthetic"))
+    assert documentary_boundary == [("search_getnet_knowledge", pix),
+                                    ("search_getnet_knowledge", crediario)]
+
+
+def test_external_modifier_in_separate_assignment_survives_knowledge_boundary(documentary_boundary):
+    external = "Name the account types accepted for Pix and use an external source."
+    local = "Name Getnet Pix account eligibility in Brazil."
+    original = external + " " + local
+    agent = KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account eligibility"})]))
+    for ids, others, sub_query in [
+        (["u1"], ["u2", "u3"], "Name the account types accepted for Pix"),
+        (["u2"], ["u1", "u3"], "and use an external source."),
+        (["u3"], ["u1", "u2"], local),
+    ]:
+        agent.run(sub_query, SecurityContext("synthetic"), request_message=original,
+                  delegation_scope={"assigned_unit_ids": ids, "other_unit_ids": others})
+    assert [name for name, _ in documentary_boundary] == [
+        "web_search_general", "web_search_general", "search_getnet_knowledge"]
+    assert "external source" in documentary_boundary[0][1]
+    assert "external source" in documentary_boundary[1][1]
+    assert local not in documentary_boundary[0][1]
+    assert documentary_boundary[2][1] == local
+
+
+@pytest.mark.parametrize("norway_tool", ["web_search_general", "search_getnet_knowledge"])
+def test_mixed_batch_canonical_norway_external_intent_survives_query_omission(documentary_boundary, norway_tool):
+    brazil = "Name the account types accepted for Pix in Brazil."
+    norway = "Use an external source for Pix account eligibility in Norway."
+    KnowledgeAgent(BatchProvider([
+        ("web_search_general", {"query": "Pix account eligibility in Brazil"}),
+        (norway_tool, {"query": "Pix account eligibility in Norway"}),
+    ])).run(brazil + " " + norway, SecurityContext("synthetic"))
+    assert documentary_boundary == [("search_getnet_knowledge", brazil),
+                                    ("web_search_general", norway)]
+
+
+def test_conjoined_independent_local_questions_keep_distinct_scopes(documentary_boundary):
+    pix = "Name the account types accepted for Pix in Brazil"
+    crediario = "and explain the published Crediário settlement terms."
+    KnowledgeAgent(BatchProvider([
+        ("web_search_general", {"query": "Pix account categories"}),
+        ("search_getnet_knowledge", {"query": "Crediário settlement terms"}),
+    ])).run(pix + " " + crediario, SecurityContext("synthetic"))
+    assert documentary_boundary == [("search_getnet_knowledge", pix),
+                                    ("search_getnet_knowledge", crediario)]
+
+
+def test_external_modifier_does_not_change_independent_conjoined_pix_assignment(documentary_boundary):
+    external = "Name Pix account types and use an external source"
+    independent = "and name Getnet Pix account eligibility in Brazil."
+    original = external + " " + independent
+    KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account eligibility"})])).run(
+        independent, SecurityContext("synthetic"), request_message=original,
+        delegation_scope={"assigned_unit_ids": ["u3"], "other_unit_ids": ["u1", "u2"]})
+    assert documentary_boundary == [("search_getnet_knowledge", independent)]
+
+
+def test_ambiguous_mixed_source_proposal_abstains_before_registry_dispatch(documentary_boundary):
+    message = ("Name Pix account eligibility in Brazil. "
+               "Use an external source for Pix account eligibility in Norway.")
+    out = KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account eligibility"})])).run(
+        message, SecurityContext("synthetic"))
+    assert documentary_boundary == []
+    assert out.abstained and out.unresolved_unit_ids == ["u1", "u2"]
+
+
+def test_split_source_modifier_cannot_copy_unassigned_private_condition(documentary_boundary):
+    message = ("Name the account types accepted for Pix and use an external source "
+               "if firmware of GET-CLASSICA-QA-84257 is qa-12.08.")
+    KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account eligibility"})])).run(
+        "Name Pix account types", SecurityContext("synthetic"), request_message=message,
+        delegation_scope={"assigned_unit_ids": ["u1"], "other_unit_ids": ["u2", "u3"]})
+    assert documentary_boundary == [("web_search_general",
+        "Name the account types accepted for Pix and use an external source")]
+
+
+def test_split_named_external_authority_survives_without_unassigned_subject(documentary_boundary):
+    message = ("Name the account types accepted for Pix and cite Banco Central "
+               "if firmware of GET-CLASSICA-QA-84257 is qa-12.08.")
+    KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account eligibility"})])).run(
+        "Name Pix account types", SecurityContext("synthetic"), request_message=message,
+        delegation_scope={"assigned_unit_ids": ["u1"], "other_unit_ids": ["u2", "u3"]})
+    assert len(documentary_boundary) == 1
+    name, query = documentary_boundary[0]
+    assert name == "web_search_general"
+    assert "Banco Central" in query
+    assert "firmware" not in query and "GET-CLASSICA-QA-84257" not in query

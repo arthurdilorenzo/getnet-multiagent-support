@@ -85,25 +85,22 @@ class KnowledgeAgent:
         try:
             planning_context=dict(conversation_context or {}, original_request=original_request, delegation_scope=scope, request_units=request_units(original_request))
             planned_calls = self._plan_tool_calls(message=authoritative_query,is_web_search=is_web_search,tracer=tracer,conversation_context=planning_context)
-            # Bind native documentary arguments before the optional Pix
-            # correction. Its replacement queries are already server-owned
-            # canonical Pix units and must not be widened again at execution.
-            planned_calls = [call.model_copy(update={'arguments': {**call.arguments, 'query': authoritative_query}})
-                             if call.tool_name == 'search_getnet_knowledge' else call for call in planned_calls]
-            planned_calls = self._prefer_local_pix_product_evidence(
-                planned_calls, planning_context.get('original_request', original_request), scope)
-            for call_spec in planned_calls:
+            scoped_calls = self._bind_documentary_scopes(
+                planned_calls, original_request, scope, authoritative_query)
+            # The same tool may serve independent canonical questions. Only an
+            # equivalent tool + unit scope is redundant, irrespective of the
+            # provider's call ID, query paraphrase or retrieval-size proposal.
+            unique = []
+            seen = set()
+            for call_spec, call_scope in scoped_calls:
                 self._validate_public_request(call_spec, authoritative_query)
-                if call_spec.tool_name == 'web_search_general' and scope['other_unit_ids']:
-                    call_spec.arguments = {**call_spec.arguments, 'query': authoritative_query}
-            # Duplicate documentary calls cannot justify extra semantic passes.
-            unique=[];documental_seen=False
-            for call_spec in planned_calls:
-                if call_spec.tool_name=='search_getnet_knowledge':
-                    if documental_seen: continue
-                    documental_seen=True
-                unique.append(call_spec)
-            planned_calls=unique
+                if call_spec.tool_name in {'search_getnet_knowledge', 'web_search_general'}:
+                    key = (call_spec.tool_name, tuple(call_scope['assigned_unit_ids']))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                unique.append((call_spec, call_scope))
+            scoped_calls = unique
         except ValueError as exc:
             return SpecialistOutput(agent_name='WEB_SEARCH_AGENT' if is_web_search else 'KNOWLEDGE_AGENT',
                                     response=str(exc),confidence=0,abstained=True,abstention_reason='Argumento público não identificado com segurança.',
@@ -116,7 +113,7 @@ class KnowledgeAgent:
         sources: List[str] = []
 
         # 2. Loop de Execução de Tools via ToolRegistry
-        for call_spec in planned_calls[: settings.MAX_TOOL_TURNS]:
+        for call_spec, call_scope in scoped_calls[: settings.MAX_TOOL_TURNS]:
             tools_called.append(call_spec.tool_name)
             res = tool_registry.execute(
                 tool_name=call_spec.tool_name,
@@ -129,7 +126,7 @@ class KnowledgeAgent:
                 data=dict(res.data or {})
                 if settings.GEMINI_API_KEY:
                     authorization=SemanticEvidenceAuthorizer(self.client).authorize(
-                        original_request,data.get('candidate_chunks',[]),conversation_context,tracer,delegation_scope=scope)
+                        original_request,data.get('candidate_chunks',[]),conversation_context,tracer,delegation_scope=call_scope)
                     data.update(semantic_mode='native_semantic',answer_status=authorization.status,
                         abstained=authorization.status!='complete',abstention_reason=authorization.reason or None,
                         chunks=authorization.approved_chunks,chunks_found=len(authorization.approved_chunks),
@@ -147,7 +144,7 @@ class KnowledgeAgent:
                         excerpt=' '.join(span['quote'] for span in c['approved_spans'])[:400]).model_dump()
                         for c in authorization.approved_chunks]
                 else:
-                    data=self._offline_coverage(original_request,data,scope)
+                    data=self._offline_coverage(original_request,data,call_scope)
                 res.data=data
             elif res.success and res.tool_name in {'get_currency_exchange_rate','get_weather_forecast'}:
                 observed=dict(res.data or {})
@@ -506,70 +503,153 @@ class KnowledgeAgent:
         ]
 
     @staticmethod
+    def _documentary_span(original: str, unit: Dict[str, Any]) -> tuple[int, int]:
+        """Keep source modifiers with their question; separate fresh requests."""
+        offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;'))
+        start, end = documentary_clause_span(original, offset)
+        # Conjoined facets/source constraints inherit the preceding subject.
+        # An explicit new request verb introduces its own canonical question.
+        fresh = [candidate['start'] for candidate in request_units(original)
+                 if start < candidate['start'] < end and re.match(
+                     r'(?i)\s*(?:and|e|also|tamb[eé]m)\s+(?:name|tell|show|explain|find|'
+                     r'list|give|compare|check|inspect|verify|informe|explique|liste|'
+                     r'compare|busque|pesquise|verifique|inspecione)\b', candidate['text'])]
+        return (max([start] + [point for point in fresh if point <= offset]),
+                min([end] + [point for point in fresh if point > offset]))
+
+    @classmethod
+    def _bind_documentary_scopes(
+        cls, calls: List[ToolCallSpec], original_request: str,
+        scope: Dict[str, List[str]], authoritative_query: str,
+    ) -> List[tuple[ToolCallSpec, Dict[str, List[str]]]]:
+        """Restore canonical scope before source policy or Pix correction.
+
+        Query overlap selects a scope, never its source requirement or emitted
+        text. Ambiguous mixed-source assignments are rejected before dispatch.
+        The full immutable clause supplies intent even when its source modifier
+        is owned by another Router step; only assigned text goes to retrieval.
+        """
+        canonical = request_units(original_request)
+        assigned = set(scope['assigned_unit_ids'])
+        groups: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
+        for unit in canonical:
+            if unit['unit_id'] in assigned:
+                groups.setdefault(cls._documentary_span(original_request, unit), []).append(unit)
+        clauses = []
+        for (start, end), units in groups.items():
+            text = ''.join(unit['text'] for unit in units).strip(' ;')
+            external = asks_explicit_external_evidence(original_request[start:end])
+            if external and not asks_explicit_external_evidence(text):
+                # Carry only the source constraint, never an unassigned subject,
+                # target or conditional disclosure. Prefer the literal modifier
+                # when it is a pure request to use an external source.
+                modifiers = [unit['text'].strip(' ;') for unit in canonical
+                    if start <= unit['start'] < end and unit['unit_id'] not in assigned
+                    and re.fullmatch(r'(?i)(?:(?:and|e)\s+)?(?:use|using|utilize|usando)\s+'
+                        r'(?:(?:an?|uma?)\s+)?(?:external\s+source|fonte\s+externa)[.!?]?',
+                        unit['text'].strip(' ;'))]
+                authorities = re.findall(r'(?i)\b(?:Banco Central|BCB|central bank)\b',
+                                         original_request[start:end])
+                constraint = (' '.join(modifiers) if modifiers else
+                              '[external source required' + (': ' + ', '.join(dict.fromkeys(authorities))
+                                                            if authorities else '') + ']')
+                text += ' ' + constraint
+            clauses.append({'text': text, 'ids': [unit['unit_id'] for unit in units], 'external': external})
+
+        def tokens(text):
+            aliases = {'categories': 'type', 'category': 'type', 'types': 'type', 'tipos': 'type',
+                'accounts': 'account', 'conta': 'account', 'contas': 'account',
+                'accepted': 'eligibility', 'eligible': 'eligibility', 'aceitas': 'eligibility',
+                'aceitos': 'eligibility', 'elegibilidade': 'eligibility',
+                'brazil': 'brasil', 'norway': 'noruega'}
+            ignored = {'name', 'tell', 'explain', 'find', 'use', 'give', 'show', 'please',
+                       'explique', 'informe', 'liste', 'consulte', 'pesquise'}
+            return {aliases.get(token, token) for token in BilingualDenseEmbedder.tokenize(text)
+                    if token not in ignored}
+
+        clause_tokens = [tokens(clause['text']) for clause in clauses]
+        scoped = []
+        for call in calls:
+            if call.tool_name not in {'search_getnet_knowledge', 'web_search_general'}:
+                scoped.append((call, scope))
+                continue
+            if not clauses:
+                raise ValueError('Nenhuma unidade documental atribuída à consulta.')
+            proposed_query = str(call.arguments.get('query', ''))
+            query_tokens = tokens(proposed_query)
+            # Tokens unique to a canonical clause distinguish products, places
+            # and source qualifications. Generic shared wording has less weight.
+            scores = [sum(1 + (len(clauses) - sum(token in other for other in clause_tokens))
+                          for token in query_tokens & candidate) for candidate in clause_tokens]
+            best = max(scores)
+            whole_assignment = (BilingualDenseEmbedder.normalize(proposed_query).strip()
+                                == BilingualDenseEmbedder.normalize(authoritative_query).strip())
+            selected = clauses if whole_assignment else [
+                clause for clause, score in zip(clauses, scores) if score == best]
+            mixed_sources = len({clause['external'] for clause in selected}) > 1
+            if not whole_assignment and len(selected) > 1 and mixed_sources:
+                raise ValueError('Não foi possível associar a consulta a um escopo documental único com segurança.')
+            # A full local documentary read can cover several local units. Web
+            # proposals must be separated before Pix policy changes the source.
+            selections = ([[clause] for clause in selected]
+                          if mixed_sources or call.tool_name == 'web_search_general' else [selected])
+            for selection in selections:
+                ids = [uid for clause in selection for uid in clause['ids']]
+                call_scope = {'assigned_unit_ids': ids,
+                              'other_unit_ids': [unit['unit_id'] for unit in canonical if unit['unit_id'] not in ids]}
+                query = ' '.join(clause['text'] for clause in selection)
+                if len(clauses) == 1 and not scope['other_unit_ids'] and not selection[0]['external']:
+                    query = authoritative_query
+                if selection[0]['external']:
+                    bound = call.model_copy(update={'tool_name': 'web_search_general',
+                        'arguments': {'query': query, 'max_results': call.arguments.get('max_results', 3)}})
+                else:
+                    bound = call.model_copy(update={'arguments': {**call.arguments, 'query': query}})
+                    bound = cls._prefer_local_pix_product_evidence([bound], original_request, call_scope)[0]
+                scoped.append((bound, call_scope))
+        return scoped
+
+    @staticmethod
     def _prefer_local_pix_product_evidence(
         calls: List[ToolCallSpec], original_request: str, scope: Dict[str, List[str]],
     ) -> List[ToolCallSpec]:
-        """Correct each eligible native Web proposal, preserving the rest of the batch."""
-        assigned = set(scope.get('assigned_unit_ids', []))
-        units = [unit for unit in request_units(original_request) if unit['unit_id'] in assigned]
-
-        def pix_eligibility(text: str) -> bool:
-            norm = BilingualDenseEmbedder.normalize(text)
-            return bool(re.search(r'\bpix\b', norm) and re.search(
-                r'\b(?:conta\w*|account\w*|eligible|eligibility|elig[ií]vel|aceit\w*|'
-                r'accepted|categories|categorias|types)\b', norm))
-
-        # A conjunction can carry a country or external-source qualifier.
-        # Keep its canonical units together while independent sentences retain
-        # independent tool intent, even within one validated native batch.
-        groups: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
+        """Correct a canonical Pix scope only after verifying local provenance."""
+        units = [unit for unit in request_units(original_request)
+                 if unit['unit_id'] in scope['assigned_unit_ids']]
         for unit in units:
-            offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;'))
-            groups.setdefault(documentary_clause_span(original_request, offset), []).append(unit)
-        clauses = [''.join(unit['text'] for unit in group).strip(' ;') for group in groups.values()]
-        product_clauses = [text for text in clauses
-                           if pix_eligibility(text) and not asks_explicit_external_evidence(text)]
-        if not product_clauses:
+            start, end = KnowledgeAgent._documentary_span(original_request, unit)
+            if asks_explicit_external_evidence(original_request[start:end]):
+                return calls
+        query = ''.join(unit['text'] for unit in units).strip(' ;')
+        norm = BilingualDenseEmbedder.normalize(query)
+        if not (re.search(r'\bpix\b', norm) and re.search(
+                r'\b(?:conta\w*|account\w*|eligible|eligibility|elig[ií]vel|aceit\w*|'
+                r'accepted|categories|categorias|types)\b', norm)):
             return calls
-        combined = ' '.join(product_clauses)
-        pix_only_assignment = len(product_clauses) == len(clauses)
-        verified = None
-        revised = []
-        for call in calls:
-            query = str(call.arguments.get('query', ''))
-            if (call.tool_name != 'web_search_general' or (not pix_only_assignment
-                    and (not pix_eligibility(query) or asks_explicit_external_evidence(query)))):
-                revised.append(call)
-                continue
-            if verified is None:
-                try:
-                    from app.rag.retriever import retriever
-
-                    ranked = retriever.retrieve_candidates(query=combined, top_k=1)
-                    candidates = ranked.get('candidate_chunks', [])
-                    candidate = candidates[0] if candidates else {}
-                    parsed = urlsplit(str(candidate.get('source_url', '')))
-                    host = (parsed.hostname or '').lower()
-                    official = parsed.scheme == 'https' and (
-                        host == 'getnet.com.br' or host.endswith('.getnet.com.br'))
-                    provenance = candidate.get('provenance') or {}
-                    verified = (official
-                        and candidate.get('origin_type') == 'verified_markdown_mirror'
-                        and provenance.get('verification_status') == 'reviewed_against_official_page'
-                        and float(candidate.get('relevance_score', 0.0)) >= settings.RAG_MIN_RELEVANCE_THRESHOLD)
-                except Exception as exc:
-                    logger.warning('knowledge_pix_local_evidence_check_failed', error_type=type(exc).__name__)
-                    verified = False
-            if not verified:
-                revised.append(call)
-                continue
-            revised.append(ToolCallSpec(
-                tool_name='search_getnet_knowledge',
-                arguments={'query': combined, 'top_k': settings.RAG_TOP_K},
-                call_id=call.call_id,
-                rationale='Eligibility de produto Pix/Getnet atendida por fonte local Getnet verificada.',
-            ))
-        return revised
+        if not any(call.tool_name == 'web_search_general' for call in calls):
+            return calls
+        try:
+            from app.rag.retriever import retriever
+            ranked = retriever.retrieve_candidates(query=query, top_k=1)
+            candidates = ranked.get('candidate_chunks', [])
+            candidate = candidates[0] if candidates else {}
+            parsed = urlsplit(str(candidate.get('source_url', '')))
+            host = (parsed.hostname or '').lower()
+            official = parsed.scheme == 'https' and (host == 'getnet.com.br' or host.endswith('.getnet.com.br'))
+            provenance = candidate.get('provenance') or {}
+            verified = (official and candidate.get('origin_type') == 'verified_markdown_mirror'
+                and provenance.get('verification_status') == 'reviewed_against_official_page'
+                and float(candidate.get('relevance_score', 0.0)) >= settings.RAG_MIN_RELEVANCE_THRESHOLD)
+        except Exception as exc:
+            logger.warning('knowledge_pix_local_evidence_check_failed', error_type=type(exc).__name__)
+            verified = False
+        if not verified:
+            return calls
+        return [ToolCallSpec(tool_name='search_getnet_knowledge',
+            arguments={'query': call.arguments['query'], 'top_k': settings.RAG_TOP_K},
+            call_id=call.call_id,
+            rationale='Eligibility de produto Pix/Getnet atendida por fonte local Getnet verificada.')
+            if call.tool_name == 'web_search_general' else call for call in calls]
 
     def _plan_native(self,message,conversation_context=None,tracer=None) -> List[ToolCallSpec]:
         """Validate the complete provider-selected batch before any execution."""
