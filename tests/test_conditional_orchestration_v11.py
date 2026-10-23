@@ -569,7 +569,8 @@ PLAIN_POSTFIX_CASES = [
 ]
 
 
-def native_probe_boundary(monkeypatch, tmp_path, message, *, target_agent="WEB_SEARCH_AGENT", **observation):
+def native_probe_boundary(monkeypatch, tmp_path, message, *, target_agent="WEB_SEARCH_AGENT",
+                          delegations=None, **observation):
     """Real native Router planning/probe, local RAG and specialist/registry dispatch.
 
     The synthetic provider supplies only native delegation calls. Enable native
@@ -596,9 +597,10 @@ def native_probe_boundary(monkeypatch, tmp_path, message, *, target_agent="WEB_S
         def generate_content(self, **kwargs):
             return types.GenerateContentResponse(candidates=[types.Candidate(
                 content=types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(
-                    name=target_agent, args={"sub_query": message, "rationale": "Synthetic model delegation",
-                        "request_unit_ids": [unit["unit_id"] for unit in request_units(message)]},
-                ))]), finish_reason="STOP")])
+                    name=agent, args={"sub_query": query, "rationale": "Synthetic model delegation",
+                        "request_unit_ids": ids},
+                )) for agent, query, ids in (delegations or [(target_agent, message,
+                    [unit["unit_id"] for unit in request_units(message)])])]), finish_reason="STOP")])
 
     orch.router.client = DelegationProvider()
     real_plan = orch.router.plan
@@ -715,3 +717,66 @@ def test_native_router_direct_support_diagnostics_remain_executable(monkeypatch,
     diagnostic_call = next(row for row in out.trace if row.action == "call:diagnose_terminal_issue")
     assert diagnostic_call.details["success"] is True
     assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)
+
+
+@pytest.mark.parametrize("direct,disclosure", [
+    (f"Check if my terminal {TARGET} is Online.", "If so, tell me the eligible benefits."),
+    (f"Verifique se o terminal {TARGET} está Online.", "Se sim, informe os benefícios."),
+])
+@pytest.mark.parametrize("observation", [{"status": "Online"}, {"status": "Offline"}, {"success": False}])
+@pytest.mark.parametrize("target_agent", ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"])
+def test_native_router_anaphoric_disclosure_stays_blocked_after_independent_diagnosis(
+        monkeypatch, tmp_path, direct, disclosure, observation, target_agent):
+    from app.security.request_units import request_units
+    message = f"{direct} {disclosure}"
+    units = request_units(message)
+    direct_ids = [unit["unit_id"] for unit in units if unit["start"] < len(direct)]
+    disclosure_ids = [unit["unit_id"] for unit in units if unit["start"] >= len(direct)]
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message,
+        delegations=[("CUSTOMER_SUPPORT_AGENT", direct, direct_ids),
+                     (target_agent, disclosure, disclosure_ids)], **observation)
+    monkeypatch.delattr(orch, "_observe_and_replan")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    expected_reads = ["diagnose_terminal_issue"]
+    if observation.get("success") is False:
+        expected_reads.append("create_escalation_ticket")
+    assert [name for name, _ in reads] == expected_reads
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert not [event for event in events if event[0] == "retrieve"]
+    diagnostic_call = next(row for row in out.trace if row.action == "call:diagnose_terminal_issue")
+    assert diagnostic_call.details["success"] is observation.get("success", True)
+    assert any(row.action == "conditional_lookup_blocked" for row in out.trace)
+    assert all(row["state"] == "unresolved" for row in out.request_coverage
+               if row["unit_id"] in disclosure_ids)
+
+
+@pytest.mark.parametrize("direct", [
+    f"Check if my terminal {TARGET} is Online",
+    f"Verifique se o terminal {TARGET} está Online",
+])
+@pytest.mark.parametrize("observation", [{"status": "Online"}, {"status": "Offline"}, {"success": False}])
+def test_native_router_semicolon_pix_stays_independent_of_terminal_diagnosis(
+        monkeypatch, tmp_path, direct, observation):
+    from app.security.request_units import request_units
+    independent = "Name the account types accepted for Pix in Brazil."
+    message = f"{direct}; {independent}"
+    units = request_units(message)
+    direct_ids = [unit["unit_id"] for unit in units if unit["start"] < len(direct)]
+    pix_ids = [unit["unit_id"] for unit in units if unit["start"] >= len(direct)]
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message,
+        delegations=[("CUSTOMER_SUPPORT_AGENT", direct, direct_ids),
+                     ("WEB_SEARCH_AGENT", independent, pix_ids)], **observation)
+    monkeypatch.delattr(orch, "_observe_and_replan")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    expected_reads = ["diagnose_terminal_issue", "search_getnet_knowledge"]
+    if observation.get("success") is False:
+        expected_reads.append("create_escalation_ticket")
+    assert [name for name, _ in reads] == expected_reads
+    assert reads[1][1]["query"].strip(" ;") == independent
+    queries = [query for event, query in events if event == "retrieve"]
+    assert queries and all(query.strip(" ;") == independent for query in queries)
+    assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)
+    routed = next(row for row in out.trace if row.action == "plan_and_route")
+    assert routed.details["planned_steps"] == ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"]
+    local_call = next(row for row in out.trace if row.action == "call:search_getnet_knowledge")
+    assert local_call.details["success"] is True

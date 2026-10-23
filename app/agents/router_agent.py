@@ -157,7 +157,10 @@ class RouterAgent:
                 r'\b(?:if|se|when|quando|unless|caso|desde que|provided that|as long as|since|once|after|ap[oó]s|assim que|contanto que)\b', message, re.I):
             sentence_start = max(boundary for boundary in sentence_boundaries if boundary <= marker.start())
             end = min(boundary for boundary in sentence_boundaries if boundary > marker.start())
-            sentence = message[sentence_start:end].strip()
+            start = max(sentence_start, message.rfind(';', sentence_start, marker.start()) + 1)
+            following_semicolon = message.find(';', marker.start(), end)
+            clause_end = following_semicolon if following_semicolon >= 0 else end
+            bounded_clause = message[start:clause_end].strip()
             # "Check if ... is Online" asks for a status observation. Only this
             # complete, bounded question is exempt; a following consequence or
             # additional predicate must still go through dependency detection.
@@ -165,9 +168,21 @@ class RouterAgent:
                     r'(?:please\s+)?(?:check|verify|confirm)\s+if\s+(?:(?:the|my)\s+)?terminal\s+'
                     r'GET-[A-Z0-9-]+\s+is\s+(?:online|offline)[.!?]?'
                     r'|(?:verifique|confirme)\s+se\s+o\s+terminal\s+'
-                    r'GET-[A-Z0-9-]+\s+est[aá]\s+(?:online|offline)[.!?]?', sentence, re.I):
+                    r'GET-[A-Z0-9-]+\s+est[aá]\s+(?:online|offline)[.!?]?', bounded_clause, re.I):
                 continue
-            start = max(sentence_start, message.rfind(';', sentence_start, marker.start()) + 1)
+            # An anaphoric consequence borrows the previous terminal diagnosis,
+            # but never expands the positive finite authorization grammar. Keep
+            # the diagnostic outside the deferred span, even after a true read.
+            if re.match(r'(?:if\s+(?:so|yes)|se\s+sim)\b', message[marker.start():clause_end], re.I):
+                previous_end = len(message[:start].rstrip(' ;\t\n'))
+                previous_start = max([0, *(boundary for boundary in sentence_boundaries
+                    if boundary < previous_end), message.rfind(';', 0, previous_end) + 1])
+                previous_clause = message[previous_start:previous_end]
+                if extract_constraints(previous_clause).terminal_ids:
+                    dependent_spans.append((previous_end, clause_end))
+                    condition_ids.update(unit['unit_id'] for unit in units
+                                         if unit['start'] < clause_end and unit['end'] > previous_end)
+                    continue
             clause = message[start:end]
             prefix = message[start:marker.start()].strip()
             explicit_consequence = re.search(
