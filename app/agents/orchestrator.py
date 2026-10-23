@@ -102,8 +102,10 @@ class MultiAgentOrchestrator:
             # complete, bounded question is exempt; a following consequence or
             # additional predicate must still go through dependency detection.
             if re.fullmatch(
-                    r'(?:please\s+)?(?:check|verify|confirm)\s+if\s+(?:the\s+)?terminal\s+'
-                    r'GET-[A-Z0-9-]+\s+is\s+(?:online|offline)[.!?]?', sentence, re.I):
+                    r'(?:please\s+)?(?:check|verify|confirm)\s+if\s+(?:(?:the|my)\s+)?terminal\s+'
+                    r'GET-[A-Z0-9-]+\s+is\s+(?:online|offline)[.!?]?'
+                    r'|(?:verifique|confirme)\s+se\s+o\s+terminal\s+'
+                    r'GET-[A-Z0-9-]+\s+est[aá]\s+(?:online|offline)[.!?]?', sentence, re.I):
                 continue
             start = max(sentence_start, message.rfind(';', sentence_start, marker.start()) + 1)
             clause = message[start:end]
@@ -111,7 +113,9 @@ class MultiAgentOrchestrator:
             explicit_consequence = re.search(
                 r',\s*(?:tell|show|give|explain|informe|mostre|explique|diga)\b', clause, re.I)
             if (not explicit_consequence
-                    and re.fullmatch(r'(?:only|apenas|s[oó]|somente)?', prefix, re.I)):
+                    and re.fullmatch(
+                        r'(?:(?:but|however|mas|no entanto)\s*,?\s*)?'
+                        r'(?:only|apenas|s[oó]|somente)?', prefix, re.I)):
                 # A postfix qualifies the immediately preceding disclosure,
                 # across a sentence/semicolon boundary. Earlier independent
                 # clauses remain outside the blocked span.
@@ -157,7 +161,8 @@ class MultiAgentOrchestrator:
             # consequences still fail closed in parse_terminal_condition.
             postfix = re.fullmatch(
                 r'\s*(?:Tell\s+me\s+(?:the\s+eligible\s+)?benefits|Informe\s+os\s+benefícios)'
-                r'[.;]\s*(?P<marker>Only\s+if|Somente\s+se)\s+(?P<predicate>.+)\.\s*',
+                r'[.;]\s*(?:(?:But|However|Mas|No entanto)\s*,?\s*)?'
+                r'(?P<marker>Only\s+if|Somente\s+se)\s+(?P<predicate>.+)\.\s*',
                 message[start:end], re.I,
             )
             if postfix:

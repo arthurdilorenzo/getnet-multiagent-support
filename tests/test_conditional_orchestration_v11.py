@@ -374,6 +374,8 @@ def test_direct_check_if_status_executes_real_support_registry_read(monkeypatch,
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
     assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
     assert reads[0][1]["terminal_id"] == TARGET
+    diagnostic_call = next(row for row in out.trace if row.action == "call:diagnose_terminal_issue")
+    assert diagnostic_call.details["success"] is True
     assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)
 
 
@@ -431,5 +433,127 @@ def test_direct_status_question_cannot_exempt_a_dependent_disclosure(monkeypatch
     orch = make_orchestrator(monkeypatch, tmp_path, message)
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
     reads = registry_reads(monkeypatch, tmp_path)
+    orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert reads == []
+
+
+CONTRAST_POSTFIX_CASES = [
+    ("Tell me the eligible benefits", "But only if", f"firmware of {TARGET} is qa-12.08 and status is Online"),
+    ("Tell me the eligible benefits", "However, only if", f"firmware of {TARGET} is qa-12.08 and status is Online"),
+    ("Informe os benefícios", "Mas somente se", f"o firmware do terminal {TARGET} for qa-12.08 e o status for Online"),
+    ("Informe os benefícios", "No entanto, somente se", f"o firmware do terminal {TARGET} for qa-12.08 e o status for Online"),
+]
+
+
+@pytest.mark.parametrize("disclosure,connector,predicate", CONTRAST_POSTFIX_CASES)
+@pytest.mark.parametrize("observation", [
+    {"firmware": "qa-12.07"}, {"firmware": None}, {"status": "Offline"}, {"success": False},
+])
+@pytest.mark.parametrize("target_agent", ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"])
+def test_contrast_postfix_blocks_dependent_registry_reads_without_typed_authorization(
+        monkeypatch, tmp_path, disclosure, connector, predicate, observation, target_agent):
+    message = f"{disclosure}. {connector} {predicate}."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    plan = knowledge_plan(message)
+    plan.primary_agent = plan.plan_steps[0].target_agent = target_agent
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, **observation)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+
+
+@pytest.mark.parametrize("disclosure,connector,predicate", CONTRAST_POSTFIX_CASES)
+def test_contrast_postfix_requires_exact_positive_registry_read_before_retrieval(
+        monkeypatch, tmp_path, disclosure, connector, predicate):
+    message = f"{disclosure}. {connector} {predicate}."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+    assert disclosure in reads[1][1]["query"]
+    gate = next(row for row in out.trace if row.action == "evaluate_conditional_dependency")
+    assert gate.details["predicate_authorized"] is True
+
+
+@pytest.mark.parametrize("disclosure,connector,predicate", CONTRAST_POSTFIX_CASES)
+def test_unknown_contrast_postfix_blocks_all_registry_reads(
+        monkeypatch, tmp_path, disclosure, connector, predicate):
+    message = f"{disclosure}. {connector} {predicate} and the device is certified."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert reads == []
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+
+
+@pytest.mark.parametrize("message", [
+    f"Check if my terminal {TARGET} is Online.",
+    f"Verifique se o terminal {TARGET} está Online.",
+])
+def test_direct_status_question_variants_execute_actual_support_registry_read(monkeypatch, tmp_path, message):
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    plan = knowledge_plan(message)
+    plan.primary_agent = plan.plan_steps[0].target_agent = "CUSTOMER_SUPPORT_AGENT"
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    diagnostic_call = next(row for row in out.trace if row.action == "call:diagnose_terminal_issue")
+    assert diagnostic_call.details["success"] is True
+    assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)
+
+
+@pytest.mark.parametrize("direct", [
+    f"Check if my terminal {TARGET} is Online.",
+    f"Verifique se o terminal {TARGET} está Online.",
+])
+@pytest.mark.parametrize("disclosure,connector,predicate", CONTRAST_POSTFIX_CASES)
+def test_separable_direct_status_read_survives_unknown_contrast_disclosure_gate(
+        monkeypatch, tmp_path, direct, disclosure, connector, predicate):
+    from app.security.request_units import request_units
+    message = f"{direct} {disclosure}. {connector} {predicate} and the device is certified."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    units = request_units(message)
+    independent_ids = [unit["unit_id"] for unit in units if unit["start"] < len(direct)]
+    dependent_ids = [unit["unit_id"] for unit in units if unit["start"] >= len(direct)]
+    plan = RoutingPlan(primary_agent="CUSTOMER_SUPPORT_AGENT", confidence=.9, reasoning="separate purposes",
+        plan_steps=[
+            PlanStep(step_order=1, target_agent="CUSTOMER_SUPPORT_AGENT", sub_query=direct,
+                     rationale="Independent status question", request_unit_ids=independent_ids),
+            PlanStep(step_order=2, target_agent="KNOWLEDGE_AGENT", sub_query=message,
+                     rationale="Conditional benefits", request_unit_ids=dependent_ids),
+        ])
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    diagnostic_call = next(row for row in out.trace if row.action == "call:diagnose_terminal_issue")
+    assert diagnostic_call.details["success"] is True
+    assert any(row.action == "conditional_lookup_blocked" for row in out.trace)
+    assert all(row["state"] == "unresolved" for row in out.request_coverage
+               if row["unit_id"] in dependent_ids)
+
+
+@pytest.mark.parametrize("direct", [
+    f"Check if my terminal {TARGET} is Online",
+    f"Verifique se o terminal {TARGET} está Online",
+])
+def test_direct_status_variants_do_not_exempt_same_sentence_dependent_disclosure(monkeypatch, tmp_path, direct):
+    message = f"{direct}, tell me the eligible benefits."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    plan = knowledge_plan(message)
+    plan.primary_agent = plan.plan_steps[0].target_agent = "CUSTOMER_SUPPORT_AGENT"
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
     assert reads == []
