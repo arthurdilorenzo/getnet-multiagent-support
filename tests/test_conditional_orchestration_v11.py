@@ -109,3 +109,54 @@ def test_unrecognized_added_condition_blocks_all_downstream_search(monkeypatch, 
     assert "search_getnet_knowledge" not in out.tools_called
     assert "web_search_general" not in out.tools_called
     assert out.answer_status == "abstained"
+
+
+@pytest.mark.parametrize("predicate", ["false", "unknown"])
+@pytest.mark.parametrize("plan_shape", ["mixed", "separate"])
+def test_blocked_dependency_cannot_return_through_independent_abstention_replan(monkeypatch, tmp_path, predicate, plan_shape):
+    from app.security.request_units import request_units
+    message = "Consulte a cotação EUR BRL; " + MESSAGE
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    units = request_units(message)
+    independent = units[0]["unit_id"]
+    dependent = next(u["unit_id"] for u in units if "Crediário" in u["text"])
+    if predicate == "false":
+        # Task 1's finite parser deliberately rejects mixed-sentence grammar.
+        # Exercise the typed false-observation gate separately from that parser.
+        dependency = orch._conditional_crediario_dependency(MESSAGE)
+        dependency["unit_ids"] = [dependent]
+        monkeypatch.setattr(orch, "_conditional_crediario_dependency", lambda text: dependency)
+    steps = [PlanStep(step_order=1, target_agent="WEB_SEARCH_AGENT",
+        sub_query=message if plan_shape == "mixed" else units[0]["text"], rationale="independent lookup",
+        request_unit_ids=[independent, dependent] if plan_shape == "mixed" else [independent])]
+    if plan_shape == "separate":
+        steps.append(PlanStep(step_order=2, target_agent="KNOWLEDGE_AGENT", sub_query=MESSAGE,
+            rationale="dependent lookup", request_unit_ids=[dependent]))
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: RoutingPlan(
+        primary_agent="WEB_SEARCH_AGENT", confidence=.9, reasoning="mixed scope", plan_steps=steps))
+    replans = []
+    def replan(**kwargs):
+        replans.append(kwargs)
+        return RoutingPlan(primary_agent="KNOWLEDGE_AGENT", confidence=.9, reasoning="unsafe proposal",
+            plan_steps=[PlanStep(step_order=1, target_agent="KNOWLEDGE_AGENT", sub_query=MESSAGE,
+                rationale="retry dependent", request_unit_ids=[dependent])])
+    monkeypatch.setattr(orch.router, "replan", replan)
+    calls = []
+    def delegate(**kwargs):
+        calls.append(kwargs["target_agent"])
+        if kwargs["target_agent"] == "CUSTOMER_SUPPORT_AGENT":
+            return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT", response="read performed",
+                tools_called=["diagnose_terminal_issue"], tool_results=[diagnostic()])
+        assert kwargs["target_agent"] == "WEB_SEARCH_AGENT"
+        assert "Crediário" not in kwargs["sub_query"]
+        assert "firmware" not in kwargs["sub_query"]
+        assert kwargs["delegation_scope"]["assigned_unit_ids"] == [independent]
+        return SpecialistOutput(agent_name="WEB_SEARCH_AGENT", response="independent lookup unavailable",
+            abstained=True, answer_status="abstained", request_unit_ids=[independent],
+            unresolved_unit_ids=[independent])
+    monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic", session_id="mixed"), SecurityContext("synthetic"))
+    assert replans
+    assert calls == (["CUSTOMER_SUPPORT_AGENT"] if predicate == "false" else []) + ["WEB_SEARCH_AGENT"]
+    assert "search_getnet_knowledge" not in out.tools_called
+    assert next(r for r in out.request_coverage if r["unit_id"] == dependent)["state"] == "unresolved"

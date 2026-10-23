@@ -102,26 +102,57 @@ class MultiAgentOrchestrator:
         return {'unit_ids': condition_units, 'terminal_id': target, 'condition': condition}
 
     @staticmethod
-    def _coalesce_country_knowledge_plan(plan: RoutingPlan, message: str) -> RoutingPlan:
-        """Use one local evidence pass for the audited independent-country comparison."""
-        if not all(re.search(pattern, message, re.I) for pattern in (
-            r'\bcredi[aá]rio\b', r'\bbrasil\b', r'\b(?:noruega|norway)\b',
-            r'\b(?:documenta[cç][aã]o|documentation)\b',
-        )):
-            return plan
-        if len(plan.plan_steps) < 2 or any(step.target_agent != 'KNOWLEDGE_AGENT'
-                                           for step in plan.plan_steps):
-            return plan
-        ordered_ids = [unit['unit_id'] for unit in request_units(message)]
-        assigned = {uid for step in plan.plan_steps for uid in step.request_unit_ids}
-        return plan.model_copy(update={
-            'primary_agent': 'KNOWLEDGE_AGENT',
-            'plan_steps': [PlanStep(step_order=1, target_agent='KNOWLEDGE_AGENT',
-                sub_query=message, rationale='Uma consulta local cobre unidades de país independentes.',
-                request_unit_ids=[uid for uid in ordered_ids if uid in assigned])],
-            'is_multi_step': False,
-            'requires_user_context': False,
+    def _restrict_blocked_units(step: PlanStep, message: str, blocked_ids: set[str]) -> Optional[PlanStep]:
+        """Canonical allowed text, never a model query carrying a blocked clause."""
+        if not blocked_ids:
+            return step
+        allowed = [unit for unit in request_units(message)
+                   if unit['unit_id'] in step.request_unit_ids and unit['unit_id'] not in blocked_ids]
+        if not allowed:
+            return None
+        return step.model_copy(update={
+            'request_unit_ids': [unit['unit_id'] for unit in allowed],
+            'sub_query': ''.join(unit['text'] for unit in allowed).strip(),
         })
+
+    @staticmethod
+    def _coalesce_country_knowledge_plan(plan: RoutingPlan, message: str) -> RoutingPlan:
+        """Merge only the literal independent country pair, in adjacent assignments."""
+        # Even a condition outside these two units can qualify the comparison.
+        # Coalescing is optional; retain the original plan when independence is unclear.
+        if re.search(r'\b(?:se|if|quando|when|somente|apenas|only|unless|caso)\b', message, re.I):
+            return plan
+        units = request_units(message)
+        pair = None
+        for brazil, norway in zip(units, units[1:]):
+            if (re.fullmatch(
+                    r'Compare as condições publicadas para recebimento do Crediário no Brasil\s*—\s*'
+                    r'prazo, taxa, custo de antecipação\s*—\s*', brazil['text'].lstrip(' ;'), re.I)
+                    and re.fullmatch(
+                    r'\s*com o que a documentação informa sobre os mesmos termos na Noruega[.]?',
+                    norway['text'], re.I)):
+                pair = (brazil, norway)
+                break
+        if pair is None:
+            return plan
+        brazil, norway = pair
+        pair_ids = [brazil['unit_id'], norway['unit_id']]
+        steps = plan.plan_steps
+        for index, (left, right) in enumerate(zip(steps, steps[1:])):
+            if (left.target_agent == right.target_agent == 'KNOWLEDGE_AGENT'
+                    and left.request_unit_ids == [pair_ids[0]]
+                    and right.request_unit_ids == [pair_ids[1]]
+                    and not any(set(step.request_unit_ids) & set(pair_ids)
+                                for i, step in enumerate(steps) if i not in {index, index + 1})):
+                merged = left.model_copy(update={
+                    'sub_query': brazil['text'] + norway['text'],
+                    'rationale': 'Uma consulta local cobre unidades de país independentes.',
+                    'request_unit_ids': pair_ids,
+                })
+                result = steps[:index] + [merged] + steps[index + 2:]
+                result = [step.model_copy(update={'step_order': i}) for i, step in enumerate(result, 1)]
+                return plan.model_copy(update={'plan_steps': result, 'is_multi_step': len(result) > 1})
+        return plan
 
     def __init__(self) -> None:
         self.gemini_client = None
@@ -254,19 +285,14 @@ class MultiAgentOrchestrator:
 
         routing_plan = self._coalesce_country_knowledge_plan(routing_plan, original_request)
         conditional_dependency = self._conditional_crediario_dependency(original_request)
+        blocked_unit_ids: set[str] = set()
         conditional_preflight: Optional[SpecialistOutput] = None
         conditional_notice: Optional[str] = None
         if conditional_dependency:
             dependent_ids = set(conditional_dependency['unit_ids'])
-            filtered_steps: List[PlanStep] = []
-            for step in routing_plan.plan_steps:
-                if set(step.request_unit_ids) & dependent_ids:
-                    remaining_ids = [uid for uid in step.request_unit_ids if uid not in dependent_ids]
-                    if remaining_ids:
-                        filtered_steps.append(step.model_copy(update={'request_unit_ids': remaining_ids}))
-                else:
-                    filtered_steps.append(step)
-            routing_plan.plan_steps = filtered_steps
+            blocked_unit_ids = set(dependent_ids)
+            routing_plan.plan_steps = [restricted for step in routing_plan.plan_steps
+                if (restricted := self._restrict_blocked_units(step, original_request, blocked_unit_ids)) is not None]
             condition = conditional_dependency['condition']
             target = conditional_dependency['terminal_id']
             if condition is None or target is None:
@@ -303,9 +329,11 @@ class MultiAgentOrchestrator:
                         'reason': 'exact_typed_observation' if authorized else 'predicate_false_or_unverified',
                     })
                 if authorized:
+                    blocked_unit_ids.clear()
                     routing_plan.plan_steps.append(PlanStep(
                         step_order=len(routing_plan.plan_steps) + 1,
-                        target_agent='KNOWLEDGE_AGENT', sub_query=original_request,
+                        target_agent='KNOWLEDGE_AGENT', sub_query=''.join(
+                            unit['text'] for unit in request_units(original_request) if unit['unit_id'] in dependent_ids),
                         rationale='Busca documental permitida após confirmação tipada do pré-requisito.',
                         request_unit_ids=list(dependent_ids),
                     ))
@@ -362,6 +390,9 @@ class MultiAgentOrchestrator:
             try:
                 scoped_plan=RouterAgent.bind_request_units(RoutingPlan(primary_agent=target_agent,plan_steps=[current_step],confidence=0.0,reasoning="Server unit binding"),original_request,conversation_context,complete_assignment=False)
                 current_step=scoped_plan.plan_steps[0]
+                current_step = self._restrict_blocked_units(current_step, original_request, blocked_unit_ids)
+                if current_step is None:
+                    continue
                 ledger.assign(target_agent,current_step.request_unit_ids)
             except (ValueError,RouterPlanningError):
                 replan_failed=True
@@ -435,6 +466,7 @@ class MultiAgentOrchestrator:
                 conversation_context=conversation_context,
                 tracer=tracer,
                 request_coverage=ledger.snapshot(),
+                blocked_unit_ids=blocked_unit_ids,
             ) or replan_failed
 
         # Condição de parada atingida
@@ -680,6 +712,7 @@ class MultiAgentOrchestrator:
         conversation_context: Dict[str, Any],
         tracer: SystemTracer,
         request_coverage: Optional[List[Dict[str,Any]]] = None,
+        blocked_unit_ids: Optional[set[str]] = None,
     ) -> bool:
         """Bounded feedback planning; failures preserve every completed/partial result."""
         if spec_output.agent_name == "HUMAN_ESCALATION_AGENT":
@@ -710,7 +743,8 @@ class MultiAgentOrchestrator:
                 PIIRedactor.mask_text(original_message), conversation_context), conversation_context)
             for unit in canonical_units}
         veto_ids = independent_veto_unit_ids(PIIRedactor.mask_text(original_message))
-        remaining_ids -= veto_ids
+        blocked_unit_ids = blocked_unit_ids or set()
+        remaining_ids -= veto_ids | blocked_unit_ids
         scheduled_ids = {uid for step in pending_steps for uid in step.request_unit_ids}
         available_ids = remaining_ids - scheduled_ids
         if not available_ids and not (spec_output.requires_escalation or failed_tools):
@@ -718,7 +752,7 @@ class MultiAgentOrchestrator:
                             details={'reason':'no_unscheduled_actionable_units'})
             return False
         private_ids = {uid for uid, intent in unit_intents.items()
-                       if uid not in veto_ids and intent.private_scope and not intent.documentary_scope}
+                       if uid not in veto_ids | blocked_unit_ids and intent.private_scope and not intent.documentary_scope}
         semantic_error = (spec_output.structured_data or {}).get('semantic_error') or {}
         if (spec_output.agent_name in {'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT'}
                 and isinstance(semantic_error, dict) and semantic_error.get('code')
@@ -776,7 +810,10 @@ class MultiAgentOrchestrator:
                     complete_assignment=False)
                 if not rebound.plan_steps:
                     continue
-                step = rebound.plan_steps[0]
+                step = self._restrict_blocked_units(
+                    rebound.plan_steps[0], PIIRedactor.mask_text(original_message), blocked_unit_ids)
+                if step is None:
+                    continue
                 ids = set(step.request_unit_ids)
                 if step.target_agent == 'HUMAN_ESCALATION_AGENT':
                     permitted = spec_output.requires_escalation or failed_tools or bool(ids & remaining_ids)
