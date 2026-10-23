@@ -64,6 +64,16 @@ def test_failed_missing_or_untyped_observation_cannot_authorize():
     assert not evaluate_terminal_condition(condition, [diagnosis().model_dump()])
 
 
+def test_failed_exact_target_without_terminal_conflicts_with_success():
+    condition = parse_terminal_condition(REQUEST, TARGET)
+    failed = ToolExecutionResult(
+        tool_name="diagnose_terminal_issue", success=False, error_code="TERMINAL_NOT_FOUND",
+        data={"found": False, "requested_terminal_id": TARGET},
+    )
+    assert not evaluate_terminal_condition(condition, [diagnosis(), failed])
+    assert not evaluate_terminal_condition(condition, [failed, diagnosis()])
+
+
 @pytest.mark.parametrize("message", [
     f"If firmware of {TARGET} is qa-12.08 or status is Online, tell me benefits.",
     f"If firmware of {TARGET} is qa-12.08 and status is Online and certified, tell me benefits.",
@@ -71,6 +81,11 @@ def test_failed_missing_or_untyped_observation_cannot_authorize():
     f"If firmware of {TARGET} is qa-12.08 and status is Online or Offline, tell me benefits.",
     f"If firmware of {TARGET} is qa-12.08 and status is Online, and certified, tell me benefits.",
     f"If firmware of {TARGET} is qa-12.08 and status is Online, provided that it is certified, tell me benefits.",
+    f"If firmware of {TARGET} is qa-12.08 and status is Online, tell me benefits only if certified.",
+    f"If firmware of {TARGET} is qa-12.08 and status is Online, tell me benefits if certified.",
+    f"If firmware of {TARGET} is qa-12.08 and status is Online, tell me benefits unless certified.",
+    f"Provided certified and if firmware of {TARGET} is qa-12.08 and status is Online, tell me benefits.",
+    f"Unless certified, explain the benefit quando o {TARGET} tiver firmware qa-12.08 com conexão online.",
     f"If firmware of {OTHER} is qa-12.08 and status is Online, tell me benefits.",
     "If firmware is current and terminal is online, tell me benefits.",
 ])

@@ -19,6 +19,11 @@ class TerminalCondition:
 
 
 _VERSION = r"(?=[A-Za-z0-9._-]*\d)[A-Za-z0-9][A-Za-z0-9._-]*"
+_EXTRA_CONDITION = re.compile(
+    r"\b(?:if|se|quando|unless|provided(?:\s+that)?|as\s+long\s+as|"
+    r"only\s+when|contanto\s+que|desde\s+que|exceto\s+se|a\s+menos\s+que)\b",
+    flags=re.IGNORECASE,
+)
 
 
 def parse_terminal_condition(message: str, terminal_id: str) -> Optional[TerminalCondition]:
@@ -35,10 +40,10 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
     if len(clauses) + len(when_clauses) != 1:
         return None
     if clauses:
-        tail = re.split(r"[,;]", message, maxsplit=1)
-        if len(tail) == 2 and re.match(
-            r"\s*(?:and|e|provided(?:\s+that)?|only\s+if|contanto\s+que|desde\s+que)\b",
-            tail[1], flags=re.IGNORECASE,
+        recognized = re.search(r"\b(?:if|se)\s+([^,;]+)", message, flags=re.IGNORECASE)
+        outside = message[:recognized.start()] + " " + message[recognized.end():]
+        if _EXTRA_CONDITION.search(outside) or re.match(
+            r"\s*[,;]\s*(?:and|e)\b", message[recognized.end():], flags=re.IGNORECASE,
         ):
             return None
         patterns = (
@@ -49,6 +54,9 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
         )
         clause = clauses[0].strip()
     else:
+        recognized = re.search(r"\bquando\s+(.+)$", message, flags=re.IGNORECASE)
+        if _EXTRA_CONDITION.search(message[:recognized.start()]):
+            return None
         patterns = (
             rf"o\s+{target}\s+tiver\s+firmware\s+({_VERSION})\s+com\s+conexão\s+(online)\.",
             rf"o\s+firmware\s+do\s+meu\s+{target}\s+for\s+exatamente\s+({_VERSION})"
@@ -77,6 +85,10 @@ def evaluate_terminal_condition(
         if not isinstance(data, dict):
             continue
         terminal = data.get("terminal")
+        if data.get("requested_terminal_id") == condition.terminal_id and (
+            not isinstance(terminal, dict) or terminal.get("terminal_id") != condition.terminal_id
+        ):
+            return False
         if not isinstance(terminal, dict) or terminal.get("terminal_id") != condition.terminal_id:
             continue
         matched = True
