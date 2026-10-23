@@ -9,6 +9,7 @@ from app.rag.embeddings import BilingualDenseEmbedder
 from app.schemas import PlanStep, RoutingPlan
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
+from app.security.request_constraints import extract_constraints
 from app.security.request_units import request_units
 from app.security.planning_policy import independent_veto_unit_ids
 from pydantic import BaseModel, ConfigDict, Field
@@ -154,13 +155,31 @@ class RouterAgent:
         revised: List[PlanStep] = []
 
         def asks_external_regulation(text: str) -> bool:
-            return bool(
-                re.search(
-                    r"\b(?:banco central|bcb|central bank|regulator|regulador|"
-                    r"external|extern[ao]|latest|current|atual|vigente)\b", text, re.I,
-                )
-                and re.search(r"\b(?:regula\w*|regra\w*|norma\w*|rule\w*|law\w*)\b", text, re.I)
+            external_source = re.search(
+                r"\b(?:banco central|bcb|central bank|regulator|regulador|external|extern[ao])\b",
+                text, re.I,
             )
+            formal_regulation = re.search(
+                r"\b(?:regula\w*|norma\w*|law\w*|lei|legisla\w*)\b", text, re.I,
+            )
+            external_rule = external_source and re.search(r"\b(?:regra\w*|rule\w*)\b", text, re.I)
+            return bool(formal_regulation or external_rule)
+
+        def merge_same_target(steps: List[PlanStep], *, adjacent_only: bool) -> List[PlanStep]:
+            merged: List[PlanStep] = []
+            for step in steps:
+                existing = next((item for item in merged
+                                 if item.target_agent == step.target_agent), None)
+                if adjacent_only:
+                    existing = merged[-1] if merged and merged[-1].target_agent == step.target_agent else None
+                if existing is None:
+                    merged.append(step)
+                    continue
+                new_ids = [uid for uid in step.request_unit_ids if uid not in existing.request_unit_ids]
+                if new_ids:
+                    existing.request_unit_ids.extend(new_ids)
+                    existing.sub_query = f"{existing.sub_query}; {step.sub_query}"
+            return merged
 
         def is_relevant_getnet_candidate(unit_id: str) -> bool:
             unit = units.get(unit_id)
@@ -193,6 +212,7 @@ class RouterAgent:
                 revised.append(step)
                 continue
 
+            split_steps: List[PlanStep] = []
             for uid in step.request_unit_ids:
                 unit = units.get(uid)
                 if not unit:
@@ -200,8 +220,9 @@ class RouterAgent:
                 query = unit["text"].strip()
                 intent = classify_operational_intent(query)
                 private_firmware_read = (
-                    intent.private_scope and not intent.documentary_scope
-                    and bool(re.search(r"\bfirmware\b", query, re.I))
+                    bool(extract_constraints(query).terminal_ids) or intent.private_scope
+                ) and (
+                    bool(re.search(r"\bfirmware\b", query, re.I))
                     and bool(re.search(r"\b(?:installed|instalado|instalada|current|atual)\b", query, re.I))
                 )
                 if private_firmware_read:
@@ -214,10 +235,14 @@ class RouterAgent:
                 else:
                     target = "WEB_SEARCH_AGENT"
                     rationale = step.rationale
-                revised.append(PlanStep(
+                split_steps.append(PlanStep(
                     step_order=step.step_order, target_agent=target,
                     sub_query=query, rationale=rationale, request_unit_ids=[uid],
                 ))
+            revised.extend(merge_same_target(split_steps, adjacent_only=True))
+
+        if len(revised) > settings.MAX_ORCHESTRATION_ITERATIONS:
+            revised = merge_same_target(revised, adjacent_only=False)
 
         for order, step in enumerate(revised, start=1):
             step.step_order = order
