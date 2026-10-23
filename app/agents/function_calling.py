@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from google.genai import types
 
 from app.config import settings
-from app.observability.resilience import call_with_resilience
+from app.observability.resilience import call_with_resilience, CircuitBreakerOpenError
 from app.observability.tracer import SystemTracer
 from app.observability.logger import logger
 from app.security.pii import PIIRedactor
@@ -28,7 +28,7 @@ class ProviderTurnError(ValueError):
 def _minimal_thinking() -> Optional[types.ThinkingConfig]:
     # Explicit allowlist: Gemini 2.5 uses a different interface; Pro does not
     # support MINIMAL. Do not apply a family's setting to unknown model aliases.
-    if settings.GEMINI_MODEL in {"gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview",
+    if settings.GEMINI_MODEL in {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview",
                                   "gemini-3-flash", "gemini-3-flash-preview"}:
         return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
     return None
@@ -92,7 +92,7 @@ def generate_turn(
     provider_error_type = provider_error_code = turn_error_code = None
     estimated_input = ""
     estimate = consumed = timeout_ms = 0
-    call_started = response_received = False
+    call_started = response_received = local_breaker = False
     try:
         if client is None:
             raise RuntimeError("Cliente Gemini indisponível com chave configurada.")
@@ -113,14 +113,15 @@ def generate_turn(
         timeout_ms = max(1, int(min(remaining, settings.LLM_TIMEOUT_SECONDS) * 1000))
         config.http_options = types.HttpOptions(timeout=timeout_ms,
             retry_options=types.HttpRetryOptions(attempts=1))
-        call_started = True
-        response = call_with_resilience(
-            "gemini_api",
-            lambda: client.models.generate_content(
+        def invoke_provider():
+            nonlocal call_started
+            # Breaker rejection occurs before this boundary and is local.
+            call_started = True
+            return client.models.generate_content(
                 model=settings.GEMINI_MODEL, contents=list(contents), config=config
-            ),
-            max_retries=0,
-        )
+            )
+
+        response = call_with_resilience("gemini_api", invoke_provider, max_retries=0)
         response_received = True
         usage = getattr(response, "usage_metadata", None)
         thoughts = getattr(usage, "thoughts_token_count", None)
@@ -151,10 +152,14 @@ def generate_turn(
             turn_error_code = exc.code
         if isinstance(exc, TimeoutError) and not call_started:
             turn_error_code = "DEADLINE"
+        local_breaker = isinstance(exc, CircuitBreakerOpenError) and not call_started
         cause = exc.__cause__ or exc
-        provider_error_type = type(cause).__name__ if call_started else None
-        code = getattr(cause, "code", None)
-        provider_error_code = code if isinstance(code, int) and not isinstance(code, bool) else None
+        # A received-but-invalid response is protocol failure; a local breaker
+        # is backpressure. Neither is a new failed provider request.
+        if call_started and not response_received:
+            provider_error_type = type(cause).__name__
+            code = getattr(cause, "code", None)
+            provider_error_code = code if isinstance(code, int) and not isinstance(code, bool) else None
         raise
     finally:
         details = {"phase": safe_phase, "model": settings.GEMINI_MODEL,
@@ -167,7 +172,7 @@ def generate_turn(
             "thoughts_token_count": thoughts, "error_type": error_type,
             "turn_error_code": turn_error_code,
             "call_started": call_started,
-            "failure_stage": ("preflight" if not call_started else "protocol" if response_received else "provider") if error_type else None,
+            "failure_stage": ("local_breaker" if local_breaker else "preflight" if not call_started else "protocol" if response_received else "provider") if error_type else None,
             "provider_error_type": provider_error_type, "provider_error_code": provider_error_code}
         if tracer:
             tracer.add_step(agent="GEMINI_PROVIDER", action="provider_generation", details=details,

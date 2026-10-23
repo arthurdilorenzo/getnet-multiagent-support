@@ -9,6 +9,7 @@ from app.schemas import PlanStep, RoutingPlan
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
 from app.security.request_units import request_units
+from app.security.planning_policy import independent_veto_unit_ids
 from pydantic import BaseModel, ConfigDict, Field
 from app.agents.function_calling import (
     RouterPlanningError, generate_turn, initial_contents, native_config,
@@ -127,13 +128,20 @@ class RouterAgent:
                            *, complete_assignment: bool = True) -> RoutingPlan:
         units=request_units(PIIRedactor.mask_text(message))
         known={unit['unit_id'] for unit in units}
+        veto_ids=independent_veto_unit_ids(PIIRedactor.mask_text(message))
+        work_ids=known-veto_ids
         recognized={unit['unit_id']:classify_operational_intent(unit['text'],context) for unit in units}
         mixed=any(item.private_scope for item in recognized.values()) and any(not item.private_scope for item in recognized.values())
+        veto_only_steps=set()
         for step in plan.plan_steps:
             ids=step.request_unit_ids
             if len(ids)!=len(set(ids)) or not set(ids)<=known:
                 raise RouterPlanningError("Delegação contém unidades desconhecidas ou duplicadas.")
-            if ids: continue
+            if ids:
+                if set(ids)<=veto_ids:
+                    veto_only_steps.add(id(step))
+                step.request_unit_ids=[uid for uid in ids if uid in work_ids]
+                continue
             if step.target_agent=='HUMAN_ESCALATION_AGENT':
                 # A proactive handoff is a workflow step, not evidence for the
                 # original diagnostic/documentary units. Explicit IDs still
@@ -153,16 +161,27 @@ class RouterAgent:
         # clause. Bind every leftover clause to an existing factual specialist;
         # assignment alone grants no evidence credit and unknowns stay visible.
         assigned={uid for step in plan.plan_steps for uid in step.request_unit_ids}
-        factual=[step for step in plan.plan_steps if step.target_agent!='HUMAN_ESCALATION_AGENT']
+        factual=[step for step in plan.plan_steps
+                 if step.target_agent!='HUMAN_ESCALATION_AGENT' and id(step) not in veto_only_steps]
         for unit in units if complete_assignment else []:
             uid=unit['unit_id']
-            if uid in assigned or not factual:continue
+            if uid not in work_ids or uid in assigned or not factual:continue
             intent=recognized[uid]
             preferred='CUSTOMER_SUPPORT_AGENT' if intent.private_scope and not intent.documentary_scope else 'KNOWLEDGE_AGENT'
             owner=next((step for step in factual if step.target_agent==preferred),factual[0])
             owner.request_unit_ids.append(uid)
         for step in plan.plan_steps:
-            step.request_unit_ids=[unit['unit_id'] for unit in units if unit['unit_id'] in step.request_unit_ids]
+            step.request_unit_ids=[unit['unit_id'] for unit in units if unit['unit_id'] in step.request_unit_ids and unit['unit_id'] in work_ids]
+        # An explicit veto remains visible in the coverage ledger, but cannot
+        # authorize a factual delegation (even after a second automatic bind).
+        plan.plan_steps=[step for step in plan.plan_steps
+                         if id(step) not in veto_only_steps and
+                         (step.request_unit_ids or not veto_ids or
+                          (step.target_agent=='HUMAN_ESCALATION_AGENT' and work_ids))]
+        if plan.plan_steps:
+            plan.primary_agent=plan.plan_steps[0].target_agent
+        plan.is_multi_step=len(plan.plan_steps)>1
+        plan.requires_user_context=any(step.target_agent in {'CUSTOMER_SUPPORT_AGENT','HUMAN_ESCALATION_AGENT'} for step in plan.plan_steps)
         return plan
 
     def route(self, message: str, user_id: str) -> Dict[str, Any]:

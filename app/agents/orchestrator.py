@@ -20,6 +20,7 @@ from app.security.pii import PIIRedactor
 from app.security.request_units import RequestCoverageLedger, request_units
 from app.security.operational_intent import classify_operational_intent
 from app.security.fulfillment import canonical_terminal_read_text
+from app.security.planning_policy import independent_veto_unit_ids
 
 
 class MultiAgentOrchestrator:
@@ -587,12 +588,20 @@ class MultiAgentOrchestrator:
             canonical_terminal_read_text(unit['text'].lstrip(' ;,.'),
                 PIIRedactor.mask_text(original_message), conversation_context), conversation_context)
             for unit in canonical_units}
+        veto_ids = independent_veto_unit_ids(PIIRedactor.mask_text(original_message))
+        remaining_ids -= veto_ids
+        scheduled_ids = {uid for step in pending_steps for uid in step.request_unit_ids}
+        available_ids = remaining_ids - scheduled_ids
+        if not available_ids and not (spec_output.requires_escalation or failed_tools):
+            tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='replan_not_needed', status='skipped',
+                            details={'reason':'no_unscheduled_actionable_units'})
+            return False
         private_ids = {uid for uid, intent in unit_intents.items()
-                       if intent.private_scope and not intent.documentary_scope}
+                       if uid not in veto_ids and intent.private_scope and not intent.documentary_scope}
         semantic_error = (spec_output.structured_data or {}).get('semantic_error') or {}
         if (spec_output.agent_name in {'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT'}
                 and isinstance(semantic_error, dict) and semantic_error.get('code')
-                and not (remaining_ids & private_ids) and not spec_output.requires_escalation):
+                and not (available_ids & private_ids) and not spec_output.requires_escalation):
             tracer.add_step(agent="SUPERVISOR_ORCHESTRATOR", action="replan_not_needed", status="skipped",
                             details={"reason": "no_actionable_observation"})
             return False
@@ -621,12 +630,14 @@ class MultiAgentOrchestrator:
                                 confidence=0.0, reasoning="Server replan scope validation"),
                     PIIRedactor.mask_text(original_message), conversation_context,
                     complete_assignment=False)
+                if not rebound.plan_steps:
+                    continue
                 step = rebound.plan_steps[0]
                 ids = set(step.request_unit_ids)
                 if step.target_agent == 'HUMAN_ESCALATION_AGENT':
                     permitted = spec_output.requires_escalation or failed_tools or bool(ids & remaining_ids)
                 else:
-                    permitted = bool(ids) and ids <= remaining_ids
+                    permitted = bool(ids) and ids <= available_ids
                     if step.target_agent == 'CUSTOMER_SUPPORT_AGENT':
                         permitted = permitted and ids <= private_ids
             except (ValueError, RouterPlanningError):
@@ -643,6 +654,7 @@ class MultiAgentOrchestrator:
                 break
             pending_steps.append(step)
             scheduled.add(step.target_agent)
+            available_ids -= set(step.request_unit_ids)
             trigger = ("support_tool_detected_critical_escalation" if spec_output.requires_escalation
                        else "operational_tool_failure" if failed_tools
                        else "insufficient_evidence" if spec_output.abstained else "dependent_observation")
