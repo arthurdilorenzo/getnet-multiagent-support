@@ -6,6 +6,7 @@ from app.config import settings
 from app.hitl.queue import hitl_queue
 from app.memory.store import state_store
 from app.observability.logger import logger
+from app.security.auth import CrossTenantAccessError
 from app.security.pii import PIIRedactor
 from app.tools.registry import tool_registry
 
@@ -375,15 +376,15 @@ def execute_terminal_remote_action(
     customers = _load_customers_db()
     customer = customers.get(user_id)
     if not customer:
-        return {"success": False, "error": f"Cliente '{user_id}' não encontrado."}
+        raise CrossTenantAccessError("Não há frota autorizada para o cliente autenticado.")
 
     terminals = customer.get("terminals", [])
     target_term = next(
         (t for t in terminals if t.get("terminal_id", "").lower() == terminal_id.strip().lower()),
-        terminals[0] if terminals else None,
+        None,
     )
     if not target_term:
-        return {"success": False, "error": f"Nenhum terminal localizado para o cliente '{user_id}'."}
+        raise CrossTenantAccessError("O terminal solicitado não pertence à frota autenticada.")
 
     resolved_term_id = target_term.get("terminal_id", terminal_id)
     idem_key = idempotency_key.strip() or hashlib.sha256(

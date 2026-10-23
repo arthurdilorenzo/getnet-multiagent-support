@@ -9,9 +9,9 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
-      - AUTH_API_KEY=${AUTH_API_KEY:-getnet-dev-api-key-2026}
-      - JWT_SECRET=${JWT_SECRET:-getnet-hmac-sha256-secret-key-2026-prod}
-      - AUTH_ENFORCE_STRICT=${AUTH_ENFORCE_STRICT:-false}
+      - AUTH_API_KEY=${AUTH_API_KEY:?Provide a randomly generated AUTH_API_KEY (32+ characters)}
+      - JWT_SECRET=${JWT_SECRET:?Provide an independent randomly generated JWT_SECRET (32+ characters)}
+      - AUTH_ENFORCE_STRICT=true
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}

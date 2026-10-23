@@ -2,7 +2,7 @@ from collections import Counter
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from app.config import settings
 from app.observability.logger import logger
 from app.rag.embeddings import BilingualDenseEmbedder
@@ -37,10 +37,10 @@ class IndexedChunk:
 
 class HybridKnowledgeRetriever:
     """
-    Motor RAG Híbrido Real da Getnet:
+    Retrieval híbrido local da Getnet (sem encoder neural):
     1. Sparse Retrieval via algoritmo Okapi BM25 (k1=1.5, b=0.75) com expansão léxica bilíngue PT/EN.
-    2. Dense Vector Retrieval via embeddings de 384 dimensões L2-normalizados e similaridade de cosseno.
-    3. Fusão de Rankings via Reciprocal Rank Fusion (RRF) + Score Calibrado [0.0, 1.0].
+    2. Projeção por hashing de n-gramas e âncoras conceituais manuais em 384 coordenadas, com cosseno.
+    3. Score heurístico lexical/cosseno [0, 1], usando Reciprocal Rank Fusion (RRF) para desempate.
     4. Threshold de Relevância e Abstention explícita para consultas fora de domínio.
     5. Citações verificáveis contendo `chunk_id`, `source_file` e `source_url` oficial da Getnet.
     """
@@ -109,20 +109,12 @@ class HybridKnowledgeRetriever:
         else:
             web_only = [c for c in raw_chunks if c.get("origin_type") == "live_web_scrape"]
             raw_chunks = md_chunks + web_only
-
-        # Carrega cache de vetores se disponível
-        cached_vectors: Dict[str, List[float]] = {}
-        if self.vector_index_path.exists():
-            try:
-                cached_vectors = json.loads(self.vector_index_path.read_text(encoding="utf-8"))
-            except Exception:
-                cached_vectors = {}
+        raw_chunks = [cleaned for item in raw_chunks if (cleaned := ingestor.clean_chunk(item))]
 
         self.chunks = []
         updated_vectors: Dict[str, List[float]] = {}
         for item in raw_chunks:
             cid = item["chunk_id"]
-            emb = cached_vectors.get(cid)
             idx_chunk = IndexedChunk(
                 chunk_id=cid,
                 source_file=item.get("source_file", "getnet_docs.md"),
@@ -130,12 +122,12 @@ class HybridKnowledgeRetriever:
                 title=item.get("title", ""),
                 content=item.get("content", ""),
                 origin_type=item.get("origin_type", "verified_markdown_mirror"),
-                embedding=emb,
             )
             self.chunks.append(idx_chunk)
             updated_vectors[cid] = idx_chunk.embedding
 
-        # Persiste o índice vetorial denso em disco
+        # A projeção local é barata: regenerar evita aceitar cache obsoleto ou adulterado.
+        # O arquivo persistido é um artefato inspecionável, não uma fonte de verdade.
         try:
             self.vector_index_path.parent.mkdir(parents=True, exist_ok=True)
             self.vector_index_path.write_text(
@@ -194,7 +186,7 @@ class HybridKnowledgeRetriever:
         threshold: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Executa busca híbrida completa (Okapi BM25 + Dense Vector Cosine Similarity + RRF).
+        Executa BM25 + cosseno de projeções por hashing; RRF desempata o score heurístico.
         Retorna:
         {
           "abstained": bool,
@@ -218,7 +210,7 @@ class HybridKnowledgeRetriever:
                 "citations": [],
             }
 
-        # Embeda a query expandida para paridade semântica PT/EN
+        # Projeta a query e sua expansão léxica PT/EN no mesmo espaço determinístico.
         expanded_query_text = f"{query} {' '.join(query_tokens)}"
         query_vec = BilingualDenseEmbedder.embed_text(expanded_query_text)
 
@@ -245,7 +237,7 @@ class HybridKnowledgeRetriever:
             b_raw = bm25_scores[idx][1]
             d_raw = dense_scores[idx][1]
 
-            # Se nem BM25 nem Dense possuem sinal relevante, descarta
+            # Se nem BM25 nem a projeção possuem sinal relevante, descarta.
             if b_raw <= 0.0 and d_raw < 0.12:
                 continue
 
@@ -258,7 +250,7 @@ class HybridKnowledgeRetriever:
             matched_q = sum(1 for t in unique_q if t in chunk.term_freqs)
             coverage_factor = min(1.0, matched_q / max(1.5, len(unique_q) * 0.45))
             b_norm = ((b_raw / (b_raw + 4.0)) * coverage_factor) if b_raw > 0 else 0.0
-            # Score calibrado combinando sinal lexical (BM25) e semântico denso (Cosine)
+            # Score heurístico de BM25 e cosseno; não é probabilidade de correção.
             calibrated_score = round(min(1.0, (0.50 * b_norm) + (0.50 * d_raw)), 4)
 
             fused_items.append(

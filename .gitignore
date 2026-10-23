@@ -26,4 +26,7 @@ feedback_arthur_dilorenzo_v4.md
 data/*.db
 data/*.db-journal
 data/*.db-wal
+data/*.db-shm
 *.db
+*.db-wal
+*.db-shm

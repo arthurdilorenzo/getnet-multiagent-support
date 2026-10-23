@@ -25,7 +25,7 @@ class StructuredJsonFormatter(logging.Formatter):
 class StructuredLogger:
     """
     Logger estruturado em JSON com correlação de trace_id e redaction automática de PII.
-    Substitui integralmente chamadas `print()` em produção.
+    Encaminha eventos de aplicação ao logging padrão em vez de chamadas de console.
     """
 
     def __init__(self, name: str = "getnet.multiagent"):

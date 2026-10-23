@@ -82,7 +82,7 @@ def decode_wmo_weather_code(code: Optional[int]) -> str:
 # ==============================================================================
 def search_getnet_knowledge(query: str, top_k: int = 3) -> Dict[str, Any]:
     """
-    Executa busca híbrida (BM25 + Dense Embeddings + RRF) sobre o corpus oficial Getnet.
+    Busca BM25 com expansão léxica + projeção hashing/âncoras conceituais + RRF.
     """
     outcome = retriever.retrieve_hybrid(query=query, top_k=top_k)
     return {
@@ -350,7 +350,7 @@ def general_web_search(query: str, max_results: int = 3) -> Dict[str, Any]:
 def register_search_tools() -> None:
     tool_registry.register(
         name="search_getnet_knowledge",
-        description="Executa busca RAG híbrida (Okapi BM25 + Embeddings Vetoriais Densos + RRF) na base oficial Getnet (site.getnet.com.br) retornando trechos fundamentados e citações verificáveis.",
+        description="Busca no corpus de produtos Getnet por BM25 com expansão léxica, projeção vetorial por hashing/âncoras conceituais e RRF, retornando trechos e URLs de origem.",
         args_schema=SearchGetnetKnowledgeInput,
         handler=search_getnet_knowledge,
         requires_tenant_context=False,

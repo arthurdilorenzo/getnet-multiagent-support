@@ -8,12 +8,13 @@ from app.security.pii import PIIRedactor
 
 class SystemTracer:
     """
-    Rastreador distribuído por requisição (OpenTelemetry-compatible structure).
+    Rastreador local por requisição; não exporta spans OpenTelemetry.
     Registra trace_id único, spans com latência individual e acumulada,
     consumo de tokens, estimativa de custo (USD) e mascaramento de PII.
     """
 
-    # Preços de referência Gemini 2.5 Flash por 1M tokens (Input: $0.15 / Output: $0.60)
+    # Coeficientes ilustrativos do protótipo, sem vínculo com a tabela vigente
+    # do provedor. O resultado não representa cobrança ou custo medido.
     INPUT_COST_PER_TOKEN = 0.15 / 1_000_000
     OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000
 

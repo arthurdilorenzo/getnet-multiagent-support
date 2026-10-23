@@ -1,3 +1,4 @@
-from app.evals.evaluator import GroundednessJudge, SystemEvaluator, evaluator
+"""Evaluation package. Import the concrete API from ``app.evals.evaluator``.
 
-__all__ = ["GroundednessJudge", "SystemEvaluator", "evaluator"]
+Avoid eager imports so ``python -m app.evals.evaluator`` executes the module once.
+"""

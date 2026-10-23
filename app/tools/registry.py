@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
+import hashlib
+import json
 import time
 from typing import Any, Callable, Dict, List, Optional, Type
 from pydantic import BaseModel, ValidationError
@@ -86,9 +88,9 @@ class ToolRegistry:
                     "name": tool.name,
                     "description": tool.description,
                     "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required,
+                        **{k: v for k, v in raw_schema.items() if k not in {"properties", "required", "title"}},
+                        "type": "object", "properties": properties, "required": required,
+                        "additionalProperties": False,
                     },
                 }
             )
@@ -115,41 +117,50 @@ class ToolRegistry:
                 execution_ms=round((time.perf_counter() - start) * 1000, 2),
             )
 
-        args = dict(raw_arguments or {})
+        if "session_id" in tool.args_schema.model_fields:
+            session_id = session_id or f"sess_{security_context.authenticated_user_id}"
 
-        # 1. Verificação de Segurança e Isolamento de Tenant (Zero-Trust Identity Binding)
+        def reject(code: str, message: str) -> ToolExecutionResult:
+            metrics_collector.record_tool_error(tool_name)
+            return ToolExecutionResult(
+                tool_name=tool_name, success=False, error_code=code,
+                error_message=message, retryable=False,
+                execution_ms=round((time.perf_counter() - start) * 1000, 2),
+            )
+
+        if not isinstance(raw_arguments, dict) or not all(isinstance(k, str) for k in raw_arguments):
+            return reject("INVALID_TOOL_ARGUMENTS", "Os argumentos da ferramenta devem ser um objeto JSON.")
+        args = dict(raw_arguments)
+
+        # Caller identity/session are bound by the server even for operator contexts.
+        # A model cannot use an operator's privileges to select a different tenant.
+        if "user_id" in args and args["user_id"] != security_context.authenticated_user_id:
+            logger.warning("tool_cross_tenant_blocked", trace_id=trace_id, tool_name=tool_name)
+            return reject("CROSS_TENANT_ACCESS_DENIED", "A ferramenta não pode selecionar outra conta.")
+        if "session_id" in args and args["session_id"] != session_id:
+            return reject("CROSS_SESSION_ACCESS_DENIED", "A ferramenta não pode selecionar outra sessão.")
+        args.pop("user_id", None)
+        args.pop("session_id", None)
         if tool.requires_tenant_context:
-            if "user_id" in args and args["user_id"]:
-                try:
-                    verified_uid = security_context.assert_tenant_access(str(args["user_id"]))
-                except CrossTenantAccessError as exc:
-                    metrics_collector.record_tool_error(tool_name)
-                    logger.warning(
-                        "tool_cross_tenant_blocked",
-                        trace_id=trace_id,
-                        tool_name=tool_name,
-                        authenticated_user=security_context.authenticated_user_id,
-                        attempted_user=args.get("user_id"),
-                    )
-                    return ToolExecutionResult(
-                        tool_name=tool_name,
-                        success=False,
-                        error_code="CROSS_TENANT_ACCESS_DENIED",
-                        error_message=str(exc),
-                        retryable=False,
-                        execution_ms=round((time.perf_counter() - start) * 1000, 2),
-                    )
-                args["user_id"] = verified_uid
-            else:
-                args["user_id"] = security_context.authenticated_user_id
+            args["user_id"] = security_context.authenticated_user_id
+        if "session_id" in tool.args_schema.model_fields:
+            args["session_id"] = session_id or f"sess_{security_context.authenticated_user_id}"
 
-            if "session_id" in tool.args_schema.model_fields and not args.get("session_id"):
-                args["session_id"] = session_id or f"sess_{security_context.authenticated_user_id}"
+        # Models with Pydantic's default extra='ignore' must not silently discard
+        # hallucinated arguments. Strict validation also prevents type coercion.
+        if set(args) - set(tool.args_schema.model_fields):
+            return reject("INVALID_TOOL_ARGUMENTS", "A chamada contém parâmetros não declarados.")
 
         # 2. Validação de Schema via Pydantic
         try:
-            validated_model = tool.args_schema.model_validate(args)
+            validated_model = tool.args_schema.model_validate(args, strict=True)
             validated_kwargs = validated_model.model_dump()
+            if tool.is_write_action and validated_kwargs.get("idempotency_key"):
+                identity = json.dumps([
+                    tool_name, security_context.authenticated_user_id, session_id,
+                    validated_kwargs["idempotency_key"],
+                ], ensure_ascii=False, separators=(",", ":"))
+                validated_kwargs["idempotency_key"] = hashlib.sha256(identity.encode("utf-8")).hexdigest()
         except ValidationError as exc:
             metrics_collector.record_tool_error(tool_name)
             return ToolExecutionResult(

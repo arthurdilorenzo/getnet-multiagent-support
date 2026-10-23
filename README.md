@@ -1,199 +1,174 @@
-# Getnet Multi-Agent Support System (v2.0)
+# Getnet Multi-Agent Support System
 
-Sistema Multi-Agente de Atendimento, Diagnóstico Operacional e Suporte Comercial construído em **Python 3.11+**, **FastAPI**, **Google GenAI SDK (`gemini-2.5-flash`)** e **SQLite**, projetado para o desafio técnico de Engenharia de IA da **Getnet**.
+Projeto de demonstração do desafio Getnet, em Python 3.11+, FastAPI, Google GenAI SDK e SQLite. Inclui interface de conversa, roteamento entre especialistas, recuperação documental, ferramentas operacionais simuladas e fila local de atendimento humano.
 
----
+O sistema consulta dados públicos externos quando a rede está disponível. Cadastros, vendas, telemetria e comandos de maquininhas usam `data/mock_customers.json`; não existe conexão com sistemas internos ou terminais da Getnet. A fila HITL e o histórico são persistidos de fato no SQLite, mas isso não representa atendimento por uma equipe da Getnet.
 
-## 1. Visão Geral da Arquitetura
-
-O sistema implementa uma arquitetura **Supervisor Multi-Agente (Plan → Delegate → Observe → Dynamic Replan → Stop)** com isolamento de identidade Zero-Trust, **RAG Híbrido** sobre páginas oficiais da Getnet (`site.getnet.com.br`), **Function Calling** tipado via `ToolRegistry`, memória conversacional multi-turno persistida em **SQLite** e fila real de **Human-in-the-Loop (HITL)** com retomada de sessão.
+## Arquitetura e modos de execução
 
 ```text
-[Cliente / UI / API]
-        │
-        ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Camada de Segurança & Ingress (FastAPI Middleware + Auth + Rate Limiter)   │
-│ • Sliding-Window Rate Limiter (HTTP 429 + Retry-After)                     │
-│ • AuthManager: JWT (HMAC-SHA256) / X-API-Key / Tenant Isolation (HTTP 403) │
-│ • GuardrailManager (Input): Bloqueia Prompt Injection/XSS/SQLi (Regra ID)  │
-└───────────────────────────────────────┬────────────────────────────────────┘
-                                        │
-                                        ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│ MultiAgentOrchestrator (Supervisor Loop: Plan -> Delegate -> Observe)      │
-│ 1. Carrega contexto multi-turno e status HITL no SQLite (StateStore)       │
-│ 2. RouterAgent gera plano validado por Pydantic (RoutingPlan / PlanStep)   │
-│ 3. Delega para Especialistas e inspeciona SpecialistOutput a cada passo    │
-│ 4. Replaneja dinamicamente (ex.: falha física de POS -> EscalationAgent)   │
-└───────┬───────────────────────┬────────────────────────┬───────────────────┘
-        │                       │                        │
-        ▼                       ▼                        ▼
-┌───────────────────┐  ┌──────────────────────┐  ┌───────────────────────────┐
-│ KnowledgeAgent &  │  │ CustomerSupportAgent │  │ EscalationAgent (HITL)    │
-│ WebSearchAgent    │  │ (Loop Multi-Tool)    │  │ • Persiste Ticket SQLite  │
-│ • Hybrid RAG:     │  │ • Liquidação D+1/Pix │  │   (OPEN->CLAIMED->RESOLVED│
-│   BM25 + Dense    │  │ • Telemetria Multi-  │  │ • Alerta Telegram/Webhook │
-│   384d + RRF      │  │   Terminal POS       │  │ • Endpoint de Resposta do │
-│ • Abstention <0.26│  │ • Write Tool Remota  │  │   Operador Humano com     │
-│ • Open-Meteo WMO  │  │   Idempotente        │  │   Retomada de Sessão      │
-│ • AwesomeAPI/ECB  │  │ • Catálogo ISO-8583  │  │                           │
-└───────────────────┘  └──────────────────────┘  └───────────────────────────┘
-        │                       │                        │
-        └───────────────────────┼────────────────────────┘
-                                ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Camada de Egress, Redaction & Observabilidade                              │
-│ • Indirect Prompt Injection Sanitizer (dados externos Web/RAG)             │
-│ • PIIRedactor (CPF, CNPJ, Cartão PCI-DSS, CVV, Senhas, Domicílio Bancário) │
-│ • SystemTracer (trace_id, step_duration_ms) + Metrics (p50/p95/p99, USD)   │
-└────────────────────────────────────────────────────────────────────────────┘
+HTTP → autenticação/tenant → guardrails → memória SQLite
+     → RouterAgent → plano validado (RoutingPlan)
+     → supervisor com fila e limite de iterações
+         ├─ CustomerSupportAgent → ToolRegistry → dados mock / escrita SQLite
+         ├─ KnowledgeAgent       → retrieval local → trechos e citações
+         ├─ Web Search           → APIs públicas / busca de snippets
+         └─ EscalationAgent      → ticket SQLite → resposta de operador
+     → mascaramento de PII → persistência → resposta e trace
 ```
 
----
+| Componente | Com `GEMINI_API_KEY` | Sem chave |
+| --- | --- | --- |
+| Router | Gemini solicita delegações por function calling; nomes e argumentos são validados e convertidos em `RoutingPlan`. | Regras léxicas determinísticas produzem o plano. |
+| Suporte operacional | Gemini recebe schemas das tools permitidas; o aplicativo executa cada call no registry, devolve `FunctionResponse` ao modelo e permite rodadas dependentes até o limite. | Um extrator de intenção/slots escolhe as mesmas tools registradas. |
+| Knowledge / Web | Seleção de ferramentas por regras e extração de slots; Gemini pode redigir a resposta a partir dos resultados. | Mesma seleção, com composição extrativa/estruturada dos resultados. |
+| Escalação | Enfileiramento local por ferramenta e supervisão de resultados. | Mesmo caminho local. |
 
-## 2. Componentes de Engenharia em Detalhe
+A execução automática de tools pelo SDK fica desativada: as chamadas de suporte passam pelo `ToolRegistry`, que valida schemas, permite apenas ferramentas registradas e vincula identidade e sessão no servidor. Router e suporte não caem silenciosamente no planejador léxico após erro do Gemini; falhas de protocolo/provedor têm resultado controlado. Knowledge pode voltar à síntese local se sua redação Gemini falhar.
 
-### 2.1. Orquestração Supervisor e Replanejamento Dinâmico (`app/agents/orchestrator.py`, `app/agents/router_agent.py`)
-- **Planejamento Estruturado (`RoutingPlan`)**: O `RouterAgent` utiliza JSON Schema validado por Pydantic v2 (`RoutingPlan` e `PlanStep`) para classificar a intenção, atribuir confiança e decompor perguntas compostas em múltiplos passos (`is_multi_step=True`).
-- **Loop Supervisor (`MAX_SUPERVISOR_ITERATIONS = 4`)**: O `MultiAgentOrchestrator` mantém uma fila de execução (`execution_queue`) e avalia o `SpecialistOutput` retornado por cada especialista:
-  - Se o `CustomerSupportAgent` diagnosticar em telemetria um defeito físico de hardware (`requires_hardware_replacement=True`, como violação de *tamper switch* `ERR_TAMPER_09` no perfil `cliente3012`), o Supervisor injeta dinamicamente um novo `PlanStep` acionando o `HUMAN_ESCALATION_AGENT` na mesma requisição.
-  - Se o `KnowledgeAgent` abster-se por score abaixo do limiar em uma consulta factual pública, o Supervisor pode redirecionar para busca externa.
+O supervisor executa até `MAX_ORCHESTRATION_ITERATIONS` passos. Ao observar `requires_escalation` no diagnóstico de suporte, pode acrescentar uma etapa humana. Esse replanejamento é uma política explícita de código; não é um planner geral autônomo. Chamadas de suporte também têm limites de turnos e de quantidade de tools.
 
-### 2.2. Motor RAG Híbrido, Corpus Oficial e Abstention (`app/rag/`)
-- **Ingestão de Páginas Oficiais (`app/rag/ingestor.py`, `data/getnet_corpus.json`)**:
-  - Corpus com **47 chunks** indexados com metadados verificáveis (`chunk_id`, `source_file`, `source_url`, `sha256_hash`), combinando documentação estruturada e raspagem das páginas públicas oficiais da Getnet (`https://site.getnet.com.br/todas-as-maquininhas/`, `/crediario/`, `/pix/`, `/conta-digital/`, `/link-de-pagamento/`, `/duvidas/` e `https://www.getnet.net/en/`).
-- **Recuperação Híbrida (`app/rag/retriever.py`, `app/rag/embeddings.py`)**:
-  1. **Sparse Retrieval**: Algoritmo **Okapi BM25** ($k_1 = 1.5, b = 0.75$) ponderado pela cobertura de termos da consulta e expansão bilíngue PT/EN.
-  2. **Dense Retrieval**: `BilingualDenseEmbedder` gerando vetores densos de **384 dimensões** normalizados em $L_2$ (combinando unigramas, bigramas, 4-gramas de caracteres e âncoras conceituais bilíngues de meios de pagamento), persistidos em `data/vector_index.json` e comparados por similaridade de cosseno.
-  3. **Fusão & Calibração**: Combinação via **Reciprocal Rank Fusion (RRF, $k=20$)** e score calibrado $\in [0.0, 1.0]$.
-  4. **Limiar de Relevância & Abstention**: Consultas cujo maior score fique abaixo de `RAG_MIN_RELEVANCE_THRESHOLD = 0.26` acionam `abstained = True`, recusando-se a responder sem base documental em vez de alucinar.
+## Retrieval local: o pipeline implementado
 
-### 2.3. Registro de Ferramentas, Function Calling e Zero-Trust (`app/tools/`)
-- **`ToolRegistry` (`app/tools/registry.py`)**: Registro centralizado de **10 ferramentas** (8 de leitura e 2 de escrita idempotente) com validação Pydantic, timeout individual via `ThreadPoolExecutor` e exportação automática de JSON Schema para Function Calling (`get_gemini_function_declarations`).
-- **Isolamento Zero-Trust de Tenant**: Os parâmetros `user_id` e `session_id` são removidos do schema exposto ao LLM. O modelo nunca escolhe de qual cliente ler dados; o `ToolRegistry` injeta o `user_id` diretamente do `SecurityContext` autenticado e bloqueia qualquer tentativa de acesso cruzado (`CROSS_TENANT_ACCESS_DENIED`).
-- **Suporte Multi-Terminal e Ações de Escrita Idempotentes (`app/tools/customer_tools.py`)**:
-  - `diagnose_terminal_issue`: Seleciona dinamicamente o terminal específico na frota do lojista por `terminal_id` (`GET-SMART-88219` vs `GET-CLASSICA-10442`), modelo ou anomalia de sinal/hardware, cruzando com o catálogo **ISO-8583** (`05`, `51`, `12`, `54`, `57`, `91`).
-  - `execute_terminal_remote_action`: Ferramenta de escrita que agenda comandos remotos (`remote_reboot`, `sim_carrier_switch`, `parameter_table_update`) persistidos na tabela SQLite `terminal_actions` e protegidos por `idempotency_key` na tabela `idempotency_store`.
-- **Integrações Externas Reais sem Fallbacks Falsos (`app/tools/search_tools.py`)**:
-  - `get_weather_forecast`: Geocodificação + previsão diária via **Open-Meteo API**, decodificando o código meteorológico oficial **WMO 4677** (`weathercode`).
-  - `get_currency_exchange_rate`: Cotação comercial em tempo real via **AwesomeAPI** com failover secundário para **Frankfurter API (European Central Bank)**.
-  - **Honestidade Semântica sob Falha**: Todas as chamadas externas passam por `CircuitBreaker` + retries com *exponential backoff*. Se os provedores externos estiverem inacessíveis, a tool levanta `ExternalServiceUnavailableError` e o agente informa explicitamente a indisponibilidade temporária, **jamais** inventando temperaturas ou cotações fictícias.
+O código está em `app/rag/`. O nome legado `BilingualDenseEmbedder` é mantido por compatibilidade; **não há encoder neural, sentence-transformers ou chamada à API de embeddings** neste caminho. `GEMINI_EMBEDDING_MODEL` não é consumido pelo retriever.
 
-### 2.4. Memória Multi-Turno e Fila Real de Human-in-the-Loop (`app/memory/store.py`, `app/hitl/queue.py`)
-- **Persistência SQLite (`data/getnet_state.db`)**: Armazena sessões (`sessions`), histórico de mensagens (`messages`), chamados de escalonamento (`escalation_tickets`), comandos de terminal (`terminal_actions`) e chaves de idempotência (`idempotency_store`).
-- **Janela Deslizante + Resumo Progressivo**: Mantém as últimas `MEMORY_WINDOW_MESSAGES` mensagens completas e compacta turnos anteriores em `rolling_summary`.
-- **Ciclo Completo de HITL (`app/hitl/queue.py`)**:
-  1. `create_escalation_ticket` grava o protocolo `GET-ESC-...` no SQLite com status `OPEN`, snapshot técnico do diagnóstico, histórico sanitizado da conversa e muda a sessão para `waiting_human`.
-  2. Notifica canais externos configurados (Telegram Bot API e/ou Webhook HTTP).
-  3. Um operador humano pode listar chamados (`GET /api/hitl/tickets`), assumir e responder via `POST /api/hitl/tickets/{ticket_id}/reply`.
-  4. A resposta do operador humano é injetada na tabela `messages` da sessão do cliente e o status retorna para `active`, permitindo que o agente retome a conversa no próximo turno já ciente da resolução humana.
+1. O texto indexado repete o título duas vezes e acrescenta o conteúdo. A normalização remove acentos/pontuação e stopwords.
+2. O **Okapi BM25**, com `k1=1.5` e `b=0.75`, usa expansão léxica manual EN→PT da consulta.
+3. Uma **projeção por hashing em 384 coordenadas** combina unigramas, prefixos de cinco caracteres, bigramas, 4-gramas de caracteres e âncoras conceituais PT/EN escritas à mão. O vetor é normalizado em L2; a comparação usa cosseno limitado a `[0, 1]`.
+4. Cada documento recebe um score heurístico: `0.5 × BM25_normalizado_por_cobertura + 0.5 × cosseno`. O **Reciprocal Rank Fusion**, com `k=20`, combina as posições dos dois rankings e serve de **desempate**; o score heurístico é a ordenação principal.
+5. Resultados abaixo de `RAG_MIN_RELEVANCE_THRESHOLD=0.26` são descartados. Se nenhum passar, o retorno tem `abstained=true`, sem trechos/citações. Cada resultado aceito carrega URL, título, arquivo, `chunk_id`, excerto e score.
 
-### 2.5. Segurança, Guardrails e Proteção de PII (`app/security/`, `app/agents/guardrails.py`)
-- **Autenticação e Autorização (`app/security/auth.py`)**:
-  - Emissão e validação de tokens JWT assinados com `HMAC-SHA256` (`POST /api/auth/token`) e suporte a `X-API-Key`.
-  - Tentativas de consultar `user_id` divergente do token JWT retornam `HTTP 403 Forbidden`.
-- **Rate Limiting (`app/security/rate_limit.py`)**: Algoritmo *Sliding Window* thread-safe por usuário e IP (`HTTP 429 Too Many Requests` com cabeçalho `Retry-After`).
-- **Guardrails de Entrada, Contexto Indireto e Saída (`app/agents/guardrails.py`)**:
-  - Bloqueia *Prompt Injection* direto (PT/EN), *Jailbreak*, extração de *System Prompt* e payloads SQLi/XSS retornando apenas códigos opacos (`SEC-INJ-001` a `SEC-CODE-001`), sem jamais expor expressões regulares internas.
-  - `sanitize_untrusted_content`: Remove diretivas de *Indirect Prompt Injection* eventualmente presentes em páginas externas antes da síntese.
-- **Redaction de PII (`app/security/pii.py`)**: Mascara automaticamente CPF, CNPJ, PAN de cartão de crédito (padrão PCI-DSS preservando apenas 4 últimos dígitos), CVV, senhas e números de agência/conta bancária em textos e dicionários estruturados.
+O score não é probabilidade de correção. As listas bilíngues são específicas do domínio e os buckets podem colidir. A escolha mantém dependências e execução local pequenas, com generalização semântica menor que a de um encoder treinado. O limiar não é prova de abstention correta para qualquer pergunta.
 
----
+### Corpus, proveniência e reprodução
 
-## 3. Como Executar o Projeto
+`data/getnet_corpus.json` reúne duas origens distintas:
 
-### 3.1. Execução Local (Python Virtualenv)
+- `verified_markdown_mirror`: seções dos seis arquivos `data/getnet_*.md`, curados localmente com URLs de referência. Esse rótulo legado não significa transcrição literal nem validação independente de cada afirmação.
+- `live_web_scrape`: trechos de páginas públicas capturados por HTTP. `source_url` registra a URL final, `secondary_url` a URL solicitada e `scraped_at` a data da captura.
+
+As URLs configuradas incluem catálogo de maquininhas, Crediário, Pix, conta digital, link de pagamento, dúvidas e página global em inglês. `canonical_sources` é a lista de URLs de entrada, não uma garantia de que todas responderam ou geraram chunks. O snapshot é datado; preços, regras e disponibilidade devem ser conferidos na fonte antes de uso operacional.
+
+A mesma higiene determinística é aplicada a Markdown, HTML novo e snapshot existente. Ela remove formulários, menus, contatos públicos, cookies e boilerplate conhecido, preservando instruções e fatos de produto. Chaves Pix do tipo CPF/CNPJ e passos de menus do terminal são conteúdo útil, não formulários do site. O filtro é heurístico e precisa de revisão se o HTML mudar.
+
+Cada `content_hash` contém o SHA-256 completo do conteúdo higienizado; o identificador usa um prefixo desse hash. A limpeza do snapshot preserva URLs e datas de captura. Os vetores são regenerados a cada indexação e persistidos em `data/vector_index.json`; esse arquivo é um artefato derivado, sem confiar em cache anterior.
+
+Para reproduzir a limpeza do snapshot versionado e seu índice, sem HTTP:
 
 ```bash
-# 1. Clone o repositório oficial
-git clone https://github.com/arthurdilorenzo/getnet-multiagent-support.git
-cd getnet-multiagent-support
-
-# 2. Crie e ative o ambiente virtual
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. Instale as dependências com versões fixadas
-pip install -r requirements.txt
-
-# 4. Configure as variáveis de ambiente (opcional: adicione sua GEMINI_API_KEY)
-cp .env.example .env
-
-# 5. Inicie o servidor FastAPI
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m app.rag.ingestor --clean-existing
+python -c 'from app.rag.retriever import retriever'
+pytest -q tests/test_corpus_hygiene.py
 ```
 
-Acesse a interface web interativa em `http://localhost:8000` ou a documentação OpenAPI em `http://localhost:8000/docs`.
+A limpeza repetida é idempotente. Para reconstruir **somente dos mirrors locais**, use `python -m app.rag.ingestor`; isso substitui o snapshot e remove os trechos web anteriores. Para uma nova captura, use `python -m app.rag.ingestor --live` e depois regenere o índice com o comando acima. A captura depende de rede/layout e registra avisos ao pular URLs; não é byte a byte reproduzível nem uma validação editorial das fontes.
 
-### 3.2. Execução via Docker (Multi-Stage & Non-Root)
+## Ferramentas, persistência e integrações
+
+O `ToolRegistry` registra ferramentas de vendas, perfil, diagnóstico, ação remota simulada, criação/consulta de ticket, retrieval, clima, câmbio e busca geral. Schemas Pydantic, controle de identidade, erros estruturados e timeout cercam sua execução.
+
+- **Operações simuladas:** liquidação e diagnóstico leem clientes mock; a escolha de terminal considera ID/modelo/sinais de falha. `execute_terminal_remote_action` grava uma intenção idempotente no SQLite. Mesmo quando o payload usa `SCHEDULED_ON_TERMINAL`, nenhum comando é enviado a hardware real.
+- **APIs públicas:** clima usa geocodificação e previsão Open-Meteo, interpretando códigos WMO; câmbio tenta AwesomeAPI e, em falha, Frankfurter. Retries e circuit breakers tratam indisponibilidade; erros não são substituídos por números inventados.
+- **Busca geral:** consulta snippets da Wikipedia PT/EN e tenta DuckDuckGo HTML como alternativa. Não lê integralmente cada fonte; resultados e URLs de busca têm limitações de proveniência.
+- **Memória:** SQLite guarda sessões, mensagens, resumo textual de turnos antigos, tickets, ações e idempotência. O resumo é uma compactação textual local, não um modelo de memória semântica. A janela recente é configurável.
+- **HITL:** ticket começa `OPEN`; o gestor também suporta `CLAIMED`, `RESPONDED` e `RESOLVED`. A API de reply grava a resposta humana, acrescenta mensagem à sessão e retorna seu estado para `active`; o próximo turno carrega essa resposta. Telegram/webhook são opcionais e dependem de configuração. Falha de notificação não desfaz o ticket nem comprova que um humano o recebeu. Não há SLA de atendimento.
+
+O timeout do registry limita a espera pelo resultado; não interrompe à força uma thread que já iniciou o handler. As escritas locais não constituem uma transação distribuída com terminais ou serviços externos.
+
+## Executar localmente
+
+```bash
+git clone https://github.com/arthurdilorenzo/getnet-multiagent-support.git
+cd getnet-multiagent-support
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Interface: `http://localhost:8000`; OpenAPI: `http://localhost:8000/docs`.
+
+O exemplo inicia em `APP_ENV=development`, com segredos vazios e sem chave Gemini. Nesse modo demo, o chat aceita o `user_id` declarado e marca a identidade como `demo_unverified`; **não autentica o lojista**. Segredos necessários são efêmeros por processo. Use apenas dados fictícios. Clima/câmbio/busca podem consultar a rede mesmo sem Gemini; sem rede, retornam falha/abstenção.
+
+Para usar Gemini, preencha `GEMINI_API_KEY` no `.env`; o modelo padrão é `gemini-2.5-flash`. Isso habilita o caminho de SDK descrito acima e envolve envio do contexto necessário ao provedor. Os testes offline não comprovam qualidade ou disponibilidade desse modelo ao vivo.
+
+### Autenticação estrita e Docker
+
+Para testar acesso autenticado, gere **dois segredos independentes** e coloque-os em `AUTH_API_KEY` e `JWT_SECRET` no `.env`:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
+
+Repita o comando para o segundo segredo. Produção exige ambos externos e fortes: pelo menos 32 caracteres, diversidade mínima de caracteres e ausência de marcadores previsíveis. `APP_ENV=production` força autenticação estrita e falha ao iniciar se a configuração for insegura. Configurar segredo JWT externo, emitir ou verificar um JWT também liga o modo estrito no processo; credenciais inválidas nunca caem em demo.
+
+`X-API-Key` é uma credencial compartilhada de backend/bootstrap, capaz de emitir tokens e executar operações administrativas; não a distribua a lojistas. Emita JWTs de merchant vinculados ao `user_id` e JWTs pessoais de operador para atribuição das respostas HITL. A API key administrativa atribui ações ao principal `operator_system`.
+
+Exemplo com `AUTH_API_KEY` e `MERCHANT_TOKEN` definidos no ambiente do shell:
+
+```bash
+curl -X POST http://localhost:8000/api/auth/token \
+  -H "X-API-Key: $AUTH_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"user_id":"cliente1988","role":"merchant"}'
+
+# Copie access_token para MERCHANT_TOKEN antes desta chamada.
+curl -X POST http://localhost:8000/api/chat \
+  -H "Authorization: Bearer $MERCHANT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_id":"cliente1988","session_id":"minha-sessao","message":"Quando caem minhas vendas?"}'
+```
+
+A UI atual demonstra o chat sem inserir tokens; no modo estrito, use um cliente HTTP autenticado. Uma sessão pertence ao usuário persistido no SQLite; não basta conhecer ou fabricar um prefixo de `session_id`.
+
+Com os dois segredos no `.env`, execute:
 
 ```bash
 docker compose up --build -d
 ```
 
-O container executa sob o usuário sem privilégios `appuser` (UID `10001`), sem copiar arquivos `.env` ou diretórios de teste para a imagem final, persistindo o banco SQLite no volume `getnet_sqlite_state`.
+O Compose força produção e autenticação estrita. A imagem tem build em dois estágios, roda como `appuser` (UID 10001), copia aplicação/dados e não copia `.env` nem fontes de testes. `requirements.txt` fixa dependências diretas; `requirements-lock.txt` registra a resolução completa, mas o build/CI atual instala `requirements.txt`, portanto não impõe todas as versões transitivas do lock. O volume `getnet_sqlite_state` persiste `/app/data`, incluindo o banco; volumes já existentes também preservam seu corpus anterior e precisam de atualização explícita ao trocar o snapshot.
 
----
+## API
 
-## 4. Testes Automatizados e Suíte de Avaliação (Evals)
+| Método | Caminho | Acesso / comportamento |
+| --- | --- | --- |
+| POST | `/api/chat` | Chat, JWT ou API key no modo estrito; `user_id` e `session_id` vinculados no servidor. |
+| POST | `/api/auth/token` | Operador autenticado; emite JWT merchant/operator. |
+| GET / DELETE | `/api/sessions/{session_id}?user_id=...` | Histórico ou limpeza com verificação do proprietário. |
+| GET | `/api/hitl/tickets` | Operador; filtros opcionais por status e cliente. |
+| GET | `/api/hitl/tickets/{ticket_id}` | Operador; detalhe do chamado. |
+| POST | `/api/hitl/tickets/{ticket_id}/reply` | Operador; identidade da resposta vem da credencial. |
+| GET | `/api/metrics` | Operador; métricas do processo. |
+| GET | `/api/evals/run` | Operador; executa harness e pode gravar sessões/tickets de avaliação. |
+| GET | `/api/health` | Diagnóstico básico e configuração Gemini; não prova disponibilidade de todos os provedores. |
+| GET | `/api/scenarios` | Exemplos de perguntas para a demonstração. |
 
-### 4.1. Executar a Suíte de Testes (`pytest`)
+Listagem/detalhe de HITL, métricas e evals rejeitam acesso anônimo com 401 e JWT merchant com 403. JWTs verificam assinatura HMAC-SHA256, emissor, expiração e formato dos claims. A proteção não substitui um provedor corporativo de identidade, revogação e gestão de credenciais.
 
-A suíte conta com **33 testes automatizados** cobrindo recuperação híbrida BM25+Dense+RRF, abstention fora do domínio, enraizamento dinâmico em documentos novos, validação Pydantic do roteador, seleção multi-terminal, idempotência de tools de escrita, bloqueio Cross-Tenant, JWT, redaction de PII, sanitização de *Indirect Prompt Injection*, falha simulada de APIs externas (garantindo zero números inventados), memória multi-turno SQLite e ciclo completo de HITL:
+## Testes, avaliação e evidência
+
+Execute a mesma sequência principal do Actions:
 
 ```bash
+python scripts/check_no_print.py app
 pytest -v
-```
-
-### 4.2. Executar o Harness de Avaliação Quantitativa (`app/evals/evaluator.py`)
-
-```bash
 python -m app.evals.evaluator
 ```
 
-Resultado obtido no dataset de avaliação (`data/eval_dataset.json`, 13 casos de teste cobrindo RAG PT/EN, Tools, Multi-Step, Abstention e Guardrail):
+O checker analisa AST somente de arquivos `.py`: ignora comentários, docstrings e strings; rejeita chamadas diretas de console, multilinha e `builtins.print`, incluindo aliases importados. Não é análise de fluxo completa para reflexão/aliases dinâmicos.
 
-| Métrica de Avaliação | Resultado Obtido | Meta de Engenharia |
-| :--- | :---: | :---: |
-| **Routing Accuracy** | **100.0%** (`1.0000`) | $\ge 95.0\%$ |
-| **Mean Tool Selection Recall** | **100.0%** (`1.0000`) | $\ge 95.0\%$ |
-| **Mean Groundedness Score** | **96.15%** (`0.9615`) | $\ge 90.0\%$ |
-| **Overall Pass Rate** | **100.0%** (`1.0000`) | $\ge 95.0\%$ |
-| **Latency p50 / p95 (Modo Determinístico/Local)** | **~4.8 ms / ~65.8 ms** | $< 2000\text{ ms}$ |
+Os testes exercitam retrieval, abstention/citações, higiene/idempotência/hash/índice, identidade e sessões, HITL, memória, ferramentas e falhas externas. Testes de function calling usam respostas simuladas do SDK para verificar o ciclo **call → registry → FunctionResponse → nova call/texto**, incluindo chamadas dependentes, argumentos inválidos e limites. Eles verificam o protocolo de integração; **não são um teste Gemini ao vivo**. Testes de cenário podem acessar APIs públicas e aceitam indisponibilidade honesta; a suíte não é inteiramente isolada da rede.
 
----
+O harness usa `data/eval_dataset.json` (13 casos locais) e calcula routing accuracy, tool selection recall, score de grounding, pass rate e latência. O CLI retorna código diferente de zero quando routing ou tool recall ficam abaixo de 1.0, grounding médio abaixo de 0.90 ou o dataset está vazio. Esse gate pertence ao dataset local e não mede desempenho fora dele.
 
-## 5. Principais Endpoints da API
+`GroundednessJudge` é uma **heurística lexical**, baseada em presença de termos esperados, URLs e ausência de algumas strings de fallback conhecidas. Não verifica entailment, correção de cada afirmação nem autenticidade externa das fontes. Os resultados não constituem avaliação semântica independente, nota V4 ou garantia contra alucinações. Latências sem Gemini não representam latência de uma chamada ao provedor; execuções do harness também podem depender de rede e estado SQLite prévio.
 
-| Método | Endpoint | Descrição |
-| :---: | :--- | :--- |
-| `POST` | `/api/chat` | Endpoint principal do orquestrador multi-agente (`message`, `user_id`, `session_id`). Aceita `Authorization: Bearer <jwt>` ou `X-API-Key`. |
-| `POST` | `/api/auth/token` | Emite token JWT assinado (`HMAC-SHA256`) para um `user_id` e `role` (`merchant` ou `operator`). Requer `X-API-Key`. |
-| `GET` | `/api/sessions/{session_id}` | Retorna histórico multi-turno, resumo progressivo e status da sessão no SQLite. |
-| `DELETE` | `/api/sessions/{session_id}` | Limpa o histórico conversacional de uma sessão específica. |
-| `GET` | `/api/hitl/tickets` | Lista chamados persistidos na fila Human-in-the-Loop (`OPEN`, `CLAIMED`, `RESPONDED`, `RESOLVED`). |
-| `POST` | `/api/hitl/tickets/{ticket_id}/reply` | Endpoint para operador humano responder a um protocolo HITL, injetando a resposta na sessão do cliente e reativando o atendimento. |
-| `GET` | `/api/metrics` | Retorna telemetria agregada: latências `p50`/`p95`/`p99`, contagens por agente/tool, tokens consumidos e custo estimado em USD. |
-| `GET` | `/api/evals/run` | Executa a suíte de avaliação automatizada e retorna o relatório JSON completo. |
-| `GET` | `/api/health` | Healthcheck com status do SQLite, quantidade de chunks RAG indexados e estado dos Circuit Breakers. |
+O plano, critérios e limites da correção estão em [SPEC.md](SPEC.md). Não há resultado de validação Gemini ao vivo publicado nesta entrega.
 
----
+## Trade-offs e Limitações Declaradas
 
-## 6. Decisões de Engenharia, Trade-offs e Limitações Declaradas
-
-1. **Operação Dual (Com e Sem `GEMINI_API_KEY`) Sem Respostas Hardcoded**:
-   - **Trade-off**: Avaliadores frequentemente executam o repositório sem chaves de API externas configuradas. Na versão anterior, isso havia sido tratado com respostas estáticas fixas para as perguntas do enunciado, o que comprometia a validade do sistema.
-   - **Decisão atual**: Quando `GEMINI_API_KEY` está configurada, o sistema utiliza o `gemini-2.5-flash` para planejamento estruturado, Function Calling nativo e síntese textual. Quando executado sem chave de API, o sistema opera através do mesmo pipeline de dados: executa o cálculo real de **Okapi BM25 + Embeddings Vetoriais 384d + RRF**, invoca as mesmas tools registradas no `ToolRegistry` e compõe a resposta dinamicamente a partir dos trechos recuperados do corpus (`data/getnet_corpus.json`) ou dos payloads JSON retornados pelas tools. Nenhuma pergunta do desafio possui resposta hardcoded.
-
-2. **Embeddings Vetoriais Determinísticos Locais (`BilingualDenseEmbedder`) vs. Modelo Neural Pesado (`sentence-transformers` / Torch)**:
-   - **Trade-off**: Incluir PyTorch + `sentence-transformers` adicionaria ~1.5 GB à imagem Docker e aumentaria o tempo de build/cold-start em ambientes de avaliação sem GPU ou com restrição de rede.
-   - **Decisão atual**: Implementamos um embedder denso de 384 dimensões L2-normalizado (`app/rag/embeddings.py`) baseado em projeção de n-gramas morfológicos e âncoras semânticas bilíngues do domínio de adquirência, persistido em `data/vector_index.json`.
-   - **Limitação declarada**: Embora garanta alta precisão e alinhamento PT/EN no domínio de pagamentos com latência sub-milissegundo e zero dependências pesadas, ele possui menor capacidade de generalização semântica aberta para domínios arbitrários do que um modelo `text-embedding-004` ou `bge-m3`.
-
-3. **Persistência em SQLite (`data/getnet_state.db`) vs. PostgreSQL + Redis**:
-   - **Trade-off**: Para execução autocontida via `uvicorn` ou container único, o SQLite com *locking* thread-safe elimina a necessidade de subir instâncias separadas de banco relacional e cache, garantindo persistência real de sessões, fila HITL e idempotência.
-   - **Limitação declarada**: Em um ambiente de produção distribuído com múltiplas réplicas horizontais no Kubernetes, o SQLite local e o *Rate Limiter* em memória deveriam ser substituídos por **PostgreSQL (com `pgvector`)** e **Redis** compartilhado.
-
-4. **Autenticação Flexível por Padrão (`AUTH_ENFORCE_STRICT=false`)**:
-   - **Trade-off**: Para não quebrar testes automatizados de correção que enviam apenas `{"message": "...", "user_id": "cliente1988"}` sem cabeçalhos HTTP de autenticação, o modo padrão cria um `SecurityContext` escopado ao `user_id` da requisição quando nenhum header `Authorization: Bearer` ou `X-API-Key` é enviado. Entretanto, quando um JWT é fornecido (ou quando `AUTH_ENFORCE_STRICT=true`), o sistema valida criptograficamente a assinatura `HMAC-SHA256` e bloqueia com `HTTP 403` qualquer divergência de tenant.
+- **Segurança em camadas:** padrões de injection/XSS/SQLi, sanitização de conteúdo indireto, redaction de PII e headers reduzem riscos conhecidos; não garantem bloquear todos os ataques nem representam certificação PCI-DSS. Os filtros podem ter falsos positivos e negativos.
+- **Persistência autocontida:** SQLite e locks locais facilitam execução e revisão em uma instância. PostgreSQL e um serviço compartilhado de limitação/cache seriam necessários para escalar o estado entre réplicas. Rate limiter, métricas e circuit breakers atuais residem em memória por processo e reiniciam com ele.
+- **Observabilidade local:** logs JSON e trace IDs registram etapas e tempos. Router e suporte usam `usage_metadata` do SDK quando disponível; os outros registros podem estimar tokens por tamanho do texto. Custo usa coeficientes ilustrativos no código e não é conciliação de faturamento. Não há exportação de tracing distribuído configurada.
+- **Qualidade documental:** limpeza e citações tornam a proveniência inspecionável; não substituem revisão editorial, atualização periódica ou confirmação de regras comerciais na fonte.
+- **Ambiente de demonstração:** ainda seriam necessários identidade corporativa, revogação/rotação de tokens, aprovação e execução real das ações, gestão de dados e validação operacional antes de conectar clientes e dispositivos reais.

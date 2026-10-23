@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.agents.orchestrator import orchestrator
 from app.config import settings
@@ -20,14 +20,15 @@ from app.schemas import (
     HealthResponse,
     HitlOperatorReplyRequest,
 )
-from app.security.auth import AuthManager, SecurityContext, require_operator_auth
+from app.security.auth import AuthManager, CrossTenantAccessError, SecurityContext, require_operator_auth
 from app.security.rate_limit import rate_limiter
 
 app = FastAPI(
     title="Getnet Multi-Agent Support System",
     description=(
         "Sistema Multi-Agente de Suporte Getnet com Supervisor ReAct, RAG Híbrido "
-        "(Okapi BM25 + Dense Embeddings + RRF), Memória Multi-Turno SQLite, Fila HITL e Observabilidade."
+        "(Okapi BM25 + projeção vetorial por hashing e âncoras conceituais + RRF), "
+        "Memória Multi-Turno SQLite, Fila HITL e Observabilidade."
     ),
     version="2.0.0",
 )
@@ -54,10 +55,22 @@ async def security_headers_middleware(request: Request, call_next):
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
+@app.exception_handler(CrossTenantAccessError)
+async def cross_tenant_access_handler(_request: Request, _exc: CrossTenantAccessError):
+    return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "Acesso negado à sessão solicitada."})
+
+
 class TokenIssueRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128)
     role: str = Field(default="merchant", pattern="^(merchant|operator)$")
     ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+
+    @field_validator("user_id")
+    @classmethod
+    def validate_principal(cls, value: str) -> str:
+        if not value.strip() or value != value.strip() or any(ord(c) < 32 for c in value):
+            raise ValueError("Identificador do principal inválido.")
+        return value
 
 
 # ==============================================================================
@@ -88,6 +101,8 @@ async def chat_endpoint(
     try:
         return orchestrator.process(request=request, security_context=sec_ctx)
     except HTTPException:
+        raise
+    except CrossTenantAccessError:
         raise
     except Exception as exc:
         raise HTTPException(
@@ -136,10 +151,12 @@ async def get_session_history(
         request_user_id=user_id,
         x_api_key=x_api_key,
         authorization=authorization,
+        allow_operator_tenant_access=True,
     )
+    tenant_id = sec_ctx.assert_tenant_access(user_id)
     ctx = state_store.get_conversation_context(
         session_id=session_id,
-        user_id=sec_ctx.authenticated_user_id,
+        user_id=tenant_id,
         limit=20,
     )
     return ctx
@@ -156,11 +173,10 @@ async def clear_session_history(
         request_user_id=user_id,
         x_api_key=x_api_key,
         authorization=authorization,
+        allow_operator_tenant_access=True,
     )
-    expected_prefix = f"sess_{sec_ctx.authenticated_user_id}"
-    if sec_ctx.role != "operator" and not session_id.startswith(expected_prefix) and session_id != sec_ctx.authenticated_user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado à sessão solicitada.")
-    state_store.clear_session(session_id)
+    tenant_id = sec_ctx.assert_tenant_access(user_id)
+    state_store.clear_session(session_id, user_id=tenant_id)
     return {"status": "cleared", "session_id": session_id}
 
 
@@ -171,6 +187,7 @@ async def clear_session_history(
 async def list_hitl_tickets(
     status_filter: Optional[str] = None,
     user_id: Optional[str] = None,
+    _operator: SecurityContext = Depends(require_operator_auth),
 ):
     tickets = hitl_queue.list_tickets(status_filter=status_filter, user_id=user_id)
     return {
@@ -180,7 +197,7 @@ async def list_hitl_tickets(
 
 
 @app.get("/api/hitl/tickets/{ticket_id}")
-async def get_hitl_ticket_detail(ticket_id: str):
+async def get_hitl_ticket_detail(ticket_id: str, _operator: SecurityContext = Depends(require_operator_auth)):
     ticket = hitl_queue.get_ticket(ticket_id)
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Protocolo HITL não encontrado.")
@@ -199,7 +216,7 @@ async def operator_reply_hitl_ticket(
     """
     updated = hitl_queue.reply_to_ticket(
         ticket_id=ticket_id,
-        operator_id=body.operator_id,
+        operator_id=_operator.authenticated_user_id,
         reply_message=body.reply_message,
         resolve_ticket=body.resolve_ticket,
     )
@@ -225,12 +242,12 @@ async def health_check():
 
 
 @app.get("/api/metrics")
-async def get_operational_metrics():
+async def get_operational_metrics(_operator: SecurityContext = Depends(require_operator_auth)):
     return metrics_collector.snapshot()
 
 
 @app.get("/api/evals/run")
-async def run_evaluation_suite():
+async def run_evaluation_suite(_operator: SecurityContext = Depends(require_operator_auth)):
     return evaluator.run_suite()
 
 

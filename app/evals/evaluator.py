@@ -8,11 +8,9 @@ from app.schemas import ChatRequest, ChatResponse
 
 class GroundednessJudge:
     """
-    Avaliador de Groundedness & Faithfulness (Juiz Semântico + Verificador de Atribuição):
-    Verifica se:
-    1. Todos os termos e valores obrigatórios estão presentes e fundamentados nas fontes/tools.
-    2. Citações de URL oficial foram incluídas quando aplicável.
-    3. Nenhuma string proibida de alucinação/fallback falso (ex: 'Serviço Meteorológico Regional (Cache)') aparece.
+    Heurística lexical do dataset local: presença de termos esperados, URLs e
+    ausência de fallbacks falsos conhecidos. Não verifica entailment, todos os
+    fatos da resposta nem a validade externa das fontes; não é juiz semântico.
     """
 
     FORBIDDEN_HALLUCINATION_STRINGS = [
@@ -152,13 +150,15 @@ class SystemEvaluator:
 
         summary = {
             "dataset_version": raw.get("dataset_version", "2.0.0"),
+            "execution_mode": "gemini" if settings.GEMINI_API_KEY else "offline_deterministic",
+            "judge_type": "lexical_terms_and_url_presence",
             "total_cases": len(cases),
             "metrics": {
                 "routing_accuracy": round(routing_hits / n, 4),
                 "mean_tool_recall": round(sum(tool_recall_scores) / n, 4),
                 "mean_groundedness_score": round(sum(groundedness_scores) / n, 4),
                 "overall_pass_rate": round(
-                    sum(1 for c in case_results if c["routing_correct"] and c["groundedness"]["passed"]) / n,
+                    sum(1 for c in case_results if c["routing_correct"] and c["tool_recall"] == 1.0 and c["groundedness"]["passed"]) / n,
                     4,
                 ),
                 "latency_p50_ms": round(p50, 2),
@@ -172,8 +172,28 @@ class SystemEvaluator:
 evaluator = SystemEvaluator()
 
 
-if __name__ == "__main__":
+def main() -> int:
+    """Emit metrics and fail CI when any SPEC acceptance threshold regresses."""
     import sys
+    import math
 
     report = evaluator.run_suite()
     sys.stdout.write(json.dumps(report["metrics"], indent=2, ensure_ascii=False) + "\n")
+    failures = []
+    if report.get("total_cases", 0) <= 0:
+        failures.append("total_cases must be greater than zero")
+    for metric, minimum in (
+        ("routing_accuracy", 1.0),
+        ("mean_tool_recall", 1.0),
+        ("mean_groundedness_score", 0.90),
+    ):
+        actual = report["metrics"].get(metric)
+        if not isinstance(actual, (float, int)) or not math.isfinite(actual) or not minimum <= actual <= 1.0:
+            failures.append(f"{metric}: expected {minimum}..1.0, got {actual}")
+    if failures:
+        sys.stderr.write("Evaluation acceptance failed: " + "; ".join(failures) + "\n")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

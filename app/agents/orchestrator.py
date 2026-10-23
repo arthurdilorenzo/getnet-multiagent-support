@@ -2,6 +2,7 @@ from collections import deque
 from typing import Any, Deque, Dict, List, Optional
 from google import genai
 from app.agents.customer_support_agent import CustomerSupportAgent
+from app.agents.function_calling import RouterPlanningError
 from app.agents.escalation_agent import EscalationAgent
 from app.agents.guardrails import GuardrailManager
 from app.agents.knowledge_agent import KnowledgeAgent
@@ -24,8 +25,7 @@ class MultiAgentOrchestrator:
     4. Executa loop de delegação aos especialistas (`KnowledgeAgent`, `WebSearchAgent`,
        `CustomerSupportAgent`, `EscalationAgent`), observando cada `SpecialistOutput` e
        replanejando dinamicamente quando o resultado de um agente exige outro (ex: falha de hardware
-       detectada pelo `CustomerSupportAgent` dispara automaticamente `EscalationAgent`, ou abstention
-       do `KnowledgeAgent` redireciona o fluxo).
+       detectada pelo `CustomerSupportAgent` dispara automaticamente `EscalationAgent`).
     5. Aplica Guardrail de Saída (PII Redaction), persiste o turno no SQLite e registra métricas p50/p95.
     """
 
@@ -125,12 +125,33 @@ class MultiAgentOrchestrator:
         )
 
         # 2. Planejamento pelo Supervisor / Router Agent (validado via Pydantic RoutingPlan)
-        routing_plan = self.router.plan(
-            message=request.message,
-            user_id=sec_ctx.authenticated_user_id,
-            conversation_context=conversation_context,
-            tracer=tracer,
-        )
+        try:
+            routing_plan = self.router.plan(
+                message=request.message,
+                user_id=sec_ctx.authenticated_user_id,
+                conversation_context=conversation_context,
+                tracer=tracer,
+            )
+        except RouterPlanningError:
+            refusal = "Não foi possível planejar o atendimento pelo provedor de IA. Tente novamente em instantes."
+            tracer.add_step(agent="ROUTER_AGENT", action="planning_failed", status="abstained",
+                            details={"reason": "configured_provider_unavailable_or_invalid"})
+            state_store.append_message(
+                session_id=session_id, user_id=sec_ctx.authenticated_user_id,
+                role="assistant", content=refusal, agent_used="ROUTER_AGENT",
+            )
+            total_ms = tracer.get_total_execution_time_ms()
+            token_usage = tracer.get_token_usage()
+            metrics_collector.record_request(
+                agent_used="ROUTER_AGENT", tools_called=[], latency_ms=total_ms,
+                token_usage=token_usage, abstained=True,
+            )
+            return ChatResponse(
+                response=refusal, user_id=sec_ctx.authenticated_user_id,
+                session_id=session_id, trace_id=tracer.trace_id,
+                agent_used="ROUTER_AGENT", confidence=0.0, abstained=True,
+                token_usage=token_usage, trace=tracer.get_steps(), execution_time_ms=total_ms,
+            )
 
         tracer.add_step(
             agent="ROUTER_AGENT",
@@ -165,6 +186,7 @@ class MultiAgentOrchestrator:
             spec_output = self._delegate_to_specialist(
                 target_agent=target_agent,
                 sub_query=current_step.sub_query,
+                authorization_message=request.message,
                 security_context=sec_ctx,
                 session_id=session_id,
                 conversation_context=conversation_context,
@@ -186,9 +208,9 @@ class MultiAgentOrchestrator:
             if spec_output.structured_data:
                 accumulated_diagnostics[spec_output.agent_name] = spec_output.structured_data
 
-            if spec_output.agent_name == "HUMAN_ESCALATION_AGENT":
-                escalated = True
+            if spec_output.agent_name == "HUMAN_ESCALATION_AGENT" and not spec_output.abstained:
                 ticket_id = spec_output.structured_data.get("protocol_number")
+                escalated = bool(ticket_id)
 
             # Observação e Replanejamento Dinâmico pelo Supervisor
             self._observe_and_replan(
@@ -206,7 +228,8 @@ class MultiAgentOrchestrator:
             details={
                 "iterations_used": iteration,
                 "agents_executed": agents_executed,
-                "stopping_reason": "all_planned_and_replanned_steps_completed",
+                "stopping_reason": "iteration_limit" if pending_steps else "all_planned_and_replanned_steps_completed",
+                "pending_steps": len(pending_steps),
             },
         )
 
@@ -218,15 +241,16 @@ class MultiAgentOrchestrator:
             )
 
         for out in executed_outputs:
-            # Se um agente absteve mas houve replanejamento para outro agente que respondeu com sucesso, omite o aviso intermediário de abstention
-            if out.abstained and len(executed_outputs) > 1 and not all(o.abstained for o in executed_outputs):
-                continue
+            # Preserve partial failures: success in one intent cannot hide a denied
+            # operation or a failed human handoff in another intent.
             response_segments.append(out.response)
 
         if not response_segments and executed_outputs:
             response_segments.append(executed_outputs[-1].response)
+        if pending_steps:
+            response_segments.append("O atendimento atingiu o limite de etapas. Parte do pedido ficou pendente; envie uma nova mensagem para continuar.")
 
-        abstained_final = bool(executed_outputs and all(o.abstained for o in executed_outputs))
+        abstained_final = bool(pending_steps or any(o.abstained for o in executed_outputs))
         raw_final_response = "\n\n---\n\n".join(response_segments)
 
         # 5. Guardrail de Saída (Redaction de PII e prevenção de vazamentos)
@@ -302,6 +326,7 @@ class MultiAgentOrchestrator:
         self,
         target_agent: str,
         sub_query: str,
+        authorization_message: str,
         security_context: SecurityContext,
         session_id: str,
         conversation_context: Dict[str, Any],
@@ -312,6 +337,7 @@ class MultiAgentOrchestrator:
         if target_agent == "CUSTOMER_SUPPORT_AGENT":
             out = self.customer_support_agent.run(
                 message=sub_query,
+                authorization_message=authorization_message,
                 security_context=security_context,
                 session_id=session_id,
                 conversation_context=conversation_context,
@@ -369,6 +395,7 @@ class MultiAgentOrchestrator:
             tracer.add_step(
                 agent="HUMAN_ESCALATION_AGENT",
                 action="enqueue_hitl_ticket",
+                status="abstained" if out.abstained else "success",
                 details={
                     "protocol": out.structured_data.get("protocol_number"),
                     "has_diagnostic_snapshot": bool(accumulated_diagnostics),

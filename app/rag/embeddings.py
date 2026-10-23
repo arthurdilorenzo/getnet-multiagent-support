@@ -7,15 +7,15 @@ from typing import Dict, List, Optional, Tuple
 
 class BilingualDenseEmbedder:
     """
-    Motor de Embeddings Vetoriais Densos (384 dimensões, L2-normalizados)
-    com projeção semântica bilíngue (PT/EN) e n-gramas sub-palavra.
-    Calcula similaridade de cosseno real entre queries e documentos em memória
-    ou persistido em `data/vector_index.json`, com suporte opcional à API Gemini Embedding.
+    Projeção determinística por hashing em 384 coordenadas L2-normalizadas.
+    Combina n-gramas léxicos e âncoras conceituais PT/EN escritas à mão.
+    O nome é legado: não há encoder neural nem chamada à API de embeddings.
+    O cosseno mede alinhamento dessas features, sem garantia semântica geral.
     """
 
     DIM = 384
 
-    # Clusters semânticos bilíngues de domínio (adquirência e meios de pagamento)
+    # Âncoras conceituais bilíngues manuais do domínio de pagamentos.
     CONCEPT_CLUSTERS: List[Tuple[str, List[str]]] = [
         (
             "CONCEPT_POS_HARDWARE",
@@ -109,11 +109,11 @@ class BilingualDenseEmbedder:
     @classmethod
     def embed_text(cls, text: str) -> List[float]:
         """
-        Converte um texto (PT ou EN) em um vetor denso de 384 dimensões L2-normalizado.
+        Projeta features de texto (PT ou EN) em 384 coordenadas L2-normalizadas.
         Combina:
         1. Unigramas e Bigramas normalizados.
         2. N-gramas de caracteres (4-gramas) para robustez morfológica.
-        3. Projeção nos clusters de conceitos bilíngues de pagamentos.
+        3. Hashing das âncoras conceituais bilíngues manuais de pagamentos.
         """
         vec = [0.0] * cls.DIM
         norm = cls.normalize(text)
@@ -142,7 +142,7 @@ class BilingualDenseEmbedder:
                 c_idx, c_sign = cls._feature_bucket(f"c:{cg}")
                 vec[c_idx] += c_sign * 0.6
 
-        # 3. Projeção Semântica Bilíngue (Concept Anchors, peso 4.5 por match)
+        # 3. Âncoras conceituais manuais (peso 4.5 por ocorrência).
         for concept_id, phrases in cls.CONCEPT_CLUSTERS:
             matches = 0
             for phrase in phrases:
@@ -150,7 +150,7 @@ class BilingualDenseEmbedder:
                     matches += 1
             if matches > 0:
                 weight = min(12.0, matches * 4.5)
-                # Projeta em 3 coordenadas ortogonais determinísticas para o cluster
+                # Projeta em 3 buckets determinísticos; colisões de hashing são possíveis.
                 for salt in ("a", "b", "c"):
                     k_idx, k_sign = cls._feature_bucket(f"concept:{concept_id}:{salt}")
                     vec[k_idx] += k_sign * weight

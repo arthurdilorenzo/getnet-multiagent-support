@@ -27,11 +27,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Verify zero print() statements in production code
-        run: |
-          if grep -rn "print(" app/; then
-            echo "Found forbidden print() call in app/ directory"
-            exit 1
-          fi
+        run: python scripts/check_no_print.py app
 
       - name: Run Unit, Security, Resilience, Memory & Scenario Tests
         run: |

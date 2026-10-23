@@ -8,6 +8,7 @@ from app.observability.tracer import SystemTracer
 from app.rag.embeddings import BilingualDenseEmbedder
 from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
+from app.security.pii import PIIRedactor
 from app.tools.registry import tool_registry
 import app.tools.search_tools  # noqa: F401 - garante registro das tools de busca e RAG
 
@@ -24,10 +25,10 @@ Diretrizes inegociáveis de Grounding e Confiabilidade:
 class KnowledgeAgent:
     """
     Agente 2: Knowledge & External Search Agent.
-    Opera com ciclo real de Function Calling sobre o `ToolRegistry` (`search_getnet_knowledge`,
-    `get_weather_forecast`, `get_currency_exchange_rate`, `web_search_general`),
-    síntese 100% fundamentada nos chunks/tools (zero strings fixas para cenários),
-    threshold de abstention e citações verificáveis com URLs oficiais da Getnet.
+    Seleção determinística de tools e extração de argumentos por regras locais.
+    Executa via ToolRegistry e sintetiza os resultados por Gemini opcional ou
+    extração local. O RAG aplica threshold de abstention e inclui URLs de origem;
+    a síntese LLM não oferece garantia universal de grounding.
     """
 
     AVAILABLE_TOOLS = [
@@ -52,7 +53,7 @@ class KnowledgeAgent:
         trace_id = tracer.trace_id if tracer else ""
         contextual_query = self._enrich_query_with_memory(message, conversation_context)
 
-        # 1. Planejamento de Function Calling (LLM Function Calling ou Slot-Extractor Determinístico)
+        # 1. Seleção de tools e argumentos por slot extractor determinístico.
         planned_calls = self._plan_tool_calls(
             message=contextual_query,
             is_web_search=is_web_search,
@@ -270,7 +271,7 @@ class KnowledgeAgent:
             ToolCallSpec(
                 tool_name="search_getnet_knowledge",
                 arguments={"query": message, "top_k": settings.RAG_TOP_K},
-                rationale="Busca RAG híbrida (Okapi BM25 + Dense Embeddings + RRF) na base oficial Getnet.",
+                rationale="Busca BM25 com expansão léxica, projeção por hashing/âncoras e RRF no corpus Getnet.",
             )
         ]
 
@@ -307,7 +308,7 @@ class KnowledgeAgent:
         if self.client and settings.GEMINI_API_KEY:
             try:
                 prompt = (
-                    f"Pergunta do usuário:\n\"{user_message}\"\n\n"
+                    f"Pergunta do usuário:\n\"{PIIRedactor.mask_text(user_message)}\"\n\n"
                     f"Resultado estruturado da ferramenta `{primary.tool_name}`:\n"
                     f"{json.dumps(data, ensure_ascii=False, indent=2)}\n\n"
                     f"Elabore uma resposta precisa baseada exclusivamente nos dados acima e inclua as fontes/URLs."
@@ -328,7 +329,7 @@ class KnowledgeAgent:
             except Exception as exc:
                 logger.warning("knowledge_llm_synthesis_fallback", error=str(exc))
 
-        # Síntese Extrativa-Estruturada Dinâmica (100% derivada dos dados retornados pela tool!)
+        # Síntese extrativa local dos dados retornados pela tool.
         if primary.tool_name == "get_weather_forecast":
             city = data.get("city", "Porto Alegre, RS")
             horizon = data.get("forecast_horizon", "Amanhã")

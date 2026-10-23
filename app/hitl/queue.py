@@ -34,28 +34,30 @@ class HITLQueueManager:
         diagnostic_snapshot: Optional[Dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
     ) -> HitlTicketModel:
-        # Se houver chave de idempotência, verifica se já foi criado
-        if idempotency_key:
-            cached = self.store.get_idempotent_result(idempotency_key, user_id)
-            if cached and "ticket_id" in cached:
-                existing = self.get_ticket(cached["ticket_id"])
-                if existing:
-                    return existing
-
         ctx = self.store.get_conversation_context(session_id=session_id, user_id=user_id, limit=10)
+        scoped_key = None
+        if idempotency_key:
+            key_material = json.dumps(["hitl", user_id, session_id, idempotency_key], ensure_ascii=False)
+            scoped_key = "hitl:" + hashlib.sha256(key_material.encode()).hexdigest()
         history = PIIRedactor.mask_structure(ctx.get("recent_messages", []))
         masked_snapshot = PIIRedactor.mask_structure(diagnostic_snapshot or {})
         masked_reason = PIIRedactor.mask_text(reason)
 
         now = self._now_iso()
-        seed = idempotency_key or f"{user_id}:{session_id}:{now}:{reason[:40]}"
-        short_hash = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8].upper()
+        seed = scoped_key or json.dumps([user_id, session_id, now, reason[:40]], ensure_ascii=False)
+        short_hash = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24].upper()
         ticket_id = f"GET-ESC-{short_hash}"
 
         with self.store._lock, self.store._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self.store._assert_owner(owner, user_id)
+            existing = conn.execute("SELECT * FROM escalation_tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+            if existing:
+                return self._row_to_model(existing)
             conn.execute(
                 """
-                INSERT OR REPLACE INTO escalation_tickets (
+                INSERT INTO escalation_tickets (
                     ticket_id, session_id, user_id, priority, category, reason,
                     status, assigned_operator, operator_response,
                     diagnostic_snapshot_json, conversation_history_json,
@@ -76,9 +78,8 @@ class HITLQueueManager:
                     now,
                 ),
             )
+            self.store.set_session_status(session_id, "waiting_human", user_id=user_id, connection=conn)
             conn.commit()
-
-        self.store.set_session_status(session_id, "waiting_human")
 
         ticket = HitlTicketModel(
             ticket_id=ticket_id,
@@ -95,14 +96,6 @@ class HITLQueueManager:
             created_at=now,
             updated_at=now,
         )
-
-        if idempotency_key:
-            self.store.save_idempotent_result(
-                idempotency_key=idempotency_key,
-                tool_name="create_escalation_ticket",
-                user_id=user_id,
-                result=ticket.model_dump(),
-            )
 
         self._notify_external_channels(ticket)
         logger.info(
@@ -183,11 +176,14 @@ class HITLQueueManager:
     def claim_ticket(self, ticket_id: str, operator_id: str) -> Optional[HitlTicketModel]:
         now = self._now_iso()
         with self.store._lock, self.store._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT * FROM escalation_tickets WHERE ticket_id = ?", (ticket_id,)
             ).fetchone()
             if not row:
                 return None
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (row["session_id"],)).fetchone()
+            self.store._assert_owner(owner, row["user_id"])
             conn.execute(
                 """
                 UPDATE escalation_tickets
@@ -214,12 +210,16 @@ class HITLQueueManager:
         ticket = self.get_ticket(ticket_id)
         if not ticket:
             return None
+        self.store.assert_session_access(ticket.session_id, ticket.user_id)
 
         now = self._now_iso()
         new_status = "RESOLVED" if resolve_ticket else "RESPONDED"
         masked_reply = PIIRedactor.mask_text(reply_message)
 
         with self.store._lock, self.store._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (ticket.session_id,)).fetchone()
+            self.store._assert_owner(owner, ticket.user_id)
             conn.execute(
                 """
                 UPDATE escalation_tickets
@@ -228,19 +228,19 @@ class HITLQueueManager:
                 """,
                 (new_status, operator_id, masked_reply, now, ticket_id),
             )
+            # Ticket, message and session status commit together after owner validation.
+            self.store.append_message(
+                session_id=ticket.session_id,
+                user_id=ticket.user_id,
+                role="human_operator",
+                content=f"[Operador Humano {operator_id} - Ticket {ticket_id}]: {masked_reply}",
+                agent_used=f"HUMAN_OPERATOR:{operator_id}",
+                tools_called=["hitl_operator_reply"],
+                sources=[f"HITL Ticket {ticket_id}"],
+                connection=conn,
+            )
+            self.store.set_session_status(ticket.session_id, "active", user_id=ticket.user_id, connection=conn)
             conn.commit()
-
-        # Injeta a mensagem do operador humano na sessão do cliente e retoma o estado
-        self.store.append_message(
-            session_id=ticket.session_id,
-            user_id=ticket.user_id,
-            role="human_operator",
-            content=f"[Operador Humano {operator_id} - Ticket {ticket_id}]: {masked_reply}",
-            agent_used=f"HUMAN_OPERATOR:{operator_id}",
-            tools_called=["hitl_operator_reply"],
-            sources=[f"HITL Ticket {ticket_id}"],
-        )
-        self.store.set_session_status(ticket.session_id, "active")
 
         logger.info(
             "hitl_operator_replied_and_session_resumed",

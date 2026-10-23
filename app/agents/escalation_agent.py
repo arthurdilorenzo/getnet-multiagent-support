@@ -114,7 +114,20 @@ class EscalationAgent:
             )
 
         ticket_data = res.data or {}
-        protocol_number = ticket_data.get("ticket_id", "GET-ESC-PENDING")
+        protocol_number = ticket_data.get("ticket_id")
+        if not res.success or not protocol_number:
+            return SpecialistOutput(
+                agent_name="HUMAN_ESCALATION_AGENT",
+                response=(
+                    "Não foi possível registrar o chamado na fila de atendimento neste momento. "
+                    "Nenhum protocolo de atendimento foi confirmado. Tente novamente em instantes."
+                ),
+                confidence=0.0,
+                abstained=True,
+                abstention_reason=res.error_code or "TICKET_NOT_PERSISTED",
+                tools_called=tools_called,
+                tool_results=tool_results,
+            )
         ticket_status = ticket_data.get("status", "OPEN")
         history_len = len(ticket_data.get("conversation_history", []))
         has_diag = bool(ticket_data.get("diagnostic_snapshot"))

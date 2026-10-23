@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import sqlite3
@@ -7,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from app.config import settings
 from app.observability.logger import logger
 from app.security.pii import PIIRedactor
+from app.security.auth import CrossTenantAccessError
 
 
 class StateStore:
@@ -113,10 +115,12 @@ class StateStore:
     def ensure_session(self, session_id: str, user_id: str) -> Dict[str, Any]:
         now = self._now_iso()
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
             ).fetchone()
             if row:
+                self._assert_owner(row, user_id)
                 return dict(row)
             conn.execute(
                 """
@@ -138,6 +142,18 @@ class StateStore:
                 "updated_at": now,
             }
 
+    @staticmethod
+    def _assert_owner(row: Any, user_id: str) -> None:
+        if not row or row["user_id"] != user_id:
+            raise CrossTenantAccessError("Acesso negado: a sessão não pertence ao usuário solicitado.")
+
+    def assert_session_access(self, session_id: str, user_id: str) -> Dict[str, Any]:
+        """Authorize against the persisted owner; a session name conveys no authority."""
+        with self._lock, self._connect() as conn:
+            row = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(row, user_id)
+            return dict(row)
+
     def append_message(
         self,
         session_id: str,
@@ -148,12 +164,17 @@ class StateStore:
         tools_called: Optional[List[str]] = None,
         sources: Optional[List[str]] = None,
         active_topic: Optional[str] = None,
+        connection: Optional[sqlite3.Connection] = None,
     ) -> None:
-        self.ensure_session(session_id, user_id)
         now = self._now_iso()
         masked_content = PIIRedactor.mask_text(content)
 
-        with self._lock, self._connect() as conn:
+        with self._lock, (nullcontext(connection) if connection is not None else self._connect()) as conn:
+            if connection is None:
+                self.ensure_session(session_id, user_id)
+                conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(owner, user_id)
             conn.execute(
                 """
                 INSERT INTO messages (session_id, user_id, role, content, agent_used, tools_called_json, sources_json, created_at)
@@ -189,8 +210,9 @@ class StateStore:
                 """,
                 (new_turn_count, agent_used, agent_used, topic_to_save, topic_to_save, now, session_id),
             )
-            conn.commit()
             self._maybe_compact_summary(conn, session_id)
+            if connection is None:
+                conn.commit()
 
     def _maybe_compact_summary(self, conn: sqlite3.Connection, session_id: str) -> None:
         rows = conn.execute(
@@ -208,20 +230,23 @@ class StateStore:
                 "UPDATE sessions SET rolling_summary = ? WHERE session_id = ?",
                 (summary, session_id),
             )
-            conn.commit()
 
     def get_conversation_context(self, session_id: str, user_id: str, limit: int = 8) -> Dict[str, Any]:
-        session = self.ensure_session(session_id, user_id)
         with self._lock, self._connect() as conn:
+            self.ensure_session(session_id, user_id)
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(row, user_id)
+            session = dict(row)
             rows = conn.execute(
                 """
                 SELECT id, role, content, agent_used, tools_called_json, sources_json, created_at
                 FROM messages
-                WHERE session_id = ?
+                WHERE session_id = ? AND user_id = ?
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (session_id, limit),
+                (session_id, user_id, limit),
             ).fetchall()
 
         messages = [
@@ -248,17 +273,27 @@ class StateStore:
             "recent_messages": messages,
         }
 
-    def set_session_status(self, session_id: str, status: str) -> None:
+    def set_session_status(
+        self, session_id: str, status: str, user_id: str, connection: Optional[sqlite3.Connection] = None
+    ) -> None:
         now = self._now_iso()
-        with self._lock, self._connect() as conn:
+        with self._lock, (nullcontext(connection) if connection is not None else self._connect()) as conn:
+            if connection is None:
+                conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(owner, user_id)
             conn.execute(
                 "UPDATE sessions SET status = ?, updated_at = ? WHERE session_id = ?",
                 (status, now, session_id),
             )
-            conn.commit()
+            if connection is None:
+                conn.commit()
 
-    def clear_session(self, session_id: str) -> None:
+    def clear_session(self, session_id: str, user_id: str) -> None:
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(owner, user_id)
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             conn.commit()
