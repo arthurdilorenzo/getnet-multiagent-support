@@ -476,7 +476,17 @@ def country_gap_orchestrator(monkeypatch, tmp_path, brazil_text, norway_text, *,
     return orch, message, replans, delegations
 
 
-@pytest.mark.parametrize("brazil_text,external,documentary", P06_SCOPED_REPLAN_CASES)
+P06_EXPLICIT_WEB_REPLAN_CASES = [
+    (P06_SCOPED_REPLAN_CASES[0][0],
+     "Search the web for current Crediário settlement terms in Norway.",
+     P06_SCOPED_REPLAN_CASES[0][2]),
+    (P06_SCOPED_REPLAN_CASES[1][0],
+     "Pesquise na web as condições atuais de recebimento do Crediário na Noruega.",
+     P06_SCOPED_REPLAN_CASES[1][2]),
+]
+
+
+@pytest.mark.parametrize("brazil_text,external,documentary", P06_SCOPED_REPLAN_CASES + P06_EXPLICIT_WEB_REPLAN_CASES)
 @pytest.mark.parametrize("knowledge_status,abstained", [("partial", True), ("partial", False), ("abstained", True)])
 @pytest.mark.parametrize("external_result", ["partial", "unavailable"])
 def test_country_gap_replans_explicit_external_norway_once_and_preserves_brazil(
@@ -498,11 +508,11 @@ def test_country_gap_replans_explicit_external_norway_once_and_preserves_brazil(
 
 @pytest.mark.parametrize("brazil_text,external,documentary", P06_SCOPED_REPLAN_CASES)
 @pytest.mark.parametrize("knowledge_status,abstained", [("partial", True), ("partial", False), ("abstained", True)])
-@pytest.mark.parametrize("fulfilled_external", [False, True])
+@pytest.mark.parametrize("fulfilled_source", ["", "external source", "search the web"])
 def test_country_gap_documentary_only_does_not_replan_when_brazil_is_preserved(
-        monkeypatch, tmp_path, brazil_text, external, documentary, knowledge_status, abstained, fulfilled_external):
-    if fulfilled_external:
-        brazil_text = brazil_text.rstrip(".") + " (external source)."
+        monkeypatch, tmp_path, brazil_text, external, documentary, knowledge_status, abstained, fulfilled_source):
+    if fulfilled_source:
+        brazil_text = brazil_text.rstrip(".") + f" ({fulfilled_source})."
     orch, message, replans, delegations = country_gap_orchestrator(monkeypatch, tmp_path,
         brazil_text, documentary, knowledge_status=knowledge_status, abstained=abstained)
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))

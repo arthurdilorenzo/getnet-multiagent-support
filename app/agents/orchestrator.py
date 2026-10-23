@@ -761,7 +761,10 @@ class MultiAgentOrchestrator:
                 continue
             offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;\t\r\n'))
             start, end = documentary_clause_span(source_message, offset)
-            if asks_explicit_external_evidence(source_message[start:end]):
+            source_clause = source_message[start:end]
+            explicit_web_search = re.search(
+                r'\b(?:search\s+the\s+web|pesquise\s+na\s+web)\b', source_clause, re.I)
+            if asks_explicit_external_evidence(source_clause) or explicit_web_search:
                 pending_external_ids.add(unit['unit_id'])
         country_documentation_comparison = (
             bool(re.search(r'\bcredi[aá]rio\b', original_message, re.I))
