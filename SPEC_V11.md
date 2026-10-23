@@ -1,7 +1,7 @@
 # SPEC V11 — Conditional Safety, Pix Grounding e Resposta Parcial por País
 
-**Baseline:** candidate `8c283c8455d02327f39ddb15e1d23e9f81c0a1d4`  
-**Auditoria de origem:** `pipeline/getnet_v10_native_network_audit/REPORT.md` — 91,53/100 nominal; `main` permanece em `672c87e`.  
+**Baseline:** candidate `8c283c8455d02327f39ddb15e1d23e9f81c0a1d4`
+**Auditoria de origem:** `pipeline/getnet_v10_native_network_audit/REPORT.md` — 91,53/100 nominal; `main` permanece em `672c87e`.
 **Objetivo:** corrigir M08, P05 e P06 observados na execução Gemini com rede liberada, preservando o fluxo de Function Calling e sem tratar respostas HTTP 200 como sucesso semântico.
 
 ## Arquitetura alvo e contratos
