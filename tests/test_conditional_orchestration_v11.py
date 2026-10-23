@@ -557,3 +557,161 @@ def test_direct_status_variants_do_not_exempt_same_sentence_dependent_disclosure
     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
     assert reads == []
+
+
+PLAIN_POSTFIX_CASES = [
+    ("Tell me the eligible benefits", "If", f"firmware of {TARGET} is qa-12.08 and status is Online"),
+    ("Tell me the eligible benefits", "Provided that", f"firmware of {TARGET} is qa-12.08 and status is Online"),
+    ("Tell me the eligible benefits", "As long as", f"firmware of {TARGET} is qa-12.08 and status is Online"),
+    ("Tell me the eligible benefits", "Since", f"firmware of {TARGET} is qa-12.08 and status is Online"),
+    ("Informe os benefícios", "Se", f"o firmware do terminal {TARGET} for qa-12.08 e o status for Online"),
+    ("Informe os benefícios", "Desde que", f"o firmware do terminal {TARGET} for qa-12.08 e o status for Online"),
+]
+
+
+def native_probe_boundary(monkeypatch, tmp_path, message, *, target_agent="WEB_SEARCH_AGENT", **observation):
+    """Real native Router planning/probe, local RAG and specialist/registry dispatch.
+
+    The synthetic provider supplies only native delegation calls. Enable native
+    configuration just around the real Router.plan call; specialists then use
+    their bounded offline path. No planning or relevance method is stubbed out.
+    """
+    from google.genai import types
+    from app.agents.router_agent import RouterAgent
+    from app.rag.retriever import retriever
+    from app.security.request_units import request_units
+    from app.tools.registry import tool_registry
+
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.delattr(orch.router, "plan")
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    events = []
+
+    class DelegationProvider:
+        models = None
+
+        def __init__(self):
+            self.models = self
+
+        def generate_content(self, **kwargs):
+            return types.GenerateContentResponse(candidates=[types.Candidate(
+                content=types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(
+                    name=target_agent, args={"sub_query": message, "rationale": "Synthetic model delegation",
+                        "request_unit_ids": [unit["unit_id"] for unit in request_units(message)]},
+                ))]), finish_reason="STOP")])
+
+    orch.router.client = DelegationProvider()
+    real_plan = orch.router.plan
+    real_checker = RouterAgent._prefer_local_documentary_evidence
+
+    def native_plan(**kwargs):
+        with monkeypatch.context() as native_config:
+            native_config.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+            return real_plan(**kwargs)
+
+    def checked(plan, message):
+        events.append(("checker", message))
+        return real_checker(plan, message)
+
+    monkeypatch.setattr(orch.router, "plan", native_plan)
+    monkeypatch.setattr(orch.router, "_prefer_local_documentary_evidence", checked)
+    real_retrieve = retriever.retrieve_candidates
+
+    def retrieve(**kwargs):
+        events.append(("retrieve", kwargs["query"]))
+        return real_retrieve(**kwargs)
+
+    monkeypatch.setattr(retriever, "retrieve_candidates", retrieve)
+    local_handler = tool_registry.get_tool("search_getnet_knowledge").handler
+    reads = registry_reads(monkeypatch, tmp_path, **observation)
+    # Retain the real local retrieval handler; only the diagnostic/storage and
+    # external Web handlers remain synthetic. Local RAG has no network client.
+    monkeypatch.setattr(tool_registry.get_tool("search_getnet_knowledge"), "handler", local_handler)
+    execute = tool_registry.execute
+
+    def completed(**kwargs):
+        result = execute(**kwargs)
+        events.append(("completed", result))
+        return result
+
+    monkeypatch.setattr(tool_registry, "execute", completed)
+    return orch, events, reads
+
+
+@pytest.mark.parametrize("disclosure,connector,predicate", PLAIN_POSTFIX_CASES)
+@pytest.mark.parametrize("observation", [
+    {"firmware": "qa-12.07"}, {"firmware": None}, {"status": "Offline"}, {"success": False},
+])
+def test_native_router_plain_postfix_never_probes_or_executes_dependent_content_before_proof(
+        monkeypatch, tmp_path, disclosure, connector, predicate, observation):
+    message = f"{disclosure}. {connector} {predicate}."
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, **observation)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert events[0] == ("checker", message)
+    assert not [event for event in events if event[0] == "retrieve"]
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+
+
+@pytest.mark.parametrize("disclosure,connector,predicate", PLAIN_POSTFIX_CASES)
+def test_native_router_unknown_plain_postfix_never_probes_or_executes_any_read(
+        monkeypatch, tmp_path, disclosure, connector, predicate):
+    message = f"{disclosure}. {connector} {predicate} and the device is certified."
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert events == [("checker", message)]
+    assert reads == []
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+
+
+@pytest.mark.parametrize("message", [
+    MESSAGE,
+    f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+    *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+])
+def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+        monkeypatch, tmp_path, message):
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert events[0] == ("checker", message)
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert events[1][0] == "completed"
+    proof = events[1][1]
+    assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+    assert proof.outcome_state == "completed" and proof.error_code is None
+    assert proof.data["terminal"] == {
+        "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+    retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+    assert retrievals and all(query == message for query in retrievals)
+    gate = next(row for row in out.trace if row.action == "evaluate_conditional_dependency")
+    assert gate.details["predicate_authorized"] is True
+
+
+def test_native_router_keeps_ordinary_probe_while_unknown_postfix_is_blocked(monkeypatch, tmp_path):
+    independent = "Name the account types accepted for Pix in Brazil."
+    message = independent + f" Tell me the eligible benefits. Provided that firmware of {TARGET} is current."
+    orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    queries = [value for kind, value in events if kind == "retrieve"]
+    assert queries and all(query.strip() == independent for query in queries)
+    assert [name for name, _ in reads] == ["search_getnet_knowledge"]
+    assert reads[0][1]["query"] == independent
+    assert any(row.action == "conditional_lookup_blocked" for row in out.trace)
+
+
+@pytest.mark.parametrize("message", [
+    f"Check if my terminal {TARGET} is Online.",
+    f"Verifique se o terminal {TARGET} está Online.",
+])
+def test_native_router_direct_support_diagnostics_remain_executable(monkeypatch, tmp_path, message):
+    orch, events, reads = native_probe_boundary(
+        monkeypatch, tmp_path, message, target_agent="CUSTOMER_SUPPORT_AGENT")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert not [event for event in events if event[0] == "retrieve"]
+    diagnostic_call = next(row for row in out.trace if row.action == "call:diagnose_terminal_issue")
+    assert diagnostic_call.details["success"] is True
+    assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)

@@ -11,6 +11,7 @@ from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
 from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
 from app.security.request_constraints import extract_constraints
+from app.security.conditional_dependencies import parse_terminal_condition
 from app.security.request_units import request_units
 from app.security.planning_policy import independent_veto_unit_ids
 from pydantic import BaseModel, ConfigDict, Field
@@ -140,6 +141,98 @@ class RouterAgent:
         return plan
 
     @staticmethod
+    def conditional_documentary_dependency(message: str) -> Optional[Dict[str, Any]]:
+        """Detect dependency intent broadly; only the finite parser authorizes it.
+
+        Literal units split conjunctions inside a predicate. Block the disclosure
+        span as well as its predicate, including a postfix in the next sentence.
+        Sentence/semicolon-separated independent requests remain assignable.
+        Detection never grants access: the finite parser and typed read do that.
+        """
+        units = request_units(message)
+        condition_ids: set[str] = set()
+        dependent_spans: list[tuple[int, int]] = []
+        sentence_boundaries = [0] + [match.end() for match in re.finditer(r'[.!?]\s+(?=\S)', message)] + [len(message)]
+        for marker in re.finditer(
+                r'\b(?:if|se|when|quando|unless|caso|desde que|provided that|as long as|since|once|after|ap[oó]s|assim que|contanto que)\b', message, re.I):
+            sentence_start = max(boundary for boundary in sentence_boundaries if boundary <= marker.start())
+            end = min(boundary for boundary in sentence_boundaries if boundary > marker.start())
+            sentence = message[sentence_start:end].strip()
+            # "Check if ... is Online" asks for a status observation. Only this
+            # complete, bounded question is exempt; a following consequence or
+            # additional predicate must still go through dependency detection.
+            if re.fullmatch(
+                    r'(?:please\s+)?(?:check|verify|confirm)\s+if\s+(?:(?:the|my)\s+)?terminal\s+'
+                    r'GET-[A-Z0-9-]+\s+is\s+(?:online|offline)[.!?]?'
+                    r'|(?:verifique|confirme)\s+se\s+o\s+terminal\s+'
+                    r'GET-[A-Z0-9-]+\s+est[aá]\s+(?:online|offline)[.!?]?', sentence, re.I):
+                continue
+            start = max(sentence_start, message.rfind(';', sentence_start, marker.start()) + 1)
+            clause = message[start:end]
+            prefix = message[start:marker.start()].strip()
+            explicit_consequence = re.search(
+                r',\s*(?:tell|show|give|explain|informe|mostre|explique|diga)\b', clause, re.I)
+            if (not explicit_consequence
+                    and re.fullmatch(
+                        r'(?:(?:but|however|mas|no entanto)\s*,?\s*)?'
+                        r'(?:only|apenas|s[oó]|somente)?', prefix, re.I)):
+                # A postfix qualifies the immediately preceding disclosure,
+                # across a sentence/semicolon boundary. Earlier independent
+                # clauses remain outside the blocked span.
+                if start > sentence_start:
+                    start = max(sentence_start, message.rfind(';', sentence_start, start - 1) + 1)
+                elif sentence_start:
+                    previous_start = max(boundary for boundary in sentence_boundaries if boundary < sentence_start)
+                    start = max(previous_start, message.rfind(';', previous_start, sentence_start) + 1)
+                # A bare qualifier ("Unless certified", "For certified
+                # devices") is not an independent request just because it
+                # precedes a delimiter. Keep it attached; only clear request
+                # clauses can be preserved outside the dependency span.
+                earlier_boundaries = sorted({0, start, *(boundary for boundary in sentence_boundaries
+                    if boundary < start), *(match.end() for match in re.finditer(';', message[:start]))})
+                for left, right in reversed(list(zip(earlier_boundaries, earlier_boundaries[1:]))):
+                    earlier = message[left:right].strip(' ;\t\n')
+                    if re.match(
+                            r'(?:please\s+)?(?:(?:could|can|would)\s+you\s+)?(?:please\s+)?'
+                            r'(?:name|find|check|verify|confirm|tell|show|give|explain|compare|what|which|how|'
+                            r'consulte|verifique|confirme|informe|mostre|explique|diga|qual|quais|como)\b',
+                            earlier, re.I):
+                        break
+                    start = left
+                clause = message[start:end]
+            if not (extract_constraints(clause).terminal_ids or re.search(
+                    r'\b(?:firmware|status|terminal|conex[aã]o|connection|conectividade|connectivity)\b',
+                    clause, re.I)):
+                continue
+            dependent_spans.append((start, end))
+            condition_ids.update(unit['unit_id'] for unit in units
+                                 if unit['start'] < end and unit['end'] > start)
+        condition_units = [unit['unit_id'] for unit in units if unit['unit_id'] in condition_ids]
+        if not condition_units:
+            return None
+        terminals = extract_constraints(message).terminal_ids
+        target = terminals[0] if len(terminals) == 1 else None
+        condition = parse_terminal_condition(message, target) if target else None
+        if condition is None and target and len(dependent_spans) == 1:
+            start, end = dependent_spans[0]
+            # Canonicalize only the same finite benefit request/predicate grammar
+            # with its order reversed. Ranges, extra conditions and unknown
+            # consequences still fail closed in parse_terminal_condition.
+            postfix = re.fullmatch(
+                r'\s*(?:Tell\s+me\s+(?:the\s+eligible\s+)?benefits|Informe\s+os\s+benefícios)'
+                r'[.;]\s*(?:(?:But|However|Mas|No entanto)\s*,?\s*)?'
+                r'(?P<marker>(?:Only\s+)?if|Provided\s+that|As\s+long\s+as|Since|'
+                r'(?:Somente\s+)?se|Desde\s+que)\s+(?P<predicate>.+)\.\s*',
+                message[start:end], re.I,
+            )
+            if postfix:
+                english = postfix['marker'].lower().startswith(('only', 'if', 'provided', 'as ', 'since'))
+                canonical = (f"If {postfix['predicate']}, tell me the eligible benefits." if english else
+                             f"Se {postfix['predicate']}, informe os benefícios.")
+                condition = parse_terminal_condition(canonical, target)
+        return {'unit_ids': condition_units, 'terminal_id': target, 'condition': condition}
+
+    @staticmethod
     def _prefer_local_documentary_evidence(plan: RoutingPlan, message: str) -> RoutingPlan:
         """Keep native tool selection, but validate web proposals against local evidence.
 
@@ -152,6 +245,11 @@ class RouterAgent:
         from app.rag.retriever import retriever
 
         units = {unit["unit_id"]: unit for unit in request_units(PIIRedactor.mask_text(message))}
+        # Planning may propose any assignment; even this relevance-only probe is
+        # retrieval. Defer all dependent units until the supervisor has exact
+        # typed diagnostic proof. Independent public units retain normal probes.
+        dependency = RouterAgent.conditional_documentary_dependency(message)
+        deferred_ids = set(dependency['unit_ids']) if dependency else set()
         threshold = settings.RAG_MIN_RELEVANCE_THRESHOLD
         revised: List[PlanStep] = []
 
@@ -170,7 +268,7 @@ class RouterAgent:
 
         def is_relevant_getnet_candidate(unit_id: str) -> bool:
             unit = units.get(unit_id)
-            if not unit:
+            if not unit or unit_id in deferred_ids:
                 return False
             try:
                 ranked = retriever.retrieve_candidates(query=unit["text"], top_k=1)
