@@ -182,3 +182,23 @@ def test_sliding_window_rate_limiter():
     with pytest.raises(HTTPException) as exc_info:
         limiter.enforce("user_test_rl")
     assert exc_info.value.status_code == 429
+
+
+@pytest.mark.parametrize("requested", ["GET-CLASSICA-QA-9627", "get-classica-qa-9627", " GET-CLASSICA-QA-9627 "])
+def test_explicit_diagnostic_echoes_canonical_target_for_conditional_preflight(monkeypatch, requested):
+    from app.tools import customer_tools
+    from app.security.conditional_dependencies import evaluate_terminal_condition, parse_terminal_condition
+
+    target = "GET-CLASSICA-QA-9627"
+    monkeypatch.setattr(customer_tools, "_load_customers_db", lambda: {"synthetic": {
+        "terminals": [{"terminal_id": target, "firmware_version": "qa-12.08", "status": "Online"}],
+    }})
+    result = tool_registry.execute("diagnose_terminal_issue", {"terminal_id": requested},
+                                  security_context=SecurityContext("synthetic"))
+    assert result.success is True
+    assert result.data["found"] is True
+    assert result.data["requested_terminal_id"] == target
+    assert result.data["terminal"]["terminal_id"] == target
+    condition = parse_terminal_condition(
+        f"If firmware of {target} is qa-12.08 and status is Online, tell me the eligible benefits.", target)
+    assert evaluate_terminal_condition(condition, [result]) is True

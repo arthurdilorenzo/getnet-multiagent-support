@@ -21,6 +21,7 @@ def diagnosis(terminal_id=TARGET, *, firmware="qa-12.08", status="Online", succe
               found=True, tool_name="diagnose_terminal_issue"):
     return ToolExecutionResult(tool_name=tool_name, success=success, data={
         "found": found,
+        "requested_terminal_id": terminal_id,
         "user_id": "synthetic",
         "terminal": {"terminal_id": terminal_id, "firmware_version": firmware, "status": status},
     })
@@ -142,3 +143,96 @@ def test_portuguese_explicit_prerequisite_forms_from_native_cases(message):
     condition = parse_terminal_condition(message, TARGET)
     assert condition is not None
     assert evaluate_terminal_condition(condition, [diagnosis()])
+
+
+# An earlier exact positive must never mask a later incomplete business read.
+INVALID_DIAGNOSTIC_READS = [
+    pytest.param(None, True, id="null-payload"),
+    pytest.param(None, False, id="failed-null-payload"),
+    pytest.param({}, True, id="empty-payload"),
+    pytest.param(diagnosis(OTHER).data, True, id="different-terminal-payload"),
+    pytest.param({"found": True}, True, id="missing-terminal-and-requested-id"),
+    pytest.param({"found": True, "requested_terminal_id": TARGET, "terminal": None}, True, id="null-terminal"),
+    pytest.param({"found": True, "requested_terminal_id": TARGET, "terminal": []}, True, id="untyped-terminal"),
+    pytest.param({"found": True, "requested_terminal_id": TARGET, "terminal": {}}, True, id="empty-terminal"),
+]
+for field, value, case in [
+    ("found", False, "not-found"), ("found", 1, "numeric-found"),
+    ("found", "true", "string-found"), ("found", None, "missing-found"),
+    ("requested_terminal_id", None, "missing-requested-id"),
+    ("requested_terminal_id", OTHER, "other-requested-id"),
+    ("requested_terminal_id", [TARGET], "untyped-requested-id"),
+    ("terminal_id", None, "missing-terminal-id"),
+    ("terminal_id", OTHER, "other-terminal-id"),
+    ("terminal_id", [TARGET], "untyped-terminal-id"),
+    ("firmware_version", None, "missing-firmware"),
+    ("firmware_version", [], "untyped-firmware"),
+    ("firmware_version", "", "empty-firmware"),
+    ("status", None, "missing-status"), ("status", True, "untyped-status"),
+    ("status", "", "empty-status"),
+]:
+    payload = diagnosis().data
+    section = payload if field in {"found", "requested_terminal_id"} else payload["terminal"]
+    if value is None:
+        del section[field]
+    else:
+        section[field] = value
+    INVALID_DIAGNOSTIC_READS.append(pytest.param(payload, True, id=case))
+
+
+@pytest.mark.parametrize("data,success", INVALID_DIAGNOSTIC_READS)
+def test_every_diagnostic_needs_complete_typed_target_payload(data, success):
+    condition = parse_terminal_condition(REQUEST, TARGET)
+    incomplete = ToolExecutionResult(tool_name="diagnose_terminal_issue", success=success, data=data)
+    assert evaluate_terminal_condition(condition, [incomplete]) is False
+    assert evaluate_terminal_condition(condition, [diagnosis(), incomplete]) is False
+    assert evaluate_terminal_condition(condition, [incomplete, diagnosis()]) is False
+
+
+def test_multiple_complete_exact_target_diagnostics_authorize():
+    condition = parse_terminal_condition(REQUEST, TARGET)
+    assert evaluate_terminal_condition(condition, [diagnosis(), diagnosis()]) is True
+
+
+@pytest.mark.parametrize("data,success", INVALID_DIAGNOSTIC_READS)
+@pytest.mark.parametrize("invalid_first", [False, True])
+def test_incomplete_diagnostic_blocks_orchestrator_dependent_knowledge_and_web(
+        monkeypatch, tmp_path, data, success, invalid_first):
+    import importlib
+
+    from app.agents.orchestrator import MultiAgentOrchestrator
+    from app.config import settings
+    from app.memory.store import StateStore
+    from app.schemas import ChatRequest, PlanStep, RoutingPlan, SpecialistOutput
+    from app.security.auth import SecurityContext
+
+    module = importlib.import_module("app.agents.orchestrator")
+    monkeypatch.setattr(module, "state_store", StateStore(tmp_path / "read-integrity.sqlite"))
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "AUTH_ENFORCE_STRICT", False)
+    orch = MultiAgentOrchestrator()
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: RoutingPlan(
+        primary_agent="KNOWLEDGE_AGENT", confidence=.9, reasoning="synthetic dependent proposal",
+        plan_steps=[PlanStep(step_order=1, target_agent="KNOWLEDGE_AGENT", sub_query=REQUEST,
+                            rationale="conditional benefits", request_unit_ids=["u1"])],
+    ))
+    incomplete = ToolExecutionResult(tool_name="diagnose_terminal_issue", success=success, data=data)
+    results = [incomplete, diagnosis()] if invalid_first else [diagnosis(), incomplete]
+    calls = []
+
+    def delegate(**kwargs):
+        calls.append(kwargs["target_agent"])
+        assert kwargs["target_agent"] == "CUSTOMER_SUPPORT_AGENT"
+        assert TARGET in kwargs["sub_query"]
+        return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT", response="diagnostic reads",
+            tools_called=["diagnose_terminal_issue"], tool_results=results)
+
+    # Substitute only the specialist boundary that supplies corrupted telemetry.
+    monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+    out = orch.process(ChatRequest(message=REQUEST, user_id="synthetic"), SecurityContext("synthetic"))
+    assert calls == ["CUSTOMER_SUPPORT_AGENT"]
+    assert not {"search_getnet_knowledge", "web_search_general"} & set(out.tools_called)
+    gate = next(step for step in out.trace if step.action == "evaluate_conditional_dependency")
+    assert gate.details["predicate_authorized"] is False
+    assert out.answer_status == "abstained"
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)

@@ -86,19 +86,20 @@ def evaluate_terminal_condition(
                 or result.error_code is not None):
             return False
         data = result.data
-        if not isinstance(data, dict):
-            continue
+        if not isinstance(data, dict) or data.get("found") is not True:
+            return False
+        requested_target = data.get("requested_terminal_id")
         terminal = data.get("terminal")
-        if data.get("requested_terminal_id") == condition.terminal_id and (
-            not isinstance(terminal, dict) or terminal.get("terminal_id") != condition.terminal_id
-        ):
+        if (not isinstance(requested_target, str) or requested_target != condition.terminal_id
+                or not isinstance(terminal, dict)):
             return False
-        if not isinstance(terminal, dict) or terminal.get("terminal_id") != condition.terminal_id:
-            continue
+        observed_target = terminal.get("terminal_id")
+        firmware = terminal.get("firmware_version")
+        status = terminal.get("status")
+        if (not isinstance(observed_target, str) or observed_target != condition.terminal_id
+                or not isinstance(firmware, str) or re.fullmatch(_VERSION, firmware) is None
+                or not isinstance(status, str)
+                or firmware != condition.firmware_version or status != condition.status):
+            return False
         matched = True
-        if (data.get("found") is not True
-                or data.get("requested_terminal_id", condition.terminal_id) != condition.terminal_id
-                or terminal.get("firmware_version") != condition.firmware_version
-                or terminal.get("status") != condition.status):
-            return False
     return matched

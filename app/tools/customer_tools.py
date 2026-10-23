@@ -332,6 +332,7 @@ def diagnose_terminal_issue(
         "company_name": customer.get("company_name"),
         "symptom_classified": effective_symptom,
         "terminals_count": len(terminals),
+        "requested_terminal_id": selected_terminal.get("terminal_id") if terminal_id and selected_terminal else None,
         "terminal": selected_terminal,
         "all_terminals": terminals,
         "last_declined_transaction": selected_declined_txn,
