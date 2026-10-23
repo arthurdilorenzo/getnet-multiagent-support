@@ -170,3 +170,118 @@ def test_country_coalescing_only_merges_exact_adjacent_independent_units(variant
         assert "Pix" not in result.plan_steps[0].sub_query
     else:
         assert [s.model_dump() for s in result.plan_steps] == [s.model_dump() for s in steps]
+
+
+class BatchProvider:
+    def __init__(self, calls):
+        self.calls = calls
+        self.models = self
+    def generate_content(self, **kwargs):
+        return types.GenerateContentResponse(candidates=[types.Candidate(finish_reason="STOP",
+            content=types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(
+                name=name, args=args, id=f"call-{index}")) for index, (name, args) in enumerate(self.calls)]))])
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_verified_pix_correction_handles_native_batches_without_dropping_unrelated_calls(monkeypatch, mixed):
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    pix = "Name the account types accepted for Pix in Brazil."
+    external = "Find the current external rules for Pix account eligibility in Brazil."
+    message = pix + (" " + external + " Find weather in Porto Alegre." if mixed else "")
+    proposals = [("web_search_general", {"query": "Pix account categories in Brazil"}),
+                 ("web_search_general", {"query": "Pix accepted account types"})]
+    if mixed:
+        proposals += [("web_search_general", {"query": external}),
+                      ("get_weather_forecast", {"city": "Porto Alegre", "days_ahead": 0})]
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    executed = []
+    def stop(**kwargs):
+        executed.append((kwargs["tool_name"], kwargs["raw_arguments"]))
+        return ToolExecutionResult(tool_name=kwargs["tool_name"], success=False, error_code="SYNTHETIC_STOP")
+    monkeypatch.setattr(tool_registry, "execute", stop)
+    out = KnowledgeAgent(BatchProvider(proposals)).run(message, SecurityContext("synthetic"))
+    assert [name for name, _ in executed] == (["search_getnet_knowledge", "web_search_general", "get_weather_forecast"]
+                                             if mixed else ["search_getnet_knowledge"])
+    assert executed[0][1]["query"] == pix
+    if mixed:
+        assert executed[1][1]["query"] == external
+        assert executed[2][1] == {"city": "Porto Alegre", "days_ahead": 0}
+    assert out.tools_called == [name for name, _ in executed]
+
+
+@pytest.mark.parametrize("message", [
+    "Find the current external rules for Pix account eligibility in Brazil.",
+    "Pesquise as regras externas atuais de elegibilidade de contas Pix no Brasil.",
+    "Use an external source for Pix account eligibility in Brazil.",
+])
+def test_router_and_knowledge_preserve_the_same_explicit_external_pix_intent(monkeypatch, message):
+    from app.agents.router_agent import RouterAgent
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    plan = RoutingPlan(primary_agent="WEB_SEARCH_AGENT", confidence=.9, reasoning="external",
+        plan_steps=[PlanStep(step_order=1, target_agent="WEB_SEARCH_AGENT", sub_query=message,
+            rationale="external", request_unit_ids=["u1"])])
+    revised = RouterAgent._prefer_local_documentary_evidence(plan, message)
+    assert revised.plan_steps[0].target_agent == "WEB_SEARCH_AGENT"
+    executed = []
+    def stop(**kwargs):
+        executed.append(kwargs["tool_name"])
+        return ToolExecutionResult(tool_name=kwargs["tool_name"], success=False, error_code="SYNTHETIC_STOP")
+    monkeypatch.setattr(tool_registry, "execute", stop)
+    KnowledgeAgent(BatchProvider([("web_search_general", {"query": message})])).run(message, SecurityContext("synthetic"))
+    assert executed == ["web_search_general"]
+
+
+def test_pix_correction_preserves_conjoined_documentary_qualifiers(monkeypatch):
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    message = "Name the account types accepted for Pix and the eligibility restrictions in Brazil."
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    executed = []
+    def stop(**kwargs):
+        executed.append(kwargs["raw_arguments"]["query"])
+        return ToolExecutionResult(tool_name=kwargs["tool_name"], success=False, error_code="SYNTHETIC_STOP")
+    monkeypatch.setattr(tool_registry, "execute", stop)
+    KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account categories"})])).run(
+        message, SecurityContext("synthetic"))
+    assert executed == [message]
+
+
+def test_external_source_qualifier_survives_provider_query_omission_at_both_boundaries(monkeypatch):
+    from app.agents.router_agent import RouterAgent
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    message = "Name the account types accepted for Pix and use an external source."
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    plan = RoutingPlan(primary_agent="WEB_SEARCH_AGENT", confidence=.9, reasoning="external",
+        plan_steps=[PlanStep(step_order=1, target_agent="WEB_SEARCH_AGENT", sub_query=message,
+            rationale="external", request_unit_ids=["u1", "u2"])])
+    assert all(step.target_agent == "WEB_SEARCH_AGENT" for step in
+               RouterAgent._prefer_local_documentary_evidence(plan, message).plan_steps)
+    executed = []
+    def stop(**kwargs):
+        executed.append(kwargs["tool_name"])
+        return ToolExecutionResult(tool_name=kwargs["tool_name"], success=False, error_code="SYNTHETIC_STOP")
+    monkeypatch.setattr(tool_registry, "execute", stop)
+    KnowledgeAgent(BatchProvider([("web_search_general", {"query": "Pix account categories"})])).run(
+        message, SecurityContext("synthetic"))
+    assert executed == ["web_search_general"]
+
+
+def test_pix_only_assignment_binds_vague_or_invented_external_queries_to_actual_product_intent(monkeypatch):
+    from app.schemas import ToolExecutionResult
+    from app.tools.registry import tool_registry
+    message = "Name the account types accepted for Pix in Brazil."
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    executed = []
+    def stop(**kwargs):
+        executed.append((kwargs["tool_name"], kwargs["raw_arguments"]["query"]))
+        return ToolExecutionResult(tool_name=kwargs["tool_name"], success=False, error_code="SYNTHETIC_STOP")
+    monkeypatch.setattr(tool_registry, "execute", stop)
+    KnowledgeAgent(BatchProvider([
+        ("web_search_general", {"query": "Pix Brazil"}),
+        ("web_search_general", {"query": "external rules on Pix account eligibility"}),
+    ])).run(message, SecurityContext("synthetic"))
+    assert executed == [("search_getnet_knowledge", message)]

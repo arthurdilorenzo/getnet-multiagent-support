@@ -9,6 +9,7 @@ from app.rag.embeddings import BilingualDenseEmbedder
 from app.schemas import PlanStep, RoutingPlan
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
+from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
 from app.security.request_constraints import extract_constraints
 from app.security.request_units import request_units
 from app.security.planning_policy import independent_veto_unit_ids
@@ -154,17 +155,6 @@ class RouterAgent:
         threshold = settings.RAG_MIN_RELEVANCE_THRESHOLD
         revised: List[PlanStep] = []
 
-        def asks_external_regulation(text: str) -> bool:
-            external_source = re.search(
-                r"\b(?:banco central|bcb|central bank|regulator|regulador|external|extern[ao])\b",
-                text, re.I,
-            )
-            formal_regulation = re.search(
-                r"\b(?:regula\w*|norma\w*|law\w*|lei|legisla\w*)\b", text, re.I,
-            )
-            external_rule = external_source and re.search(r"\b(?:regra\w*|rule\w*)\b", text, re.I)
-            return bool(formal_regulation or external_rule)
-
         def merge_adjacent_same_target(steps: List[PlanStep]) -> List[PlanStep]:
             merged: List[PlanStep] = []
             for step in steps:
@@ -215,6 +205,9 @@ class RouterAgent:
                 if not unit:
                     continue
                 query = unit["text"].strip()
+                content_offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;'))
+                context_start, context_end = documentary_clause_span(message, content_offset)
+                documentary_context = message[context_start:context_end]
                 intent = classify_operational_intent(query)
                 private_firmware_read = (
                     bool(extract_constraints(query).terminal_ids) or intent.private_scope
@@ -225,7 +218,7 @@ class RouterAgent:
                 if private_firmware_read:
                     target = "CUSTOMER_SUPPORT_AGENT"
                     rationale = "Leitura de estado privado do terminal atribuída ao suporte autenticado."
-                elif not asks_external_regulation(query) and is_relevant_getnet_candidate(uid):
+                elif not asks_explicit_external_evidence(documentary_context) and is_relevant_getnet_candidate(uid):
                     target = "KNOWLEDGE_AGENT"
                     rationale = ("Candidato local oficial Getnet acima do limiar de pertinência; "
                                  "a autorização factual continua no especialista documental.")

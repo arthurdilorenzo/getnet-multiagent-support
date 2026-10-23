@@ -214,3 +214,89 @@ def _run_blocked_condition_handoff(monkeypatch, tmp_path, workflow_source, trigg
     assert "search_getnet_knowledge" not in out.tools_called
     assert "web_search_general" not in out.tools_called
     assert next(row for row in out.request_coverage if row["unit_id"] == dependent)["state"] == "unresolved"
+
+
+@pytest.mark.parametrize("message,recognized", [
+    (f"If firmware of {TARGET} is qa-12.08 and status is Online, tell me the eligible benefits.", True),
+    (f"Se o firmware do terminal {TARGET} for qa-12.08 e o status estiver online, informe os benefícios do Crediário.", False),
+    (f"Explain the benefits provided that firmware of {TARGET} is newer than qa-12.08.", False),
+    (f"Informe os benefícios quando o status do terminal {TARGET} estiver disponível.", False),
+])
+def test_terminal_dependency_intent_blocks_search_outside_authorization_grammar(monkeypatch, tmp_path, message, recognized):
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    calls = []
+    def delegate(**kwargs):
+        calls.append(kwargs["target_agent"])
+        assert kwargs["target_agent"] == "CUSTOMER_SUPPORT_AGENT", "dependent factual lookup escaped the gate"
+        return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT", response="internal read",
+            tools_called=["diagnose_terminal_issue"], tool_results=[diagnostic()])
+    monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert calls == (["CUSTOMER_SUPPORT_AGENT"] if recognized else [])
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+    assert not {"search_getnet_knowledge", "web_search_general"} & set(out.tools_called)
+    assert out.answer_status == "abstained"
+
+
+def test_supported_if_benefits_lookup_requires_exact_positive_read(monkeypatch, tmp_path):
+    message = f"If firmware of {TARGET} is qa-12.08 and status is Online, tell me the eligible benefits."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    calls = []
+    def delegate(**kwargs):
+        calls.append(kwargs["target_agent"])
+        if kwargs["target_agent"] == "CUSTOMER_SUPPORT_AGENT":
+            return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT", response="internal read",
+                tools_called=["diagnose_terminal_issue"], tool_results=[diagnostic(firmware="qa-12.08")])
+        assert calls == ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"]
+        return SpecialistOutput(agent_name="KNOWLEDGE_AGENT", response="No verified benefit evidence",
+            abstained=True, request_unit_ids=kwargs["delegation_scope"]["assigned_unit_ids"])
+    monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert calls == ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"]
+
+
+@pytest.mark.parametrize("tool_name,independent", [
+    ("search_getnet_knowledge", "Name the account types accepted for Pix in Brazil"),
+    ("web_search_general", "Find current external rules for Pix account eligibility in Brazil"),
+])
+def test_actual_registry_query_excludes_blocked_condition_even_when_native_query_repeats_it(monkeypatch, tmp_path, tool_name, independent):
+    from google.genai import types
+    from app.tools import registry as registry_module
+    message = independent + "; " + MESSAGE
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    planning = []
+    class Provider:
+        def __init__(self): self.models = self
+        def generate_content(self, **kwargs):
+            planning.append(kwargs)
+            return types.GenerateContentResponse(candidates=[types.Candidate(finish_reason="STOP",
+                content=types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(
+                    name=tool_name, args={"query": message}))]))])
+    orch.knowledge_agent.client = Provider()
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "synthetic-never-sent")
+    monkeypatch.setattr(registry_module, "state_store", StateStore(tmp_path / "registry.sqlite"))
+    executed = []
+    def handler(**kwargs):
+        executed.append(kwargs)
+        raise RuntimeError("Synthetic stop after the real registry validated/dispatched the read")
+    tool = registry_module.tool_registry.get_tool(tool_name)
+    monkeypatch.setattr(tool, "handler", handler)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert len(executed) == 1
+    assert executed[0]["query"] == independent
+    assert all("Crediário" not in row["query"] and "firmware" not in row["query"] and TARGET not in row["query"]
+               for row in executed)
+    assert planning and message in str(planning[0]["contents"]), "authorization must keep the immutable full request"
+    assert "conditional_lookup_blocked" in [row.action for row in out.trace]
+    assert all(row["state"] == "unresolved" for row in out.request_coverage[1:])
+
+
+def test_unsupported_postfixed_terminal_condition_keeps_previous_benefit_clause_blocked(monkeypatch, tmp_path):
+    message = f"Explain the eligible benefits; only if firmware of {TARGET} is newer than qa-12.08."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_delegate_to_specialist", lambda **kwargs: pytest.fail("Unsupported dependent lookup escaped"))
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+    assert not out.tools_called

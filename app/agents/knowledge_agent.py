@@ -17,6 +17,7 @@ from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionR
 from app.security.auth import SecurityContext
 from app.security.request_units import request_units, validate_scope
 from app.security.pii import PIIRedactor
+from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
 from app.tools.registry import tool_registry
 import app.tools.search_tools  # noqa: F401 - garante registro das tools de busca e RAG
 
@@ -63,9 +64,7 @@ class KnowledgeAgent:
     ) -> SpecialistOutput:
         tracer = tracer or SystemTracer(session_id=session_id,user_id=security_context.authenticated_user_id)
         trace_id = tracer.trace_id
-        contextual_query = self._enrich_query_with_memory(message, conversation_context)
         original_request = PIIRedactor.mask_text(request_message or message)
-        authoritative_query = self._enrich_query_with_memory(original_request, conversation_context)
         semantic_mode = 'native_semantic' if settings.GEMINI_API_KEY else 'limited_offline'
 
         # 1. Function calling nativo; extrator local somente no modo sem chave.
@@ -77,15 +76,27 @@ class KnowledgeAgent:
                 response='Não foi possível validar o escopo das unidades do pedido.',abstained=True,
                 semantic_mode=semantic_mode,answer_status='abstained',abstention_reason='semantic_analysis:DELEGATION_SCOPE',
                 request_unit_ids=ids,unresolved_unit_ids=ids)
+        # Retrieval is bounded by canonical assigned units. The immutable full
+        # request remains available only to planning/semantic authorization.
+        assigned_text = ''.join(unit['text'] for unit in request_units(original_request)
+                                if unit['unit_id'] in scope['assigned_unit_ids']).strip(' ;')
+        authoritative_query = (assigned_text if scope['other_unit_ids'] else
+                               self._enrich_query_with_memory(assigned_text, conversation_context))
         try:
             planning_context=dict(conversation_context or {}, original_request=original_request, delegation_scope=scope, request_units=request_units(original_request))
-            planned_calls = self._plan_tool_calls(message=contextual_query,is_web_search=is_web_search,tracer=tracer,conversation_context=planning_context)
+            planned_calls = self._plan_tool_calls(message=authoritative_query,is_web_search=is_web_search,tracer=tracer,conversation_context=planning_context)
+            # Bind native documentary arguments before the optional Pix
+            # correction. Its replacement queries are already server-owned
+            # canonical Pix units and must not be widened again at execution.
+            planned_calls = [call.model_copy(update={'arguments': {**call.arguments, 'query': authoritative_query}})
+                             if call.tool_name == 'search_getnet_knowledge' else call for call in planned_calls]
             planned_calls = self._prefer_local_pix_product_evidence(
                 planned_calls, planning_context.get('original_request', original_request), scope)
             for call_spec in planned_calls:
                 self._validate_public_request(call_spec, authoritative_query)
-            # Every documentary call is bound to the same complete original
-            # request, so duplicate calls cannot justify extra semantic passes.
+                if call_spec.tool_name == 'web_search_general' and scope['other_unit_ids']:
+                    call_spec.arguments = {**call_spec.arguments, 'query': authoritative_query}
+            # Duplicate documentary calls cannot justify extra semantic passes.
             unique=[];documental_seen=False
             for call_spec in planned_calls:
                 if call_spec.tool_name=='search_getnet_knowledge':
@@ -106,10 +117,6 @@ class KnowledgeAgent:
 
         # 2. Loop de Execução de Tools via ToolRegistry
         for call_spec in planned_calls[: settings.MAX_TOOL_TURNS]:
-            if call_spec.tool_name == 'search_getnet_knowledge':
-                # The provider cannot erase a requested country, operation or attribute.
-                # It still selects the native tool; the server binds the factual request.
-                call_spec.arguments = {**call_spec.arguments, 'query': authoritative_query}
             tools_called.append(call_spec.tool_name)
             res = tool_registry.execute(
                 tool_name=call_spec.tool_name,
@@ -502,58 +509,67 @@ class KnowledgeAgent:
     def _prefer_local_pix_product_evidence(
         calls: List[ToolCallSpec], original_request: str, scope: Dict[str, List[str]],
     ) -> List[ToolCallSpec]:
-        """Correct native Web selection only for verified Getnet Pix eligibility evidence."""
-        if len(calls) != 1 or calls[0].tool_name != 'web_search_general':
-            return calls
+        """Correct each eligible native Web proposal, preserving the rest of the batch."""
         assigned = set(scope.get('assigned_unit_ids', []))
         units = [unit for unit in request_units(original_request) if unit['unit_id'] in assigned]
-        if not units:
-            return calls
-        texts = [unit['text'] for unit in units]
-        combined = ' '.join(texts)
-        norm = BilingualDenseEmbedder.normalize(combined)
-        if not re.search(r'\bpix\b', norm) or not re.search(
-            r'\b(?:conta\w*|account\w*|eligible|eligibility|elig[ií]vel|aceit\w*|accepted|categories|categorias|types)\b',
-            norm,
-        ):
-            return calls
-        # A current Getnet product rule is still a product question. Only
-        # explicit regulatory/source intent keeps the model's Web selection.
-        if re.search(
-            r'\b(?:banco central|\bbcb\b|central bank|regulat\w*|regulament\w*|'
-            r'regulador|regulator|norma\w*|\blei\b|\blaw\b|external source|fonte externa)\b',
-            norm,
-        ):
-            return calls
-        try:
-            from app.rag.retriever import retriever
 
-            ranked = retriever.retrieve_candidates(query=combined, top_k=1)
-            candidates = ranked.get('candidate_chunks', [])
-            if not candidates:
-                return calls
-            candidate = candidates[0]
-            parsed = urlsplit(str(candidate.get('source_url', '')))
-            host = (parsed.hostname or '').lower()
-            official = parsed.scheme == 'https' and (
-                host == 'getnet.com.br' or host.endswith('.getnet.com.br')
-            )
-            provenance = candidate.get('provenance') or {}
-            verified = (
-                candidate.get('origin_type') == 'verified_markdown_mirror'
-                and provenance.get('verification_status') == 'reviewed_against_official_page'
-            )
-            relevant = float(candidate.get('relevance_score', 0.0)) >= settings.RAG_MIN_RELEVANCE_THRESHOLD
-            if not (official and verified and relevant):
-                return calls
-            return [ToolCallSpec(
+        def pix_eligibility(text: str) -> bool:
+            norm = BilingualDenseEmbedder.normalize(text)
+            return bool(re.search(r'\bpix\b', norm) and re.search(
+                r'\b(?:conta\w*|account\w*|eligible|eligibility|elig[ií]vel|aceit\w*|'
+                r'accepted|categories|categorias|types)\b', norm))
+
+        # A conjunction can carry a country or external-source qualifier.
+        # Keep its canonical units together while independent sentences retain
+        # independent tool intent, even within one validated native batch.
+        groups: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
+        for unit in units:
+            offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;'))
+            groups.setdefault(documentary_clause_span(original_request, offset), []).append(unit)
+        clauses = [''.join(unit['text'] for unit in group).strip(' ;') for group in groups.values()]
+        product_clauses = [text for text in clauses
+                           if pix_eligibility(text) and not asks_explicit_external_evidence(text)]
+        if not product_clauses:
+            return calls
+        combined = ' '.join(product_clauses)
+        pix_only_assignment = len(product_clauses) == len(clauses)
+        verified = None
+        revised = []
+        for call in calls:
+            query = str(call.arguments.get('query', ''))
+            if (call.tool_name != 'web_search_general' or (not pix_only_assignment
+                    and (not pix_eligibility(query) or asks_explicit_external_evidence(query)))):
+                revised.append(call)
+                continue
+            if verified is None:
+                try:
+                    from app.rag.retriever import retriever
+
+                    ranked = retriever.retrieve_candidates(query=combined, top_k=1)
+                    candidates = ranked.get('candidate_chunks', [])
+                    candidate = candidates[0] if candidates else {}
+                    parsed = urlsplit(str(candidate.get('source_url', '')))
+                    host = (parsed.hostname or '').lower()
+                    official = parsed.scheme == 'https' and (
+                        host == 'getnet.com.br' or host.endswith('.getnet.com.br'))
+                    provenance = candidate.get('provenance') or {}
+                    verified = (official
+                        and candidate.get('origin_type') == 'verified_markdown_mirror'
+                        and provenance.get('verification_status') == 'reviewed_against_official_page'
+                        and float(candidate.get('relevance_score', 0.0)) >= settings.RAG_MIN_RELEVANCE_THRESHOLD)
+                except Exception as exc:
+                    logger.warning('knowledge_pix_local_evidence_check_failed', error_type=type(exc).__name__)
+                    verified = False
+            if not verified:
+                revised.append(call)
+                continue
+            revised.append(ToolCallSpec(
                 tool_name='search_getnet_knowledge',
                 arguments={'query': combined, 'top_k': settings.RAG_TOP_K},
+                call_id=call.call_id,
                 rationale='Eligibility de produto Pix/Getnet atendida por fonte local Getnet verificada.',
-            )]
-        except Exception as exc:
-            logger.warning('knowledge_pix_local_evidence_check_failed', error_type=type(exc).__name__)
-            return calls
+            ))
+        return revised
 
     def _plan_native(self,message,conversation_context=None,tracer=None) -> List[ToolCallSpec]:
         """Validate the complete provider-selected batch before any execution."""

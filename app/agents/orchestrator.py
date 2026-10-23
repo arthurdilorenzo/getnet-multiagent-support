@@ -82,18 +82,38 @@ class MultiAgentOrchestrator:
 
     @staticmethod
     def _conditional_crediario_dependency(message: str) -> Optional[Dict[str, Any]]:
-        """Identify an exact terminal prerequisite for conditional Crediário disclosure."""
-        has_product = bool(re.search(r'\bcredi[aá]rio\b', message, re.I))
-        has_firmware = bool(re.search(r'\bfirmware\b', message, re.I))
-        has_condition = bool(re.search(
-            r'\b(?:s[oó]mente|somente|apenas|only|s[oó])\b.{0,100}\b(?:quando|when|se|if)\b',
-            message, re.I,
-        ))
-        if not (has_product and has_firmware and has_condition):
-            return None
+        """Detect dependency intent broadly; only the finite parser authorizes it.
+
+        Literal units split conjunctions inside a predicate. Keep the entire
+        conditional sentence span blocked, including its consequence, rather
+        than looking only for a product name in one unit. A preceding independent
+        semicolon clause remains assignable. Unknown syntax never grants access.
+        """
         units = request_units(message)
-        condition_units = [unit['unit_id'] for unit in units
-                           if re.search(r'\bcredi[aá]rio\b', unit['text'], re.I)]
+        condition_ids: set[str] = set()
+        sentence_boundaries = [0] + [match.end() for match in re.finditer(r'[.!?]\s+(?=\S)', message)] + [len(message)]
+        for marker in re.finditer(
+                r'\b(?:if|se|when|quando|unless|caso|desde que|provided that|once|after|ap[oó]s|assim que|contanto que)\b', message, re.I):
+            sentence_start = max(boundary for boundary in sentence_boundaries if boundary <= marker.start())
+            end = min(boundary for boundary in sentence_boundaries if boundary > marker.start())
+            start = max(sentence_start, message.rfind(';', sentence_start, marker.start()) + 1)
+            clause = message[start:end]
+            prefix = message[start:marker.start()].strip()
+            explicit_consequence = re.search(
+                r',\s*(?:tell|show|give|explain|informe|mostre|explique|diga)\b', clause, re.I)
+            if (start > sentence_start and not explicit_consequence
+                    and re.fullmatch(r'(?:only|apenas|s[oó]|somente)?', prefix, re.I)):
+                # A postfix "; only if ..." qualifies the preceding disclosure;
+                # a delimiter alone cannot turn it into an independent read.
+                start = sentence_start
+                clause = message[start:end]
+            if not (extract_constraints(clause).terminal_ids or re.search(
+                    r'\b(?:firmware|status|terminal|conex[aã]o|connection|conectividade|connectivity)\b',
+                    clause, re.I)):
+                continue
+            condition_ids.update(unit['unit_id'] for unit in units
+                                 if unit['start'] < end and unit['end'] > start)
+        condition_units = [unit['unit_id'] for unit in units if unit['unit_id'] in condition_ids]
         if not condition_units:
             return None
         terminals = extract_constraints(message).terminal_ids
@@ -297,11 +317,13 @@ class MultiAgentOrchestrator:
             blocked_unit_ids = set(dependent_ids)
             routing_plan.plan_steps = [restricted for step in routing_plan.plan_steps
                 if (restricted := self._restrict_blocked_units(step, original_request, blocked_unit_ids)) is not None]
+            dependent_description = ('os termos do Crediário' if re.search(r'\bcredi[aá]rio\b', original_request, re.I)
+                                     else 'a consulta dependente')
             condition = conditional_dependency['condition']
             target = conditional_dependency['terminal_id']
             if condition is None or target is None:
                 conditional_notice = (
-                    "Não consegui validar com segurança a condição do terminal; não consultei os termos do Crediário."
+                    f"Não consegui validar com segurança a condição do terminal; não consultei {dependent_description}."
                 )
                 tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='conditional_lookup_blocked',
                     status='skipped', details={'reason': 'unsupported_or_ambiguous_terminal_condition'})
@@ -343,7 +365,7 @@ class MultiAgentOrchestrator:
                     ))
                 else:
                     conditional_notice = (
-                        "A condição de firmware/status do terminal não foi confirmada; não consultei os termos do Crediário."
+                        f"A condição de firmware/status do terminal não foi confirmada; não consultei {dependent_description}."
                     )
             for order, step in enumerate(routing_plan.plan_steps, start=1):
                 step.step_order = order
