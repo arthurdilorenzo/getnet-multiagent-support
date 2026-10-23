@@ -764,7 +764,12 @@ class MultiAgentOrchestrator:
             source_clause = source_message[start:end]
             explicit_web_search = re.search(
                 r'\b(?:search\s+the\s+web|pesquise\s+na\s+web)\b', source_clause, re.I)
-            if asks_explicit_external_evidence(source_clause) or explicit_web_search:
+            # A bounded search imperative plus freshness requests a current
+            # lookup; freshness in a documentary explanation alone does not.
+            explicit_current_search = re.search(
+                r'\b(?:find|pesquise)\b[^;.!?]*\b(?:current|atua(?:l|is))\b', source_clause, re.I)
+            if (asks_explicit_external_evidence(source_clause) or explicit_web_search
+                    or explicit_current_search):
                 pending_external_ids.add(unit['unit_id'])
         country_documentation_comparison = (
             bool(re.search(r'\bcredi[aá]rio\b', original_message, re.I))

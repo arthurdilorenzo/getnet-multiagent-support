@@ -523,3 +523,29 @@ def test_country_gap_documentary_only_does_not_replan_when_brazil_is_preserved(
     assert out.tools_called == ["search_getnet_knowledge"]
     assert [(row["unit_id"], row["state"]) for row in out.request_coverage] == [
         ("u1", "fulfilled"), ("u2", "unresolved")]
+
+
+@pytest.mark.parametrize("brazil_text,search_text,current_documentary_text", [
+    (P06_SCOPED_REPLAN_CASES[0][0],
+     "Find current Crediário settlement terms in Norway.",
+     "Explain the current Crediário settlement terms in Norway documentation."),
+    (P06_SCOPED_REPLAN_CASES[1][0],
+     "Pesquise as condições atuais de recebimento do Crediário na Noruega.",
+     "Explique as condições atuais de recebimento do Crediário na documentação da Noruega."),
+])
+@pytest.mark.parametrize("search_requested", [True, False])
+def test_country_gap_search_with_freshness_differs_from_current_documentation(
+        monkeypatch, tmp_path, brazil_text, search_text, current_documentary_text, search_requested):
+    norway_text = search_text if search_requested else current_documentary_text
+    orch, message, replans, delegations = country_gap_orchestrator(monkeypatch, tmp_path,
+        brazil_text, norway_text, knowledge_status="partial", abstained=True)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert len(replans) == (1 if search_requested else 0)
+    assert [call["target_agent"] for call in delegations] == (
+        ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"] if search_requested else ["KNOWLEDGE_AGENT"])
+    assert "2 dias úteis, taxa única e sem custo de antecipação" in out.response
+    assert out.answer_status == "partial"
+    assert out.request_coverage[0]["state"] == "fulfilled"
+    assert out.request_coverage[0]["assigned_agents"] == ["KNOWLEDGE_AGENT"]
+    assert out.request_coverage[1]["state"] == "unresolved"
+    assert out.evidence == [{"chunk_id": "getnet_crediario_s1_9ea682"}]
