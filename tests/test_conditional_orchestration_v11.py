@@ -300,3 +300,136 @@ def test_unsupported_postfixed_terminal_condition_keeps_previous_benefit_clause_
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
     assert all(row["state"] == "unresolved" for row in out.request_coverage)
     assert not out.tools_called
+
+
+def registry_reads(monkeypatch, tmp_path, *, firmware="qa-12.07", status="Online", success=True):
+    """Keep registry validation/dispatch real; replace only external/storage handlers."""
+    from app.tools import registry as registry_module
+    monkeypatch.setattr(registry_module, "state_store", StateStore(tmp_path / "boundary.sqlite"))
+    reads = []
+    execute = registry_module.tool_registry.execute
+
+    def recorded_execute(**kwargs):
+        reads.append((kwargs["tool_name"], kwargs["raw_arguments"]))
+        return execute(**kwargs)
+
+    def read_terminal(**kwargs):
+        assert kwargs["terminal_id"] == TARGET
+        if not success:
+            raise RuntimeError("Synthetic diagnostic unavailable")
+        return diagnostic(firmware=firmware, status=status).data
+
+    def retrieval(**kwargs):
+        raise RuntimeError("Synthetic stop after registry read dispatch")
+
+    monkeypatch.setattr(registry_module.tool_registry, "execute", recorded_execute)
+    monkeypatch.setattr(registry_module.tool_registry.get_tool("diagnose_terminal_issue"), "handler", read_terminal)
+    for tool_name in ("search_getnet_knowledge", "web_search_general"):
+        monkeypatch.setattr(registry_module.tool_registry.get_tool(tool_name), "handler", retrieval)
+    return reads
+
+
+@pytest.mark.parametrize("observation", [
+    {"firmware": "qa-12.07"}, {"firmware": None}, {"status": "Offline"}, {"success": False},
+])
+@pytest.mark.parametrize("target_agent", ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"])
+def test_sentence_postfix_blocks_all_dependent_registry_retrieval(monkeypatch, tmp_path, observation, target_agent):
+    # Letting only the final sentence be blocked would dispatch the benefits query.
+    message = f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    plan = knowledge_plan(message)
+    plan.plan_steps[0].target_agent = target_agent
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, **observation)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+
+
+@pytest.mark.parametrize("condition", [
+    f"Only if firmware of {TARGET} is newer than qa-12.08.",
+    f"Somente se o firmware do terminal {TARGET} estiver atualizado.",
+])
+def test_unknown_sentence_postfix_never_reaches_any_registry_read(monkeypatch, tmp_path, condition):
+    message = "Tell me the eligible benefits. " + condition
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert reads == []
+    assert all(row["state"] == "unresolved" for row in out.request_coverage)
+
+
+def test_direct_check_if_status_executes_real_support_registry_read(monkeypatch, tmp_path):
+    message = f"Check if terminal {TARGET} is Online."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    plan = knowledge_plan(message)
+    plan.plan_steps[0].target_agent = "CUSTOMER_SUPPORT_AGENT"
+    plan.primary_agent = "CUSTOMER_SUPPORT_AGENT"
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path)
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert not any(row.action == "conditional_lookup_blocked" for row in out.trace)
+
+
+@pytest.mark.parametrize("separator", [". ", "; "])
+@pytest.mark.parametrize("independent,tool_name", [
+    ("Name the account types accepted for Pix in Brazil", "search_getnet_knowledge"),
+    ("What are the account types accepted for Pix in Brazil?", "search_getnet_knowledge"),
+    ("Could you name the account types accepted for Pix in Brazil?", "search_getnet_knowledge"),
+    ("Find current external rules for Pix account eligibility in Brazil", "web_search_general"),
+])
+def test_postfix_keeps_independent_registry_query_without_dependent_text(monkeypatch, tmp_path, separator, independent, tool_name):
+    message = (independent + separator + "Tell me the eligible benefits. "
+               f"Only if firmware of {TARGET} is qa-12.08 and status is Online.")
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    plan = knowledge_plan(message)
+    if tool_name == "web_search_general":
+        plan.primary_agent = plan.plan_steps[0].target_agent = "WEB_SEARCH_AGENT"
+    monkeypatch.setattr(orch.router, "plan", lambda **kwargs: plan)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path)
+    orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue", tool_name]
+    assert reads[1][1]["query"].rstrip(".") == independent
+    assert "benefits" not in reads[1][1]["query"]
+
+
+@pytest.mark.parametrize("message", [
+    f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+    f"Informe os benefícios. Somente se o firmware do terminal {TARGET} for qa-12.08 e o status for Online.",
+])
+def test_sentence_postfix_retrieval_runs_only_after_exact_positive_registry_observation(monkeypatch, tmp_path, message):
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+    out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+    assert "benefits" in reads[1][1]["query"] or "benefícios" in reads[1][1]["query"]
+    gate = next(row for row in out.trace if row.action == "evaluate_conditional_dependency")
+    assert gate.details["predicate_authorized"] is True
+
+
+@pytest.mark.parametrize("prefix", ["Unless certified. ", "For certified devices; "])
+def test_postfix_does_not_drop_an_unknown_qualifier_before_benefits(monkeypatch, tmp_path, prefix):
+    message = (prefix + "Tell me the eligible benefits. "
+               f"Only if firmware of {TARGET} is qa-12.08 and status is Online.")
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+    orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert reads == [], "An unparsed qualification must not authorize a read or disclosure"
+
+
+def test_direct_status_question_cannot_exempt_a_dependent_disclosure(monkeypatch, tmp_path):
+    message = f"Check if terminal {TARGET} is Online, tell me the eligible benefits."
+    orch = make_orchestrator(monkeypatch, tmp_path, message)
+    monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    reads = registry_reads(monkeypatch, tmp_path)
+    orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+    assert reads == []

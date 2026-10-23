@@ -84,33 +84,64 @@ class MultiAgentOrchestrator:
     def _conditional_crediario_dependency(message: str) -> Optional[Dict[str, Any]]:
         """Detect dependency intent broadly; only the finite parser authorizes it.
 
-        Literal units split conjunctions inside a predicate. Keep the entire
-        conditional sentence span blocked, including its consequence, rather
-        than looking only for a product name in one unit. A preceding independent
-        semicolon clause remains assignable. Unknown syntax never grants access.
+        Literal units split conjunctions inside a predicate. Block the disclosure
+        span as well as its predicate, including a postfix in the next sentence.
+        Sentence/semicolon-separated independent requests remain assignable.
+        Detection never grants access: the finite parser and typed read do that.
         """
         units = request_units(message)
         condition_ids: set[str] = set()
+        dependent_spans: list[tuple[int, int]] = []
         sentence_boundaries = [0] + [match.end() for match in re.finditer(r'[.!?]\s+(?=\S)', message)] + [len(message)]
         for marker in re.finditer(
                 r'\b(?:if|se|when|quando|unless|caso|desde que|provided that|once|after|ap[oó]s|assim que|contanto que)\b', message, re.I):
             sentence_start = max(boundary for boundary in sentence_boundaries if boundary <= marker.start())
             end = min(boundary for boundary in sentence_boundaries if boundary > marker.start())
+            sentence = message[sentence_start:end].strip()
+            # "Check if ... is Online" asks for a status observation. Only this
+            # complete, bounded question is exempt; a following consequence or
+            # additional predicate must still go through dependency detection.
+            if re.fullmatch(
+                    r'(?:please\s+)?(?:check|verify|confirm)\s+if\s+(?:the\s+)?terminal\s+'
+                    r'GET-[A-Z0-9-]+\s+is\s+(?:online|offline)[.!?]?', sentence, re.I):
+                continue
             start = max(sentence_start, message.rfind(';', sentence_start, marker.start()) + 1)
             clause = message[start:end]
             prefix = message[start:marker.start()].strip()
             explicit_consequence = re.search(
                 r',\s*(?:tell|show|give|explain|informe|mostre|explique|diga)\b', clause, re.I)
-            if (start > sentence_start and not explicit_consequence
+            if (not explicit_consequence
                     and re.fullmatch(r'(?:only|apenas|s[oó]|somente)?', prefix, re.I)):
-                # A postfix "; only if ..." qualifies the preceding disclosure;
-                # a delimiter alone cannot turn it into an independent read.
-                start = sentence_start
+                # A postfix qualifies the immediately preceding disclosure,
+                # across a sentence/semicolon boundary. Earlier independent
+                # clauses remain outside the blocked span.
+                if start > sentence_start:
+                    start = max(sentence_start, message.rfind(';', sentence_start, start - 1) + 1)
+                elif prefix and sentence_start:
+                    previous_start = max(boundary for boundary in sentence_boundaries if boundary < sentence_start)
+                    start = max(previous_start, message.rfind(';', previous_start, sentence_start) + 1)
+                if prefix:
+                    # A bare qualifier ("Unless certified", "For certified
+                    # devices") is not an independent request just because it
+                    # precedes a delimiter. Keep it attached; only clear request
+                    # clauses can be preserved outside the dependency span.
+                    earlier_boundaries = sorted({0, start, *(boundary for boundary in sentence_boundaries
+                        if boundary < start), *(match.end() for match in re.finditer(';', message[:start]))})
+                    for left, right in reversed(list(zip(earlier_boundaries, earlier_boundaries[1:]))):
+                        earlier = message[left:right].strip(' ;\t\n')
+                        if re.match(
+                                r'(?:please\s+)?(?:(?:could|can|would)\s+you\s+)?(?:please\s+)?'
+                                r'(?:name|find|check|verify|confirm|tell|show|give|explain|compare|what|which|how|'
+                                r'consulte|verifique|confirme|informe|mostre|explique|diga|qual|quais|como)\b',
+                                earlier, re.I):
+                            break
+                        start = left
                 clause = message[start:end]
             if not (extract_constraints(clause).terminal_ids or re.search(
                     r'\b(?:firmware|status|terminal|conex[aã]o|connection|conectividade|connectivity)\b',
                     clause, re.I)):
                 continue
+            dependent_spans.append((start, end))
             condition_ids.update(unit['unit_id'] for unit in units
                                  if unit['start'] < end and unit['end'] > start)
         condition_units = [unit['unit_id'] for unit in units if unit['unit_id'] in condition_ids]
@@ -119,6 +150,21 @@ class MultiAgentOrchestrator:
         terminals = extract_constraints(message).terminal_ids
         target = terminals[0] if len(terminals) == 1 else None
         condition = parse_terminal_condition(message, target) if target else None
+        if condition is None and target and len(dependent_spans) == 1:
+            start, end = dependent_spans[0]
+            # Canonicalize only the same finite benefit request/predicate grammar
+            # with its order reversed. Ranges, extra conditions and unknown
+            # consequences still fail closed in parse_terminal_condition.
+            postfix = re.fullmatch(
+                r'\s*(?:Tell\s+me\s+(?:the\s+eligible\s+)?benefits|Informe\s+os\s+benefícios)'
+                r'[.;]\s*(?P<marker>Only\s+if|Somente\s+se)\s+(?P<predicate>.+)\.\s*',
+                message[start:end], re.I,
+            )
+            if postfix:
+                english = postfix['marker'].lower().startswith('only')
+                canonical = (f"If {postfix['predicate']}, tell me the eligible benefits." if english else
+                             f"Se {postfix['predicate']}, informe os benefícios.")
+                condition = parse_terminal_condition(canonical, target)
         return {'unit_ids': condition_units, 'terminal_id': target, 'condition': condition}
 
     @staticmethod
