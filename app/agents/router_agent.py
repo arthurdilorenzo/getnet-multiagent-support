@@ -153,6 +153,15 @@ class RouterAgent:
         threshold = settings.RAG_MIN_RELEVANCE_THRESHOLD
         revised: List[PlanStep] = []
 
+        def asks_external_regulation(text: str) -> bool:
+            return bool(
+                re.search(
+                    r"\b(?:banco central|bcb|central bank|regulator|regulador|"
+                    r"external|extern[ao]|latest|current|atual|vigente)\b", text, re.I,
+                )
+                and re.search(r"\b(?:regula\w*|regra\w*|norma\w*|rule\w*|law\w*)\b", text, re.I)
+            )
+
         def is_relevant_getnet_candidate(unit_id: str) -> bool:
             unit = units.get(unit_id)
             if not unit:
@@ -184,31 +193,31 @@ class RouterAgent:
                 revised.append(step)
                 continue
 
-            documentary_ids = [uid for uid in step.request_unit_ids if is_relevant_getnet_candidate(uid)]
-            if not documentary_ids:
-                revised.append(step)
-                continue
-
-            remaining_ids = [uid for uid in step.request_unit_ids if uid not in documentary_ids]
-            documentary_query = " ".join(units[uid]["text"].strip() for uid in documentary_ids)
-            documentary_step = PlanStep(
-                step_order=step.step_order,
-                target_agent="KNOWLEDGE_AGENT",
-                sub_query=documentary_query,
-                rationale=("Candidato local oficial Getnet acima do limiar de pertinência; "
-                           "a autorização factual continua no especialista documental."),
-                request_unit_ids=documentary_ids,
-            )
-            if not remaining_ids:
-                revised.append(documentary_step)
-            else:
-                revised.append(documentary_step)
-                remaining_query = " ".join(units[uid]["text"].strip() for uid in remaining_ids)
-                revised.append(step.model_copy(update={
-                    "step_order": step.step_order + 1,
-                    "sub_query": remaining_query,
-                    "request_unit_ids": remaining_ids,
-                }))
+            for uid in step.request_unit_ids:
+                unit = units.get(uid)
+                if not unit:
+                    continue
+                query = unit["text"].strip()
+                intent = classify_operational_intent(query)
+                private_firmware_read = (
+                    intent.private_scope and not intent.documentary_scope
+                    and bool(re.search(r"\bfirmware\b", query, re.I))
+                    and bool(re.search(r"\b(?:installed|instalado|instalada|current|atual)\b", query, re.I))
+                )
+                if private_firmware_read:
+                    target = "CUSTOMER_SUPPORT_AGENT"
+                    rationale = "Leitura de estado privado do terminal atribuída ao suporte autenticado."
+                elif not asks_external_regulation(query) and is_relevant_getnet_candidate(uid):
+                    target = "KNOWLEDGE_AGENT"
+                    rationale = ("Candidato local oficial Getnet acima do limiar de pertinência; "
+                                 "a autorização factual continua no especialista documental.")
+                else:
+                    target = "WEB_SEARCH_AGENT"
+                    rationale = step.rationale
+                revised.append(PlanStep(
+                    step_order=step.step_order, target_agent=target,
+                    sub_query=query, rationale=rationale, request_unit_ids=[uid],
+                ))
 
         for order, step in enumerate(revised, start=1):
             step.step_order = order
