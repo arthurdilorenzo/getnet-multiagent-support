@@ -1,7 +1,7 @@
 from pathlib import Path
 import secrets
 from typing import List, Optional
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     MAX_ORCHESTRATION_ITERATIONS: int = 4
     MAX_TOOL_TURNS: int = 4
     TOOL_TIMEOUT_SECONDS: float = 5.0
-    LLM_TIMEOUT_SECONDS: float = 20.0
+    LLM_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=60)
     REQUEST_TIMEOUT_SECONDS: float = 60.0
     LLM_MAX_OUTPUT_TOKENS: int = 2048
     LLM_REQUEST_TOKEN_BUDGET: int = 32000

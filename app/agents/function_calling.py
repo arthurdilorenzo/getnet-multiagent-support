@@ -1,5 +1,6 @@
 """Manual Google GenAI protocol; tool execution always stays in application code."""
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from google.genai import types
@@ -7,11 +8,21 @@ from google.genai import types
 from app.config import settings
 from app.observability.resilience import call_with_resilience
 from app.observability.tracer import SystemTracer
+from app.observability.logger import logger
 from app.security.pii import PIIRedactor
 
 
 class RouterPlanningError(RuntimeError):
     """A configured provider could not produce a safe, validated delegation plan."""
+
+
+def _minimal_thinking() -> Optional[types.ThinkingConfig]:
+    # Explicit allowlist: Gemini 2.5 uses a different interface; Pro does not
+    # support MINIMAL. Do not apply a family's setting to unknown model aliases.
+    if settings.GEMINI_MODEL in {"gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview",
+                                  "gemini-3-flash", "gemini-3-flash-preview"}:
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+    return None
 
 
 def native_config(
@@ -24,6 +35,7 @@ def native_config(
     return types.GenerateContentConfig(
         system_instruction=system_instruction,
         temperature=0.0,
+        thinking_config=_minimal_thinking(),
         max_output_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
         candidate_count=1,
         tools=[types.Tool(function_declarations=functions)],
@@ -62,6 +74,7 @@ def initial_contents(
 def generate_turn(
     client: Any, contents: List[types.Content], config: types.GenerateContentConfig,
     tracer: Optional[SystemTracer] = None,
+    *, phase: str = "generation",
 ) -> types.Content:
     if client is None:
         raise RuntimeError("Cliente Gemini indisponível com chave configurada.")
@@ -75,32 +88,67 @@ def generate_turn(
     if consumed + estimate + settings.LLM_MAX_OUTPUT_TOKENS > settings.LLM_REQUEST_TOKEN_BUDGET:
         raise ValueError("Request token budget exceeded")
     config = config.model_copy(deep=True)
-    config.http_options = types.HttpOptions(timeout=max(1, int(min(remaining, settings.LLM_TIMEOUT_SECONDS) * 1000)))
-    response = call_with_resilience(
-        "gemini_api",
-        lambda: client.models.generate_content(
-            model=settings.GEMINI_MODEL, contents=list(contents), config=config
-        ),
-        max_retries=0,
-    )
-    candidates = getattr(response, "candidates", None)
-    if not candidates or len(candidates) != 1:
-        raise ValueError("Gemini não retornou um candidato único.")
-    candidate = candidates[0]
-    if candidate.finish_reason not in (None, types.FinishReason.STOP):
-        raise ValueError("Gemini não concluiu um turno válido.")
-    content = candidate.content
-    if content is None or content.role != "model" or not content.parts:
-        raise ValueError("Gemini não retornou conteúdo de modelo válido.")
-    if tracer:
-        usage = getattr(response, "usage_metadata", None)
-        tracer.record_tokens(
-            prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
-            completion_tokens=getattr(usage, "candidates_token_count", 0) or 0,
-            prompt_text="\n".join(c.model_dump_json(exclude_none=True) for c in contents),
-            completion_text=content.model_dump_json(exclude_none=True),
+    if config.thinking_config is None:
+        config.thinking_config = _minimal_thinking()
+    timeout_ms = max(1, int(min(remaining, settings.LLM_TIMEOUT_SECONDS) * 1000))
+    config.http_options = types.HttpOptions(timeout=timeout_ms,
+        retry_options=types.HttpRetryOptions(attempts=1))
+    safe_phase = phase if phase in {"generation", "routing", "replanning", "support",
+        "knowledge", "semantic_analysis", "semantic_verification"} else "generation"
+    started = time.perf_counter()
+    finish_reason = None
+    thoughts = None
+    error_type = None
+    provider_error_type = None
+    provider_error_code = None
+    try:
+        response = call_with_resilience(
+            "gemini_api",
+            lambda: client.models.generate_content(
+                model=settings.GEMINI_MODEL, contents=list(contents), config=config
+            ),
+            max_retries=0,
         )
-    return content
+        usage = getattr(response, "usage_metadata", None)
+        thoughts = getattr(usage, "thoughts_token_count", None)
+        # Completed server generations consumed tokens even if their protocol
+        # is subsequently rejected (e.g. MAX_TOKENS). Count thinking as output.
+        if tracer:
+            tracer.record_tokens(
+                prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+                completion_tokens=(getattr(usage, "candidates_token_count", 0) or 0) + (thoughts or 0),
+                prompt_text=payload,
+            )
+        candidates = getattr(response, "candidates", None)
+        if not candidates or len(candidates) != 1:
+            raise ValueError("Gemini não retornou um candidato único.")
+        candidate = candidates[0]
+        finish_reason = getattr(candidate.finish_reason, "value", candidate.finish_reason)
+        if candidate.finish_reason not in (None, types.FinishReason.STOP):
+            raise ValueError("Gemini não concluiu um turno válido.")
+        content = candidate.content
+        if content is None or content.role != "model" or not content.parts:
+            raise ValueError("Gemini não retornou conteúdo de modelo válido.")
+        return content
+    except Exception as exc:
+        error_type = type(exc).__name__
+        cause = exc.__cause__ or exc
+        provider_error_type = type(cause).__name__
+        code = getattr(cause, "code", None)
+        provider_error_code = code if isinstance(code, int) and not isinstance(code, bool) else None
+        raise
+    finally:
+        details = {"phase": safe_phase, "model": settings.GEMINI_MODEL,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            "timeout_ms": timeout_ms, "finish_reason": finish_reason,
+            "thoughts_token_count": thoughts, "error_type": error_type,
+            "provider_error_type": provider_error_type, "provider_error_code": provider_error_code}
+        if tracer:
+            tracer.add_step(agent="GEMINI_PROVIDER", action="provider_generation", details=details,
+                            status="error" if error_type else "success")
+        else:
+            logger.info("provider_generation", **details)
+
 
 
 def text_from_content(content: types.Content) -> str:

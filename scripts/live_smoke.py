@@ -42,15 +42,19 @@ def main():
         class ObservedModels:
             def generate_content(self, **kwargs):
                 captured.append(str(kwargs.get("contents", "")))
+                generation_started = time.monotonic()
                 try:
                     result = original_models.generate_content(**kwargs)
                     provider_diagnostics.append({"status": "responded", "finish_reasons":
                         [str(c.finish_reason) for c in result.candidates or []],
+                        "duration_seconds": round(time.monotonic() - generation_started, 3),
+                        "thoughts_tokens": getattr(result.usage_metadata, "thoughts_token_count", None),
                         "function_names": [p.function_call.name for c in result.candidates or []
                                            for p in (c.content.parts if c.content else []) or [] if p.function_call]})
                     return result
                 except Exception as exc:
                     provider_diagnostics.append({"status": "error", "error_type": type(exc).__name__,
+                        "duration_seconds": round(time.monotonic() - generation_started, 3),
                         "code": getattr(exc, "code", None),
                         "message": str(getattr(exc, "message", ""))[:1500].replace(settings.GEMINI_API_KEY, "[REDACTED]")})
                     raise
@@ -103,6 +107,7 @@ def main():
                 results.append({"case": name, "passed": bool(passed), "http_status": response.status_code,
                                 "agent": data.get("agent_used"), "tools": data.get("tools_called"),
                                 "abstained": data.get("abstained"), "escalated": data.get("escalated"),
+                                "semantic_mode": data.get("semantic_mode"), "answer_status": data.get("answer_status"),
                                 "token_usage": data.get("token_usage"), "trace": data.get("trace", []),
                                 "response": data.get("response"), "duration_seconds": round(time.monotonic() - start, 3),
                                 **({"privacy_checks":privacy} if name=="pii" else {})})
@@ -110,7 +115,11 @@ def main():
                 results.append({"case": name, "passed": False, "error_type": type(exc).__name__})
             sys.stdout.write(json.dumps({"case": name, "passed": results[-1]["passed"]}) + "\n")
             sys.stdout.flush()
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
         report = {"mode": "real_gemini_synthetic_inprocess_http", "model": settings.GEMINI_MODEL,
+                  "code_sha": subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
+                  "code_dirty": bool(subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain'], text=True)),
                   "provider_calls": len(captured), "provider_diagnostics": provider_diagnostics, "cases": results,
                   "passed": all(case["passed"] for case in results)}
         args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from app.agents.orchestrator import orchestrator
 from app.config import settings
 from app.schemas import ChatRequest, ChatResponse
+from app.security.pii import PIIRedactor
 
 
 class GroundednessJudge:
@@ -80,7 +81,57 @@ class GroundednessJudge:
         return True
 
     @classmethod
+    def _score_partial(cls, case, response):
+        """Check factual extracts separately from explicit unmet request units.
+
+        A supported subset is neither a hallucination nor complete fulfillment.
+        Do not treat a quoted unanswered question as an asserted source fact.
+        """
+        def invalid(reason):
+            return {'groundedness_score':0.0,'passed':False,'fulfillment_passed':False,
+                    'judge_scope':'limited_partial_evidence_consistency','reason':reason,
+                    'semantic_review_required':True}
+        if not response.abstained:
+            return invalid('Status parcial inconsistente com a declaração de incompletude.')
+        marker='\n\nPartes do pedido sem resposta verificada:\n'
+        unavailable='\n\nNão foi possível verificar parte das consultas solicitadas; os resultados acima cobrem somente as consultas com evidência disponível.'
+        text=response.response
+        has_unavailable=text.endswith(unavailable)
+        if has_unavailable:
+            text=text[:-len(unavailable)]
+        unresolved=[]
+        if marker in text:
+            claims, quoted=text.split(marker,1)
+            original=PIIRedactor.mask_text(str(case.get('message','')))
+            for line in quoted.splitlines():
+                if not line.startswith('- ') or not line[2:].strip():
+                    return invalid('Unidade não respondida sem delimitação verificável.')
+                unit=line[2:].strip()
+                if not original or ' '.join(unit.split()) not in ' '.join(original.split()):
+                    return invalid('Parte não respondida não corresponde literalmente ao pedido original.')
+                unresolved.append(unit)
+        elif has_unavailable:
+            claims=text
+        else:
+            return invalid('Resposta parcial precisa explicitar a lacuna ou indisponibilidade.')
+        if not claims.strip():
+            return invalid('Resposta parcial sem trecho factual verificável.')
+        factual_case={**case,'expect_abstained':False,'required_grounding_terms':[]}
+        factual=response.model_copy(update={'response':claims,'abstained':False,'answer_status':'complete'})
+        checked=cls.score_response(factual_case,factual)
+        consistent=bool(checked['passed'])
+        fulfilled=consistent and case.get('expected_answer_status')=='partial'
+        return {**checked,'passed':fulfilled,'fulfillment_passed':fulfilled,
+                'partial_evidence_consistent':consistent,'unresolved_units':unresolved,
+                'judge_scope':'limited_partial_evidence_consistency',
+                'reason':checked.get('reason') if not consistent else
+                         'Extratos sustentados; cobertura parcial declarada, sem aprovação implícita do pedido inteiro.',
+                'semantic_review_required':True}
+
+    @classmethod
     def score_response(cls,case:Dict[str,Any],response:ChatResponse)->Dict[str,Any]:
+        if response.answer_status=='partial':
+            return cls._score_partial(case,response)
         text=response.response
         norm=Text.normalize(text)
         checks=[]
@@ -288,6 +339,8 @@ class SystemEvaluator:
                     "dangerous_extra_tools": dangerous_extras,
                     "tool_selection_safe": tools_safe,
                     "abstained": resp.abstained,
+                    "semantic_mode": resp.semantic_mode,
+                    "answer_status": resp.answer_status,
                     "groundedness": judge_res,
                     "latency_ms": resp.execution_time_ms,
                 }
@@ -297,6 +350,16 @@ class SystemEvaluator:
         sorted_lat = sorted(latencies_ms)
         p50 = sorted_lat[int(0.50 * (len(sorted_lat) - 1))] if sorted_lat else 0.0
         p95 = sorted_lat[int(0.95 * (len(sorted_lat) - 1))] if sorted_lat else 0.0
+        modes = {}
+        for mode in sorted({c['semantic_mode'] or 'unclassified' for c in case_results}):
+            group = [c for c in case_results if (c['semantic_mode'] or 'unclassified') == mode]
+            count = len(group)
+            modes[mode] = {
+                'case_count': count,
+                'non_abstention_rate': round(sum(not c['abstained'] for c in group) / count, 4),
+                'declared_complete_rate': round(sum(c['answer_status'] == 'complete' for c in group) / count, 4),
+                'limited_consistency_pass_rate': round(sum(c['groundedness']['passed'] for c in group) / count, 4),
+            }
 
         summary = {
             "dataset_version": raw.get("dataset_version", "2.0.0"),
@@ -304,6 +367,8 @@ class SystemEvaluator:
             "judge_type": "limited_evidence_numeric_polarity_and_extract_consistency",
             "judge_limitations": "Não verifica entailment universal; revisão independente por alegação continua necessária.",
             "total_cases": len(cases),
+            "metrics_by_mode": modes,
+            "mode_metrics_limitations": "Metadados e checks limitados não medem utilidade, falsa suficiência ou entailment; exigem adjudicação independente por necessidade.",
             "metrics": {
                 "routing_accuracy": round(routing_hits / n, 4),
                 "mean_tool_recall": round(sum(tool_recall_scores) / n, 4),
@@ -331,7 +396,10 @@ def main() -> int:
     import math
 
     report = evaluator.run_suite()
-    sys.stdout.write(json.dumps(report["metrics"], indent=2, ensure_ascii=False) + "\n")
+    cli_metrics = {**report['metrics'], 'execution_mode': report.get('execution_mode'),
+                   'metrics_by_mode': report.get('metrics_by_mode', {}),
+                   'mode_metrics_limitations': report.get('mode_metrics_limitations', '')}
+    sys.stdout.write(json.dumps(cli_metrics, indent=2, ensure_ascii=False) + "\n")
     failures = []
     if report.get("total_cases", 0) <= 0:
         failures.append("total_cases must be greater than zero")

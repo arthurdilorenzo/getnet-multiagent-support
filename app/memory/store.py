@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from app.config import settings
 from app.observability.logger import logger
 from app.security.pii import PIIRedactor
+from app.security.request_constraints import TERMINAL_PATTERN, TRANSACTION_PATTERN, extract_constraints
 from app.security.auth import CrossTenantAccessError
 
 
@@ -249,9 +250,15 @@ class StateStore:
             facts["last_subject"] = product
         if len(products) >= 2:
             facts["product_comparison"] = [product for _, product in sorted(products)][-2:]
-        terminals = re.findall(r"\bGET-[A-Z]+-\d+\b", content.upper())
-        if terminals:
-            entities["terminal_id"] = terminals[-1][:80]
+        constraints = extract_constraints(content)
+        if len(constraints.terminal_ids) == 1:
+            entities["terminal_id"] = constraints.terminal_ids[0]
+        elif len(constraints.terminal_ids) > 1:
+            entities.pop("terminal_id", None)
+        if len(constraints.transaction_ids) == 1:
+            entities["transaction_id"] = constraints.transaction_ids[0]
+        elif len(constraints.transaction_ids) > 1:
+            entities.pop("transaction_id", None)
         code = re.search(r"\b(?:codigo|code|erro|error)\s*[:#]?\s*(\d{2,3})\b", norm)
         if code:
             entities["decline_code"] = code.group(1)
@@ -337,9 +344,12 @@ class StateStore:
             data = result.get("data") or {}
             terminal = data.get("terminal") or {}
             terminal_id = terminal.get("terminal_id")
-            if isinstance(terminal_id, str) and re.fullmatch(r"GET-[A-Z]+-\d+", terminal_id):
-                updates["terminal_id"] = terminal_id[:80]
+            if isinstance(terminal_id, str) and re.fullmatch(TERMINAL_PATTERN, terminal_id):
+                updates["terminal_id"] = terminal_id
             transaction = data.get("last_declined_transaction") or data.get("declined_transaction") or {}
+            transaction_id = transaction.get("transaction_id")
+            if isinstance(transaction_id, str) and re.fullmatch(TRANSACTION_PATTERN, transaction_id):
+                updates["transaction_id"] = transaction_id
             code = transaction.get("decline_code") or data.get("decline_code")
             if isinstance(code, (str, int)) and re.fullmatch(r"\d{2,3}", str(code)):
                 updates["decline_code"] = str(code)

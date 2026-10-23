@@ -9,6 +9,7 @@ from app.rag.embeddings import BilingualDenseEmbedder
 from app.schemas import SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
+from app.security.operational_intent import classify_operational_intent
 from app.security.request_constraints import (
     TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints,
 )
@@ -153,7 +154,7 @@ class CustomerSupportAgent:
         try:
             # One bounded model turn per tool round, plus the final synthesis turn.
             for turn in range(limit + 1):
-                content = generate_turn(self.client, contents, config, tracer)
+                content = generate_turn(self.client, contents, config, tracer, phase="support")
                 calls = [part.function_call for part in content.parts if part.function_call]
                 if not calls:
                     if not data:
@@ -280,6 +281,11 @@ class CustomerSupportAgent:
 
         # Modo offline explícito: seleção determinística, sem chamada de LLM.
         pending_calls = self._plan_initial_tools(contextual_msg, tracer=tracer)
+        if not pending_calls:
+            return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT",
+                response="Não identifiquei uma consulta operacional privada inequívoca. Informe se deseja consultar liquidação, perfil ou um terminal/transação específico.",
+                confidence=0.0, abstained=True,
+                abstention_reason="Intenção operacional ausente ou ambígua no modo offline delimitado.")
 
         turn = 0
         while pending_calls and turn < settings.MAX_TOOL_TURNS:
@@ -418,14 +424,6 @@ class CustomerSupportAgent:
         entities = conversation_context.get("entities") or {}
         terminal = entities.get("terminal_id")
         code = entities.get("decline_code")
-        if not terminal:
-            # Backward-compatible contexts can recover only structured tokens,
-            # without replaying quoted text, permissions, or previous requests.
-            texts = [conversation_context.get("rolling_summary", "")]
-            texts.extend(m.get("content", "") for m in conversation_context.get("recent_messages", [])
-                         if m.get("role") == "user")
-            matches = re.findall(TERMINAL_PATTERN, " ".join(texts), re.I)
-            terminal = matches[-1].upper() if matches else None
         if terminal and re.fullmatch(TERMINAL_PATTERN, str(terminal), re.I):
             context = f"Terminal de referência: {str(terminal).upper()}"
             if code and re.fullmatch(r"\d{2}", str(code)):
@@ -439,13 +437,14 @@ class CustomerSupportAgent:
         norm = BilingualDenseEmbedder.normalize(message)
         lower = message.lower()
         calls: List[ToolCallSpec] = []
+        intent = classify_operational_intent(message)
 
         # Extração de tentativa explícita de acesso a outro user_id no texto (ex: "consultar dados do cliente2045")
         spoof_match = re.search(r"\b(cliente\d{3,6})\b", lower)
         extracted_target_uid = spoof_match.group(1) if spoof_match else None
 
         # 1. Liquidação de vendas / depósitos / extrato
-        if any(w in norm for w in ["vendas", "ontem", "yesterday", "dinheiro", "deposit", "cair", "liquidacao", "repasse", "saldo", "extrato", "sales", "takings", "settlement", "recebimentos"]):
+        if 'settlement' in intent.intents:
             modality = "all"
             if "pix" in norm:
                 modality = "pix"
@@ -468,16 +467,7 @@ class CustomerSupportAgent:
             )
 
         # 2. Diagnóstico de Terminal POS / Conectividade / Transação Recusada / Hardware
-        if any(
-            w in norm
-            for w in [
-                "conecta", "connect", "internet", "sinal", "wifi", "chip", "rede",
-                "decline", "recusa", "recusada", "erro", "error", "transacao", "transaction",
-                "maquininha", "maquina", "machine", "terminal", "codigo", "leitor", "defeito",
-            ]
-        ) or bool(re.search(TERMINAL_PATTERN, message, re.I)) or bool(re.search(TRANSACTION_PATTERN, message, re.I)) or any(self._authorized_remote_action(message, action) for action in (
-            "remote_reboot", "sim_carrier_switch", "parameter_table_update"
-        )):
+        if 'diagnosis' in intent.intents:
             symptom = "general"
             if any(w in norm for w in ["decline", "recusa", "recusada", "transacao", "transaction", "codigo"]):
                 symptom = "decline"
@@ -487,8 +477,8 @@ class CustomerSupportAgent:
                 symptom = "hardware"
 
             # Extração de terminal_id específico se mencionado (ex: GET-CLASSICA-10442)
-            term_id_match = re.search(TERMINAL_PATTERN, message, re.I)
-            term_id = term_id_match.group(0).upper() if term_id_match else None
+            terminal_ids = extract_constraints(message).terminal_ids
+            term_id = terminal_ids[0] if len(terminal_ids) == 1 else None
 
             # Extração de modelo se mencionado
             term_model = None
@@ -520,7 +510,7 @@ class CustomerSupportAgent:
             )
 
         # 3. Se nenhuma das anteriores foi acionada, consulta o perfil cadastral completo
-        if not calls:
+        if 'profile' in intent.intents:
             prof_args: Dict[str, Any] = {}
             if extracted_target_uid:
                 prof_args["user_id"] = extracted_target_uid
@@ -559,7 +549,7 @@ class CustomerSupportAgent:
                 "get_customer_profile": ("user_id", "company_name", "cnpj", "account_plan", "antecipacao_automatica",
                                          "domicilio_bancario", "terminals_count", "terminals_summary"),
                 "execute_terminal_remote_action": ("proposal_id", "action_type", "terminal_id", "payload_hash", "expires_at", "status", "confirmation_instruction"),
-                "diagnose_terminal_issue": ("error", "error_code", "requested_terminal_id", "requires_hardware_replacement"),
+                "diagnose_terminal_issue": ("error", "error_code", "requested_terminal_id", "requested_transaction_id", "requires_hardware_replacement"),
             }.get(result.tool_name, ())
             for field in fields:
                 leaves(result.tool_name, data.get(field), field)
@@ -636,7 +626,10 @@ class CustomerSupportAgent:
         if "diagnose_terminal_issue" in collected_data:
             diag = collected_data["diagnose_terminal_issue"]
             if not diag.get("found"):
-                parts.append(f"Não localizamos o terminal solicitado `{value(diag.get('requested_terminal_id'))}` para `{user_id}`. {diag.get('error', '')}")
+                if diag.get("requested_transaction_id"):
+                    parts.append(f"Não localizamos a transação solicitada `{value(diag['requested_transaction_id'])}` para `{user_id}` — `{value(diag.get('error_code'))}`. {diag.get('error', '')}")
+                else:
+                    parts.append(f"Não localizamos o terminal solicitado `{value(diag.get('requested_terminal_id'))}` para `{user_id}`. {diag.get('error', '')}")
             else:
                 term = diag.get("terminal") or {}
                 term_id = value(term.get("terminal_id"))

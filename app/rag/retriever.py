@@ -1,4 +1,5 @@
 from collections import Counter
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -187,6 +188,40 @@ class HybridKnowledgeRetriever:
             )
             score += idf_val * (numerator / denominator)
         return score
+
+    def retrieve_candidates(self, query: str, top_k: int = 48) -> Dict[str, Any]:
+        """Rank raw bodies without the local answerability grammar or threshold.
+
+        Candidate metadata never authorizes publication. A small bounded corpus
+        permits broad context, including low-score candidates for novel wording.
+        """
+        if not self.chunks:
+            self._load_and_index()
+        tokens=self._expand_query_tokens(expanded_query(query))
+        query_vec=BilingualDenseEmbedder.embed_text(' '.join(tokens))
+        bm25=[self._compute_bm25_score(tokens,c) for c in self.chunks]
+        dense=[BilingualDenseEmbedder.cosine_similarity(query_vec,c.embedding) for c in self.chunks]
+        br={idx:rank for rank,idx in enumerate(sorted(range(len(self.chunks)),key=lambda i:bm25[i],reverse=True),1)}
+        dr={idx:rank for rank,idx in enumerate(sorted(range(len(self.chunks)),key=lambda i:dense[i],reverse=True),1)}
+        results=[]
+        for i,chunk in enumerate(self.chunks):
+            coverage=min(1.0,len(set(tokens)&set(chunk.tokens))/max(1.5,len(set(tokens))*.45))
+            b_norm=bm25[i]/(bm25[i]+4)*coverage if bm25[i]>0 else 0
+            score=round(min(1.0,.5*b_norm+.5*dense[i]),4)
+            results.append({'chunk_id':chunk.chunk_id,'doc_id':chunk.chunk_id,'content':chunk.content,
+                            'content_hash':hashlib.sha256(chunk.content.encode()).hexdigest(),
+                            'source':chunk.source_file,'source_url':chunk.source_url,'title':chunk.title,
+                            'origin_type':chunk.origin_type,'provenance':chunk.provenance,
+                            'bm25_score':round(bm25[i],4),'dense_cosine_score':round(dense[i],4),
+                            'rrf_score':round(1/(self.RRF_K+br[i])+1/(self.RRF_K+dr[i]),5),
+                            'score':score,'relevance_score':score})
+        results.sort(key=lambda item:(item['score'],item['rrf_score']),reverse=True)
+        selected=[];chars=0
+        for item in results[:max(1,min(top_k,48))]:
+            if chars+len(item['content'])>48000: break
+            chars+=len(item['content']);selected.append(item)
+        return {'candidate_chunks':selected,'candidate_count':len(selected),'candidate_chars':chars,
+                'retrieval_method':'bm25_hash_anchors_rrf_candidates_only','answerability_evaluated':False}
 
     def retrieve_hybrid(
         self,

@@ -109,17 +109,19 @@ def _today_local() -> date:
 # Tool 1: Hybrid RAG Knowledge Search
 # ==============================================================================
 def search_getnet_knowledge(query: str, top_k: int = 3) -> Dict[str, Any]:
-    """
-    Busca BM25 com expansão léxica + projeção hashing/âncoras conceituais + RRF.
-    """
+    """Return raw candidates separately; only the specialist authorizes evidence."""
+    candidates = retriever.retrieve_candidates(query=query)
+    if settings.GEMINI_API_KEY:
+        # Native semantics must see raw evidence even when the legacy grammar
+        # would abstain. Candidates themselves never count as approved facts.
+        return {**candidates,'abstained':True,'abstention_reason':'Native semantic authorization pending',
+                'max_relevance_score':max((c.get('relevance_score',0.0) for c in candidates['candidate_chunks']),default=0.0),
+                'chunks_found':0,'chunks':[],'citations':[],'answerability':{'answerable':False,'method':'pending_native_semantics'}}
     outcome = retriever.retrieve_hybrid(query=query, top_k=top_k)
-    return {
-        "abstained": outcome["abstained"],
-        "abstention_reason": outcome["abstention_reason"],
-        "max_relevance_score": outcome["max_relevance_score"],
-        "chunks_found": len(outcome["results"]),
-        "chunks": outcome["results"],
-        "citations": [c.model_dump() for c in outcome["citations"]],
+    return {**candidates,
+        "abstained": outcome["abstained"], "abstention_reason": outcome["abstention_reason"],
+        "max_relevance_score": outcome["max_relevance_score"], "chunks_found": len(outcome["results"]),
+        "chunks": outcome["results"], "citations": [c.model_dump() for c in outcome["citations"]],
         "answerability": outcome.get("answerability", {}),
     }
 

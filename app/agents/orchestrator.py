@@ -31,6 +31,18 @@ class MultiAgentOrchestrator:
     5. Aplica Guardrail de Saída (PII Redaction), persiste o turno no SQLite e registra métricas p50/p95.
     """
 
+    @staticmethod
+    def _answer_metadata(outputs: List[SpecialistOutput], incomplete: bool = False) -> tuple[str, str]:
+        modes = {out.semantic_mode for out in outputs if out.semantic_mode}
+        mode = 'limited_offline' if 'limited_offline' in modes else 'native_semantic' if modes else ''
+        if not mode:
+            return '', ''
+        if all(out.abstained and out.answer_status != 'partial' for out in outputs):
+            return mode, 'abstained'
+        if not incomplete and all(out.answer_status == 'complete' and not out.abstained for out in outputs):
+            return mode, 'complete'
+        return mode, 'partial'
+
     def __init__(self) -> None:
         self.gemini_client = None
         if settings.GEMINI_API_KEY:
@@ -278,6 +290,8 @@ class MultiAgentOrchestrator:
             response_segments.append("O replanejamento ficou indisponível. As consultas concluídas estão preservadas; parte do pedido pode estar pendente.")
 
         abstained_final = bool(pending_steps or replan_failed or any(o.abstained for o in executed_outputs))
+        semantic_mode, answer_status = self._answer_metadata(
+            executed_outputs, incomplete=bool(pending_steps or replan_failed))
         raw_final_response = "\n\n---\n\n".join(response_segments)
 
         # 5. Guardrail de Saída (Redaction de PII e prevenção de vazamentos)
@@ -308,6 +322,8 @@ class MultiAgentOrchestrator:
                 "response_char_count": len(final_response),
                 "session_id": session_id,
                 "abstained": abstained_final,
+                "semantic_mode": semantic_mode,
+                "answer_status": answer_status,
                 "escalated": escalated,
             },
         )
@@ -347,6 +363,8 @@ class MultiAgentOrchestrator:
             token_usage=token_usage,
             evidence=all_evidence,
             action_proposals=action_proposals,
+            semantic_mode=semantic_mode,
+            answer_status=answer_status,
             trace=tracer.get_steps(),
             execution_time_ms=total_ms,
         )

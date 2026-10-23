@@ -8,6 +8,7 @@ from app.observability.logger import logger
 from app.observability.tracer import SystemTracer
 from app.rag.embeddings import BilingualDenseEmbedder
 from app.rag.facts import EvidenceFact
+from app.rag.semantic import SemanticEvidenceAuthorizer, valid_selection
 from app.rag.answerability import assess, body_snippets, concepts
 from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionResult
 from app.security.auth import SecurityContext
@@ -55,18 +56,31 @@ class KnowledgeAgent:
         tracer: Optional[SystemTracer] = None,
         request_message: Optional[str] = None,
     ) -> SpecialistOutput:
-        trace_id = tracer.trace_id if tracer else ""
+        tracer = tracer or SystemTracer(session_id=session_id,user_id=security_context.authenticated_user_id)
+        trace_id = tracer.trace_id
         contextual_query = self._enrich_query_with_memory(message, conversation_context)
-        authoritative_query = self._enrich_query_with_memory(request_message or message, conversation_context)
+        original_request = PIIRedactor.mask_text(request_message or message)
+        authoritative_query = self._enrich_query_with_memory(original_request, conversation_context)
+        semantic_mode = 'native_semantic' if settings.GEMINI_API_KEY else 'limited_offline'
 
         # 1. Function calling nativo; extrator local somente no modo sem chave.
         try:
             planned_calls = self._plan_tool_calls(message=contextual_query,is_web_search=is_web_search,tracer=tracer,conversation_context=conversation_context)
             for call_spec in planned_calls:
                 self._validate_public_request(call_spec, authoritative_query)
+            # Every documentary call is bound to the same complete original
+            # request, so duplicate calls cannot justify extra semantic passes.
+            unique=[];documental_seen=False
+            for call_spec in planned_calls:
+                if call_spec.tool_name=='search_getnet_knowledge':
+                    if documental_seen: continue
+                    documental_seen=True
+                unique.append(call_spec)
+            planned_calls=unique
         except ValueError as exc:
             return SpecialistOutput(agent_name='WEB_SEARCH_AGENT' if is_web_search else 'KNOWLEDGE_AGENT',
-                                    response=str(exc),confidence=0,abstained=True,abstention_reason='Argumento público não identificado com segurança.')
+                                    response=str(exc),confidence=0,abstained=True,abstention_reason='Argumento público não identificado com segurança.',
+                                    semantic_mode=semantic_mode,answer_status='abstained')
 
         tools_called: List[str] = []
         tool_results: List[ToolExecutionResult] = []
@@ -87,6 +101,37 @@ class KnowledgeAgent:
                 session_id=session_id,
                 trace_id=trace_id,
             )
+            if res.success and res.tool_name == 'search_getnet_knowledge':
+                data=dict(res.data or {})
+                if settings.GEMINI_API_KEY:
+                    authorization=SemanticEvidenceAuthorizer(self.client).authorize(
+                        original_request,data.get('candidate_chunks',[]),conversation_context,tracer)
+                    data.update(semantic_mode='native_semantic',answer_status=authorization.status,
+                        abstained=authorization.status!='complete',abstention_reason=authorization.reason or None,
+                        chunks=authorization.approved_chunks,chunks_found=len(authorization.approved_chunks),
+                        unresolved_units=authorization.unresolved_units,
+                        answerability={'answerable':authorization.status=='complete','request_hash':authorization.request_hash,
+                                       'method':'native_two_pass_evidence_authorization','coverage':authorization.coverage,
+                                       'limit':'Schemas/spans prove structural integrity; model semantics require independent review.'})
+                    data['citations']=[Citation(chunk_id=c['chunk_id'],title=c.get('title',''),source=c.get('source',''),
+                        source_url=c.get('source_url',''),relevance_score=c.get('relevance_score',0),
+                        excerpt=' '.join(span['quote'] for span in c['approved_spans'])[:400]).model_dump()
+                        for c in authorization.approved_chunks]
+                else:
+                    from app.rag.answerability import offline_request_coverage
+                    local=offline_request_coverage(original_request)
+                    data.update(semantic_mode='limited_offline',answer_status='abstained' if data.get('abstained') else 'complete')
+                    data['answerability']={**data.get('answerability',{}),'offline_request_coverage':local}
+                    if local['unresolved_units']:
+                        data.update(abstained=True,answer_status='partial' if data.get('chunks') else 'abstained',
+                                    unresolved_units=local['unresolved_units'],abstention_reason='Pedido fora da gramática local delimitada.')
+                res.data=data
+            elif res.success and res.tool_name == 'web_search_general':
+                # Search snippets provide navigational extracts, not verified
+                # completion of an arbitrary current factual question.
+                res.data={**(res.data or {}),'answer_status':'partial','abstained':True,
+                          'unresolved_units':[original_request],
+                          'answerability':{'answerable':False,'method':'search_snippets_only'}}
             tool_results.append(res)
 
             if tracer:
@@ -120,7 +165,8 @@ class KnowledgeAgent:
                         sources.append(src_url)
 
         # 3. Avaliação de Falha de Ferramenta Externa ou Abstention do RAG
-        usable=[result for result in tool_results if result.success and not (result.data or {}).get('abstained')]
+        usable=[result for result in tool_results if result.success and (not (result.data or {}).get('abstained') or ((result.data or {}).get('answer_status')=='partial' and ((result.data or {}).get('chunks') or (result.data or {}).get('results'))))]
+        incomplete_results=[result for result in usable if (result.data or {}).get('answer_status')=='partial']
         partial_failures=[result for result in tool_results if result not in usable]
         primary_res = usable[0] if usable else tool_results[0] if tool_results else None
         if not primary_res:
@@ -129,7 +175,7 @@ class KnowledgeAgent:
                 response="Não foi possível processar a consulta por ausência de ferramentas aplicáveis.",
                 confidence=0.0,
                 abstained=True,
-                abstention_reason="Nenhuma tool selecionada.",
+                abstention_reason="Nenhuma tool selecionada.",semantic_mode=semantic_mode,answer_status='abstained',
             )
 
         if not primary_res.success:
@@ -146,7 +192,7 @@ class KnowledgeAgent:
                 response=honest_msg,
                 confidence=0.0,
                 abstained=True,
-                abstention_reason=primary_res.error_message or "Serviço externo indisponível",
+                abstention_reason=primary_res.error_message or "Serviço externo indisponível",semantic_mode=semantic_mode,answer_status='abstained',
                 tools_called=tools_called,
                 tool_results=tool_results,
                 sources=sources,
@@ -156,6 +202,7 @@ class KnowledgeAgent:
             primary_res.tool_name == "search_getnet_knowledge"
             and isinstance(primary_res.data, dict)
             and primary_res.data.get("abstained")
+            and primary_res.data.get("answer_status") != "partial"
         ):
             max_rel = float(primary_res.data.get("max_relevance_score", 0.0))
             reason = str(primary_res.data.get("abstention_reason", "Cobertura insuficiente na base Getnet."))
@@ -167,7 +214,8 @@ class KnowledgeAgent:
                 ),
                 confidence=max_rel,
                 abstained=True,
-                abstention_reason=reason,
+                abstention_reason=reason,semantic_mode=semantic_mode,answer_status='abstained',
+                structured_data=primary_res.data or {},
                 tools_called=tools_called,
                 tool_results=tool_results,
                 sources=sources,
@@ -177,6 +225,9 @@ class KnowledgeAgent:
         synthesized_text = '\n\n'.join(self._synthesize_from_tool_results(
             user_message=authoritative_query,tool_results=[result],citations=citations,tracer=tracer)
             for result in usable)
+        unresolved=list(dict.fromkeys(unit for result in usable for unit in (result.data or {}).get('unresolved_units',[])))
+        if unresolved:
+            synthesized_text+='\n\nPartes do pedido sem resposta verificada:\n'+'\n'.join('- '+unit for unit in unresolved)
         if partial_failures:
             synthesized_text+='\n\nNão foi possível verificar parte das consultas solicitadas; os resultados acima cobrem somente as consultas com evidência disponível.'
 
@@ -188,8 +239,9 @@ class KnowledgeAgent:
             agent_name="WEB_SEARCH_AGENT" if is_web_search else "KNOWLEDGE_AGENT",
             response=synthesized_text,
             confidence=round(confidence, 4),
-            abstained=bool(partial_failures),
-            abstention_reason='Consulta parcialmente indisponível ou sem evidência suficiente.' if partial_failures else None,
+            abstained=bool(partial_failures or incomplete_results),
+            semantic_mode=semantic_mode,answer_status='partial' if partial_failures or incomplete_results else 'complete',
+            abstention_reason='Consulta parcialmente indisponível ou sem evidência suficiente.' if partial_failures or incomplete_results else None,
             tools_called=tools_called,
             tool_results=tool_results,
             sources=sources,
@@ -447,7 +499,7 @@ class KnowledgeAgent:
         # Public numeric facts are rendered directly. The optional provider may
         # select an entire evidence chunk, never author public factual prose.
         selected_chunk_id = None
-        if self.client and settings.GEMINI_API_KEY and primary.tool_name == 'search_getnet_knowledge':
+        if self.client and settings.GEMINI_API_KEY and primary.tool_name == 'search_getnet_knowledge' and data.get('semantic_mode') != 'native_semantic':
             try:
                 candidates=[{'chunk_id':c.get('chunk_id'), 'content':c.get('content','')}
                             for c in data.get('chunks', [])]
@@ -546,6 +598,8 @@ class KnowledgeAgent:
     @staticmethod
     def _verified_snippets(chunk: Dict[str, Any], query: str = '') -> List[str]:
         content=chunk.get('content','')
+        if 'approved_spans' in chunk:
+            return list(dict.fromkeys(span['quote'] for span in chunk['approved_spans'] if valid_selection(span,chunk)))
         if 'approved_facts' in chunk:
             valid=[]
             for raw in chunk['approved_facts']:

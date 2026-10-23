@@ -92,6 +92,8 @@ class SpecialistOutput(BaseModel):
     response: str
     confidence: float = Field(default=0.9, ge=0.0, le=1.0)
     abstained: bool = False
+    semantic_mode: Literal['', 'native_semantic', 'limited_offline'] = ''
+    answer_status: Literal['', 'complete', 'partial', 'abstained'] = ''
     abstention_reason: Optional[str] = None
     requires_escalation: bool = False
     escalation_reason: Optional[str] = None
@@ -113,6 +115,8 @@ class ChatResponse(BaseModel):
     intent: Optional[str] = None
     confidence: float = 1.0
     abstained: bool = False
+    semantic_mode: Literal['', 'native_semantic', 'limited_offline'] = ''
+    answer_status: Literal['', 'complete', 'partial', 'abstained'] = ''
     escalated: bool = False
     ticket_id: Optional[str] = None
     tools_called: List[str] = Field(default_factory=list)

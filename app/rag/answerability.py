@@ -235,3 +235,42 @@ def expanded_query(query: str) -> str:
         'connectivity':'conexao rede chip internet',
     }
     return query+' '+' '.join(value for key,value in expansions.items() if key in props)
+
+
+def offline_request_coverage(query: str) -> Dict[str, Any]:
+    """A finite full-match language, not general semantic understanding.
+
+    Unknown wording may still retrieve useful excerpts, but never receives a
+    complete offline status. No requirement is authorized by ignoring a suffix.
+    """
+    from app.rag.facts import SUBJECTS, FEATURES
+    aliases=sorted({alias for values in SUBJECTS.values() for alias in values},key=len,reverse=True)
+    subject=r'(?:o |a |the )?(?:'+ '|'.join(re.escape(alias) for alias in aliases)+r')(?: getnet)?'
+    feature=r'(?:'+ '|'.join(re.escape(alias) for values in FEATURES.values() for alias in values)+r')'
+    # Reusable grammar roles, not stored complete questions: modal, action,
+    # object, channel, product and affiliation compose each accepted relation.
+    product=subject+rf'(?: {subject})?'
+    affiliation=r'(?: (?:com|with) (?:a |the )?getnet)?'
+    modal=r'(?:posso|podemos|e possivel|can i|can we|may i)'
+    account=r'(?:uma |a )?(?:conta bancaria|bank account)'
+    sale=r'(?:uma |a |my |minhas )?(?:venda|vendas|sale|sales|payments)'
+    channel=r'(?:whatsapp|redes sociais|social media)'
+    patterns=[
+        rf'(?:como funciona|como funcionam|how does) {product}(?: work)?{affiliation}',
+        rf'(?:o que e|what is|what are|explique|explain|tell me about) {product}{affiliation}',
+        rf'(?:qual(?: e)? a diferenca entre|what(?: is| s)? the difference between) {subject} (?:e|and) {subject}',
+        rf'{subject} (?:tem|possui|has|supports) {feature}',
+        rf'(?:qual|qual e|what is) (?:a |o |the )?(?:taxa|prazo|limite de parcelas|limite de parcelamento|fee|settlement time) (?:do|da|de|of|for) {subject}',
+        rf'(?:preciso|necessito|do i need|must i) (?:ter |abrir |have |open )?{account} (?:para|to) (?:receber|receive) {sale} (?:via|por|with|using) pix',
+        rf'(?:em )?(?:quantas parcelas|how many installments) {modal} (?:parcelar|dividir|split|divide) {sale}(?: into)? (?:no|pelo|with|using) {subject}',
+        rf'{modal} (?:vender|sell|cobrar|collect payment) (?:pelo|via|through|on) {channel} (?:usando|using|with) {subject}',
+    ]
+    clauses=[part.strip() for part in re.split(r'[.!?;]+',query) if part.strip()]
+    unresolved=[]
+    for clause in clauses:
+        normalized=' '.join(Text.normalize(clause).split())
+        if not any(re.fullmatch(pattern,normalized) for pattern in patterns): unresolved.append(clause)
+    if not clauses: unresolved=[query]
+    return {'grammar':'finite_full_match_offline_v5','unresolved_units':unresolved,
+            'complete_parse':bool(clauses) and not unresolved,
+            'limit':'Somente construções completas da gramática declarada; outras formulações requerem interpretação semântica.'}
