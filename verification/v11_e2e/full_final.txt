@@ -1,0 +1,81 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 13%]
+........................................................................ [ 18%]
+........................................................................ [ 23%]
+........................................................................ [ 27%]
+........................................................................ [ 32%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 46%]
+........................................................................ [ 51%]
+........................................................................ [ 55%]
+........................................................................ [ 60%]
+........................................................................ [ 65%]
+........................................................................ [ 69%]
+......................................F................................. [ 74%]
+........................................................................ [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 88%]
+........................................................................ [ 93%]
+........................................................................ [ 97%]
+....................................                                     [100%]
+=================================== FAILURES ===================================
+________ test_native_sdk_initial_veto_filtered_and_no_replan_after_read ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cc40b40>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-529/test_native_sdk_initial_veto_f0')
+
+    def test_native_sdk_initial_veto_filtered_and_no_replan_after_read(monkeypatch,tmp_path):
+        import importlib
+        from app.config import settings
+        from app.memory.store import StateStore
+        from app.schemas import ChatRequest
+        from app.security.auth import SecurityContext
+        from app.observability.resilience import breaker_registry
+        monkeypatch.setattr(settings,'GEMINI_API_KEY','synthetic-never-sent')
+        monkeypatch.setattr(importlib.import_module('app.agents.orchestrator'),'state_store',StateStore(tmp_path/'state.db'))
+        breaker_registry.reset_all()
+        message='Check status of GET-SYNTH-READ-772; never reboot GET-SYNTH-OTHER-991.'
+        sdk=native_provider(step('CUSTOMER_SUPPORT_AGENT',['u1']),step('KNOWLEDGE_AGENT',['u2']))
+        orch=MultiAgentOrchestrator();orch.router=RouterAgent(sdk)
+        executed=[]
+        def delegate(**kwargs):
+            executed.append(kwargs)
+            assert kwargs['target_agent']=='CUSTOMER_SUPPORT_AGENT'
+            assert kwargs['delegation_scope']['assigned_unit_ids']==['u1']
+            return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT',response='Status: Offline',
+                request_unit_ids=['u1'],covered_unit_ids=['u1'],evidence=[{'source':'synthetic observation'}])
+        monkeypatch.setattr(orch,'_delegate_to_specialist',delegate)
+        result=orch.process(ChatRequest(message=message,user_id='synthetic',session_id='planning-v9'),SecurityContext('synthetic'))
+        assert sdk.calls==1 and len(executed)==1
+>       assert result.answer_status=='partial' and not result.action_proposals and not result.tools_called
+E       AssertionError: assert ('abstained' == 'partial'
+E         
+E         - partial
+E         + abstained)
+
+tests/test_planning_gain_v9.py:116: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:50:54.679837+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_f4d0e294bb864e9a", "session_id": "planning-v9", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.72, "cumulative_ms": 0.72, "details": {"user_id": "synthetic", "session_id": "planning-v9", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:50:54.681688+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_f4d0e294bb864e9a", "session_id": "planning-v9", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.88, "cumulative_ms": 2.59, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5275, "response_schema_bytes": 2, "estimated_prompt_tokens": 1357, "tokens_consumed_before_call": 0, "duration_ms": 0.24, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:50:54.682288+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_f4d0e294bb864e9a", "session_id": "planning-v9", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.62, "cumulative_ms": 3.21, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["CUSTOMER_SUPPORT_AGENT"], "reasoning": "model rationale is not gain | model rationale is not gain"}}
+{"timestamp": "2026-10-23T23:50:54.682922+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_f4d0e294bb864e9a", "session_id": "planning-v9", "user_id": "synthetic", "step_id": 4, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "replan_not_needed", "status": "skipped", "step_duration_ms": 0.65, "cumulative_ms": 3.86, "details": {"reason": "no_unscheduled_actionable_units"}}
+{"timestamp": "2026-10-23T23:50:54.683016+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_f4d0e294bb864e9a", "session_id": "planning-v9", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.09, "cumulative_ms": 3.95, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:50:54.683128+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_f4d0e294bb864e9a", "session_id": "planning-v9", "user_id": "synthetic", "step_id": 6, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.12, "cumulative_ms": 4.07, "details": {"response_char_count": 96, "session_id": "planning-v9", "abstained": true, "semantic_mode": "", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=============================== warnings summary ===============================
+../../../Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_planning_gain_v9.py::test_native_sdk_initial_veto_filtered_and_no_replan_after_read
+1 failed, 1547 passed, 1 warning in 13.70s

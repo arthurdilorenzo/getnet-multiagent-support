@@ -34,7 +34,7 @@ def make_orchestrator(monkeypatch, tmp_path, message=MESSAGE):
 
 
 def diagnostic(*, firmware="qa-12.07", status="Online", success=True, target=TARGET):
-    data = {"requested_terminal_id": target, "found": True,
+    data = {"requested_terminal_id": target, "found": True, "user_id": "synthetic",
             "terminal": {"terminal_id": target, "firmware_version": firmware, "status": status}}
     return ToolExecutionResult(tool_name="diagnose_terminal_issue", success=success,
         data=data if success else None, error_code=None if success else "TOOL_UNAVAILABLE",
@@ -96,7 +96,7 @@ def test_exact_terminal_predicate_allows_knowledge_only_after_read(monkeypatch, 
     assert out.request_coverage[0]["state"] == "fulfilled"
 
 
-def test_unrecognized_added_condition_blocks_all_downstream_search(monkeypatch, tmp_path):
+def test_unrecognized_added_condition_reads_target_but_blocks_all_downstream_search(monkeypatch, tmp_path):
     message = MESSAGE[:-1] + ", caso a conta esteja regular."
     orch = make_orchestrator(monkeypatch, tmp_path, message)
     calls = []
@@ -105,7 +105,7 @@ def test_unrecognized_added_condition_blocks_all_downstream_search(monkeypatch, 
     out = orch.process(ChatRequest(message=message, user_id="synthetic", session_id="cond-unknown"),
                        SecurityContext("synthetic"))
 
-    assert calls == []
+    assert calls == ["CUSTOMER_SUPPORT_AGENT"]
     assert "search_getnet_knowledge" not in out.tools_called
     assert "web_search_general" not in out.tools_called
     assert out.answer_status == "abstained"
@@ -157,7 +157,7 @@ def test_blocked_dependency_cannot_return_through_independent_abstention_replan(
     monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
     out = orch.process(ChatRequest(message=message, user_id="synthetic", session_id="mixed"), SecurityContext("synthetic"))
     assert replans
-    assert calls == (["CUSTOMER_SUPPORT_AGENT"] if predicate == "false" else []) + ["WEB_SEARCH_AGENT"]
+    assert calls == ["CUSTOMER_SUPPORT_AGENT", "WEB_SEARCH_AGENT"]
     assert "search_getnet_knowledge" not in out.tools_called
     assert next(r for r in out.request_coverage if r["unit_id"] == dependent)["state"] == "unresolved"
 
@@ -232,7 +232,7 @@ def test_terminal_dependency_intent_blocks_search_outside_authorization_grammar(
             tools_called=["diagnose_terminal_issue"], tool_results=[diagnostic()])
     monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert calls == (["CUSTOMER_SUPPORT_AGENT"] if recognized else [])
+    assert calls == ["CUSTOMER_SUPPORT_AGENT"]
     assert all(row["state"] == "unresolved" for row in out.request_coverage)
     assert not {"search_getnet_knowledge", "web_search_general"} & set(out.tools_called)
     assert out.answer_status == "abstained"
@@ -296,10 +296,24 @@ def test_actual_registry_query_excludes_blocked_condition_even_when_native_query
 def test_unsupported_postfixed_terminal_condition_keeps_previous_benefit_clause_blocked(monkeypatch, tmp_path):
     message = f"Explain the eligible benefits; only if firmware of {TARGET} is newer than qa-12.08."
     orch = make_orchestrator(monkeypatch, tmp_path, message)
-    monkeypatch.setattr(orch, "_delegate_to_specialist", lambda **kwargs: pytest.fail("Unsupported dependent lookup escaped"))
+    calls = []
+    def read_only(**kwargs):
+        calls.append(kwargs['target_agent'])
+        assert kwargs['target_agent'] == 'CUSTOMER_SUPPORT_AGENT'
+        assert TARGET in kwargs['sub_query']
+        return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='read only',
+            tools_called=['diagnose_terminal_issue'], tool_results=[diagnostic()])
+    monkeypatch.setattr(orch, "_delegate_to_specialist", read_only)
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
     assert all(row["state"] == "unresolved" for row in out.request_coverage)
-    assert not out.tools_called
+    assert calls == ['CUSTOMER_SUPPORT_AGENT']
+    assert out.tools_called == ['diagnose_terminal_issue']
+
+
+def assert_read_only_target(reads):
+    """E2E contract 3: unknown own predicates allow read, never disclosure/write."""
+    assert [name for name, _ in reads] == ['diagnose_terminal_issue']
+    assert reads[0][1]['terminal_id'] == TARGET
 
 
 def registry_reads(monkeypatch, tmp_path, *, firmware="qa-12.07", status="Online", success=True):
@@ -352,13 +366,13 @@ def test_sentence_postfix_blocks_all_dependent_registry_retrieval(monkeypatch, t
     f"Only if firmware of {TARGET} is newer than qa-12.08.",
     f"Somente se o firmware do terminal {TARGET} estiver atualizado.",
 ])
-def test_unknown_sentence_postfix_never_reaches_any_registry_read(monkeypatch, tmp_path, condition):
+def test_unknown_sentence_postfix_allows_only_target_registry_read(monkeypatch, tmp_path, condition):
     message = "Tell me the eligible benefits. " + condition
     orch = make_orchestrator(monkeypatch, tmp_path, message)
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
     reads = registry_reads(monkeypatch, tmp_path)
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert reads == []
+    assert_read_only_target(reads)
     assert all(row["state"] == "unresolved" for row in out.request_coverage)
 
 
@@ -425,7 +439,7 @@ def test_postfix_does_not_drop_an_unknown_qualifier_before_benefits(monkeypatch,
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert reads == [], "An unparsed qualification must not authorize a read or disclosure"
+    assert_read_only_target(reads)
 
 
 def test_direct_status_question_cannot_exempt_a_dependent_disclosure(monkeypatch, tmp_path):
@@ -434,7 +448,7 @@ def test_direct_status_question_cannot_exempt_a_dependent_disclosure(monkeypatch
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
     reads = registry_reads(monkeypatch, tmp_path)
     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert reads == []
+    assert_read_only_target(reads)
 
 
 CONTRAST_POSTFIX_CASES = [
@@ -480,14 +494,14 @@ def test_contrast_postfix_requires_exact_positive_registry_read_before_retrieval
 
 
 @pytest.mark.parametrize("disclosure,connector,predicate", CONTRAST_POSTFIX_CASES)
-def test_unknown_contrast_postfix_blocks_all_registry_reads(
+def test_unknown_contrast_postfix_allows_only_target_registry_read(
         monkeypatch, tmp_path, disclosure, connector, predicate):
     message = f"{disclosure}. {connector} {predicate} and the device is certified."
     orch = make_orchestrator(monkeypatch, tmp_path, message)
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert reads == []
+    assert_read_only_target(reads)
     assert all(row["state"] == "unresolved" for row in out.request_coverage)
 
 
@@ -556,7 +570,7 @@ def test_direct_status_variants_do_not_exempt_same_sentence_dependent_disclosure
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert reads == []
+    assert_read_only_target(reads)
 
 
 PLAIN_POSTFIX_CASES = [
@@ -657,13 +671,15 @@ def test_native_router_plain_postfix_never_probes_or_executes_dependent_content_
 
 
 @pytest.mark.parametrize("disclosure,connector,predicate", PLAIN_POSTFIX_CASES)
-def test_native_router_unknown_plain_postfix_never_probes_or_executes_any_read(
+def test_native_router_unknown_plain_postfix_only_reads_target_without_probe(
         monkeypatch, tmp_path, disclosure, connector, predicate):
     message = f"{disclosure}. {connector} {predicate} and the device is certified."
     orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
-    assert events == [("checker", message)]
-    assert reads == []
+    assert events[0] == ("checker", message)
+    assert not [event for event in events if event[0] == 'retrieve']
+    assert [value.tool_name for kind, value in events if kind == 'completed'] == ['diagnose_terminal_issue']
+    assert_read_only_target(reads)
     assert all(row["state"] == "unresolved" for row in out.request_coverage)
 
 
@@ -698,8 +714,9 @@ def test_native_router_keeps_ordinary_probe_while_unknown_postfix_is_blocked(mon
     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
     queries = [value for kind, value in events if kind == "retrieve"]
     assert queries and all(query.strip() == independent for query in queries)
-    assert [name for name, _ in reads] == ["search_getnet_knowledge"]
-    assert reads[0][1]["query"] == independent
+    assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+    assert reads[0][1]["terminal_id"] == TARGET
+    assert reads[1][1]["query"] == independent
     assert any(row.action == "conditional_lookup_blocked" for row in out.trace)
 
 

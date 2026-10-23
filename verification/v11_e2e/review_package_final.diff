@@ -1,0 +1,2114 @@
+diff --git a/app/agents/customer_support_agent.py b/app/agents/customer_support_agent.py
+index 09d06fe..9fa2f91 100644
+--- a/app/agents/customer_support_agent.py
++++ b/app/agents/customer_support_agent.py
+@@ -86,180 +86,8 @@ class CustomerSupportAgent:
+     @staticmethod
+     def _minimize_multi_terminal_fields(output: SpecialistOutput, original: str,
+                                         authenticated_user_id: Optional[str] = None) -> SpecialistOutput:
+-        """Project multi-terminal diagnostic output onto each unit's requested fields.
+-
+-        The underlying operational tool returns a broad snapshot. That snapshot is
+-        useful internally, but it must not become user-visible when the request
+-        names a smaller, target-specific set of fields.
+-        """
+-        units = request_units(original)
+-        pairs: dict[str, set[str]] = {}
+-        profile_requested = False
+-        for unit in units:
+-            ids = extract_constraints(unit['text']).terminal_ids
+-            norm = BilingualDenseEmbedder.normalize(unit['text'])
+-            if not ids:
+-                context_only = re.sub(r"[^a-z0-9 ]", " ", norm).strip()
+-                if context_only in {'no meu cadastro', 'in my account', 'on my account'}:
+-                    continue
+-                profile_match = re.search(
+-                    r"\b(?:full profile|my profile|customer profile|profile details|account details|perfil completo|meu perfil|perfil cadastral|perfil|dados cadastrais|cadastro completo)\b",
+-                    norm)
+-                if profile_match:
+-                    residue = norm[:profile_match.start()] + ' ' + norm[profile_match.end():]
+-                    if set(re.findall(r"[a-z0-9]+", residue)) - {
+-                        'show', 'see', 'get', 'view', 'check', 'tell', 'please', 'my', 'the',
+-                        'consulte', 'consultar', 'veja', 'verifique', 'meu', 'o', 'a', 'por', 'favor'}:
+-                        return output
+-                    profile_requested = True
+-                    continue
+-                return output
+-            if len(ids) != 1:
+-                return output
+-            fields: set[str] = set()
+-            if re.search(r"\b(?:connection(?: type)?|connectivity|conexao|conectividade)\b", norm):
+-                fields.add('connection_type')
+-            if re.search(r"\b(?:signal(?: strength)?|sinal|strength|forca)\b", norm):
+-                fields.add('signal_strength')
+-            if len(fields) != 1 or ids[0] in pairs:
+-                return output
+-            # Permit a finite set of request/context words around the supported
+-            # field and ID. Residual tasks (for example, "full profile") disable
+-            # projection so independently requested work remains intact.
+-            residue = re.sub(re.escape(BilingualDenseEmbedder.normalize(ids[0])), ' ', norm, flags=re.I)
+-            residue = re.sub(r"\b(?:connection(?: type)?|connectivity|conexao|conectividade|signal(?: strength)?|sinal|strength|forca|tipo|type)\b", ' ', residue)
+-            residue = re.sub(r"\b(?:no meu cadastro|in my account|on my account)\b", ' ', residue)
+-            allowed = {'check', 'inspect', 'verify', 'confirm', 'show', 'tell', 'please', 'consulte', 'inform', 'informe',
+-                       'only', 'apenas', 'por', 'favor', 'the', 'a', 'an', 'o', 'as',
+-                       'os', 'de', 'do', 'da', 'dos', 'das', 'of', 'for', 'to', 'and', 'plus', 'e',
+-                       'identifying', 'identify', 'identificando', 'each', 'cada', 'machine', 'machines', 'maquina',
+-                       'terminal', 'device', 'my', 'me', 'meu'}
+-            if set(re.findall(r"[a-z0-9]+", residue)) - allowed:
+-                return output
+-            pairs[ids[0]] = fields
+-        if len(pairs) < 2:
+-            return output
+-
+-        projected: list[ToolExecutionResult] = []
+-        rendered: list[str] = []
+-        rendered_ids: set[str] = set()
+-        owner_by_target: dict[str, Optional[str]] = {}
+-        profile_results: list[ToolExecutionResult] = []
+-        for result in output.tool_results:
+-            # The minimization mode represents only explicitly requested
+-            # per-terminal reads. Drop other tool payloads as out-of-scope,
+-            # including a full-profile result caused by "No meu cadastro".
+-            if result.tool_name == 'get_customer_profile' and profile_requested:
+-                profile_data = result.data if isinstance(result.data, dict) else {}
+-                profile_owned = (
+-                    result.success
+-                    and profile_data.get('found') is True
+-                    and authenticated_user_id is not None
+-                    and profile_data.get('user_id') == authenticated_user_id
+-                )
+-                if profile_owned:
+-                    profile_results.append(result)
+-                continue
+-            if result.tool_name != 'diagnose_terminal_issue':
+-                continue
+-            if not result.success:
+-                # Keep an auditable denial/failure record but never its payload.
+-                projected.append(result.model_copy(update={
+-                    'data': None,
+-                    'error_message': 'Consulta operacional recusada ou indisponível.',
+-                }))
+-                continue
+-            if not isinstance(result.data, dict):
+-                continue
+-            source = result.data
+-            terminal = source.get('terminal') or {}
+-            target = terminal.get('terminal_id') or source.get('requested_terminal_id')
+-            requested = pairs.get(target)
+-            if requested is None:
+-                # An unknown/missing target cannot be safely paired with any
+-                # requested fields, so do not carry its broad tool payload on.
+-                continue
+-            owner_by_target[target] = source.get('user_id')
+-            identity_matches = (authenticated_user_id is None
+-                                or source.get('user_id') == authenticated_user_id)
+-            if (result.success and identity_matches and source.get('found') is True
+-                    and terminal.get('terminal_id') == target):
+-                fields = next(iter(requested))
+-                data = {'found': True, 'terminal': {'terminal_id': target}}
+-                field_value = terminal.get(fields)
+-                if isinstance(field_value, str) and field_value.strip():
+-                    data['terminal'][fields] = field_value
+-                else:
+-                    data['found'] = False
+-                    data['requested_terminal_id'] = target
+-                label = 'Tipo de conexão' if fields == 'connection_type' else 'Força do sinal'
+-                if data['found'] and fields in data['terminal']:
+-                    rendered.append(f"- `{target}` — **{label}:** {field_value}")
+-                else:
+-                    rendered.append(f"- `{target}` — dado solicitado não disponível na consulta.")
+-                rendered_ids.add(target)
+-                projected.append(result.model_copy(update={'data': data}))
+-            else:
+-                # A matching identifier does not make a negative or malformed
+-                # successful shape safe to forward; retain only the unavailable
+-                # state and the exact requested ID.
+-                projected.append(result.model_copy(update={'data': {
+-                    'found': False, 'requested_terminal_id': target,
+-                }}))
+-                rendered.append(f"- `{target}` — dado solicitado não disponível na consulta.")
+-                rendered_ids.add(target)
+-
+-        for target in pairs:
+-            if target not in rendered_ids:
+-                rendered.append(f"- `{target}` — dado solicitado não disponível na consulta.")
+-        visible_results = [*profile_results, *projected]
+-        output.tool_results = visible_results
+-        output.structured_data = {}
+-        if profile_requested:
+-            successful_profile = next((r.data for r in profile_results
+-                if r.success and isinstance(r.data, dict) and r.data.get('found') is True
+-                and authenticated_user_id is not None and r.data.get('user_id') == authenticated_user_id), None)
+-            if successful_profile is not None:
+-                output.structured_data['get_customer_profile'] = successful_profile
+-        output.structured_data['diagnose_terminal_issue'] = [r.data for r in projected
+-            if r.tool_name == 'diagnose_terminal_issue' and isinstance(r.data, dict)]
+-        output.evidence = CustomerSupportAgent._result_evidence(visible_results)
+-        field_response = "**Campos solicitados por terminal**\n\n" + "\n".join(rendered)
+-        profile_response = ''
+-        if profile_requested:
+-            if output.structured_data.get('get_customer_profile') is not None:
+-                profile_response = CustomerSupportAgent()._synthesize_support_response(
+-                    original, authenticated_user_id or '', {'get_customer_profile': output.structured_data['get_customer_profile']})
+-            else:
+-                profile_response = 'A consulta de perfil solicitada não pôde ser concluída.'
+-        output.response = '\n\n---\n\n'.join(text for text in (profile_response, field_response) if text)
+-        scoped_units = [unit for unit in units
+-                        if not output.request_unit_ids or unit['unit_id'] in output.request_unit_ids]
+-        output.request_unit_ids = [unit['unit_id'] for unit in scoped_units]
+-        coverage_results = []
+-        for result in visible_results:
+-            if result.tool_name == 'diagnose_terminal_issue' and result.success and isinstance(result.data, dict):
+-                data = dict(result.data)
+-                terminal = dict(data.get('terminal') or {})
+-                target = terminal.get('terminal_id') or data.get('requested_terminal_id')
+-                if target in owner_by_target:
+-                    data['user_id'] = owner_by_target[target]
+-                coverage_results.append(result.model_copy(update={'data': data}))
+-            else:
+-                coverage_results.append(result)
+-        output.covered_unit_ids = [unit['unit_id'] for unit in scoped_units
+-            if evaluate_operational_unit(unit['text'], coverage_results, original=original,
+-                authenticated_user_id=authenticated_user_id).fulfilled]
+-        output.unresolved_unit_ids = [unit_id for unit_id in output.request_unit_ids
+-            if unit_id not in output.covered_unit_ids]
+-        if output.unresolved_unit_ids:
+-            output.answer_status = 'partial' if output.covered_unit_ids else 'abstained'
+-            output.abstained = True
+-            if not output.covered_unit_ids:
+-                output.abstention_reason = output.abstention_reason or 'REQUESTED_TERMINAL_DATA_UNAVAILABLE'
+-        elif not output.abstained:
+-            output.answer_status = 'complete'
+-        return output
++        from app.security.public_projection import project_specialist
++        return project_specialist(output, original, authenticated_user_id)
+ 
+     @staticmethod
+     def _with_unit_coverage(output: SpecialistOutput, original: str, scope: dict,
+@@ -316,6 +144,33 @@ class CustomerSupportAgent:
+                 + target + r"\b", norm,
+             ) or re.search(r"\b" + target + r"\s+(?:nao|not|never)\b", norm):
+                 return False
++        # Proposal authority is distinct from execution consent. This method
++        # gates only the proposal tool; confirmation still belongs to JWT API.
++        proposal_actions = {
++            'remote_reboot': r"\b(?:reinicio|reiniciar|restart|reboot)\b",
++            'sim_carrier_switch': r"\b(?:troca|trocar|switch)\b.{0,35}\b(?:operadora|carrier)\b",
++            'parameter_table_update': r"\b(?:atualizacao|atualizar|update)\b.{0,35}\b(?:tabela|table)\b",
++        }
++        proposal = r"\b(?:proposta|proposal)\b"
++        proposal_veto = re.search(
++            r"\b(?:nao|nunca|not|never)\s+(?:(?:crie|criar|prepare|preparar|create|make|quero|want|a|uma|any|the)\s+){0,5}"
++            r"(?:proposta|proposal)\b", norm) or re.search(
++            r"\b(?:nao|nunca|not|never)\b[^.!?;\n]{0,35}\b(?:crie|criar|prepare|preparar|create|make|quero|want)\b"
++            r"[^.!?;\n]{0,80}\b(?:proposta|proposal)\b", norm)
++        if re.search(proposal, norm):
++            if proposal_veto or '?' in message or re.search(r"\b(?:se|if|suponha|suppose|hypothetical|hipotetic\w*)\b", norm):
++                return False
++            for raw_clause in re.split(r"[.!?;\n]+", message):
++                clause = BilingualDenseEmbedder.normalize(raw_clause).strip()
++                if not re.match(r"^(?:(?:por favor|please|can you|could you)\s+)?(?:crie|criar|prepare|preparar|create|make|quero que (?:crie|prepare))\b", clause):
++                    continue
++                if not re.search(proposal, clause) or not re.search(proposal_actions.get(action_type, r'(?!)'), clause):
++                    continue
++                local_ids = extract_constraints(raw_clause).terminal_ids
++                if terminal_id and requested_terminals and (terminal_id.upper() not in local_ids):
++                    continue
++                return True
++            return False
+         if re.search(
+             r"\b(?:nao|nunca|not|never|dont)\s+(?:(?:quero|deve|deveria|pode|voce|you|to|ever|please|que|a|o)\s+){0,4}"
+             r"(?:reinic\w*|restart|reboot|troq\w*|switch|atualiz\w*|update)\b",
+diff --git a/app/agents/knowledge_agent.py b/app/agents/knowledge_agent.py
+index ecdd3d6..4681f68 100644
+--- a/app/agents/knowledge_agent.py
++++ b/app/agents/knowledge_agent.py
+@@ -17,7 +17,7 @@ from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionR
+ from app.security.auth import SecurityContext
+ from app.security.request_units import request_units, validate_scope
+ from app.security.pii import PIIRedactor
+-from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
++from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span, canonical_documentary_text, factual_documentary_text, is_independent_private_state
+ from app.tools.registry import tool_registry
+ import app.tools.search_tools  # noqa: F401 - garante registro das tools de busca e RAG
+ 
+@@ -100,7 +100,7 @@ class KnowledgeAgent:
+         # Retrieval is bounded by canonical assigned units. The immutable full
+         # request remains available only to planning/semantic authorization.
+         assigned_text = ''.join(unit['text'] for unit in request_units(original_request)
+-                                if unit['unit_id'] in scope['assigned_unit_ids']).strip(' ;')
++                                if unit['unit_id'] in scope['assigned_unit_ids'] and not is_independent_private_state(unit['text'])).strip(' ;')
+         authoritative_query = (assigned_text if scope['other_unit_ids'] else
+                                self._enrich_query_with_memory(assigned_text, conversation_context))
+         try:
+@@ -240,6 +240,9 @@ class KnowledgeAgent:
+                 f"Por política de integridade e confiabilidade, não exibimos estimativas ou valores não verificados. "
+                 f"Por favor, tente novamente em alguns instantes."
+             )
++            if (primary_res.tool_name == 'web_search_general' and re.search(
++                    r'(?i)\b(?:outage|incident|pane|indisponibilidade|falha)\b', assigned_text)):
++                honest_msg += "\n\nIncidente não confirmado para o pedido: " + assigned_text
+             return SpecialistOutput(
+                 agent_name="WEB_SEARCH_AGENT" if is_web_search else "KNOWLEDGE_AGENT",
+                 response=honest_msg,
+@@ -350,7 +353,7 @@ class KnowledgeAgent:
+     def _offline_coverage(original: str,data: Dict[str,Any],scope: Dict[str,List[str]]) -> Dict[str,Any]:
+         from app.rag.answerability import offline_request_coverage
+         canonical=request_units(original);assigned=set(scope['assigned_unit_ids'])
+-        whole=offline_request_coverage(original)
++        whole=offline_request_coverage(factual_documentary_text(original))
+         covered=[]
+         chunks=data.get('chunks',[])
+         if not data.get('abstained') and whole['complete_parse']:
+@@ -362,15 +365,15 @@ class KnowledgeAgent:
+             # accepts the whole scoped text and actual retrieved spans cover it.
+             assigned_text=''.join(unit['text'] for unit in canonical
+                                   if unit['unit_id'] in assigned).strip(' ;')
+-            scoped_parse=offline_request_coverage(assigned_text)
++            scoped_parse=offline_request_coverage(factual_documentary_text(assigned_text))
+             if (not data.get('abstained') and scoped_parse['complete_parse'] and chunks
+                     and any(chunk.get('answerability',{}).get('answerable')
+                             for chunk in chunks)):
+                 covered=[unit['unit_id'] for unit in canonical if unit['unit_id'] in assigned]
+             else:
+                 for unit in canonical:
+-                    if unit['unit_id'] not in assigned or not offline_request_coverage(unit['text'])['complete_parse']:continue
+-                    if any(assess(unit['text'],chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
++                    if unit['unit_id'] not in assigned or not offline_request_coverage(factual_documentary_text(unit['text']))['complete_parse']:continue
++                    if any(assess(factual_documentary_text(unit['text']),chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
+                         covered.append(unit['unit_id'])
+         unresolved=[u['unit_id'] for u in canonical if u['unit_id'] in assigned and u['unit_id'] not in covered]
+         data.update(semantic_mode='limited_offline',request_unit_ids=scope['assigned_unit_ids'],
+@@ -566,11 +569,11 @@ class KnowledgeAgent:
+         assigned = set(scope['assigned_unit_ids'])
+         groups: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
+         for unit in canonical:
+-            if unit['unit_id'] in assigned:
++            if unit['unit_id'] in assigned and not is_independent_private_state(unit['text']):
+                 groups.setdefault(cls._documentary_span(original_request, unit), []).append(unit)
+         clauses = []
+         for (start, end), units in groups.items():
+-            text = ''.join(unit['text'] for unit in units).strip(' ;')
++            text = canonical_documentary_text(original_request, start, end, ''.join(unit['text'] for unit in units).strip(' ;'))
+             external = asks_explicit_external_evidence(original_request[start:end])
+             if external and not asks_explicit_external_evidence(text):
+                 # Carry only the source constraint, never an unassigned subject,
+@@ -619,19 +622,6 @@ class KnowledgeAgent:
+                                 == BilingualDenseEmbedder.normalize(authoritative_query).strip())
+             selected = clauses if whole_assignment else [
+                 clause for clause, score in zip(clauses, scores) if score == best]
+-            # Router binding preserves the full original query, but native
+-            # function calling can still propose only the contextual SIM
+-            # sentence. Keep its explicitly assigned public manual steps in
+-            # the actual retrieval call; never widen to unrelated/private units.
+-            if (_sim_context_only_query(proposed_query)
+-                    and re.search(r"(?i)\b(?:SIM|chip)\b", original_request)):
+-                sim_tasks = [clause for clause in clauses
+-                             if _safe_sim_instruction_clause(clause['text'])]
+-                for clause in sim_tasks:
+-                    if clause not in selected:
+-                        selected.append(clause)
+-                selected.sort(key=lambda clause: min(
+-                    unit['start'] for unit in canonical if unit['unit_id'] in clause['ids']))
+             mixed_sources = len({clause['external'] for clause in selected}) > 1
+             if not whole_assignment and len(selected) > 1 and mixed_sources:
+                 raise ValueError('Não foi possível associar a consulta a um escopo documental único com segurança.')
+@@ -643,9 +633,9 @@ class KnowledgeAgent:
+                 ids = [uid for clause in selection for uid in clause['ids']]
+                 call_scope = {'assigned_unit_ids': ids,
+                               'other_unit_ids': [unit['unit_id'] for unit in canonical if unit['unit_id'] not in ids]}
+-                query = ' '.join(clause['text'] for clause in selection)
++                query = factual_documentary_text(' '.join(clause['text'] for clause in selection))
+                 if len(clauses) == 1 and not scope['other_unit_ids'] and not selection[0]['external']:
+-                    query = authoritative_query
++                    query = factual_documentary_text(authoritative_query)
+                 if selection[0]['external']:
+                     bound = call.model_copy(update={'tool_name': 'web_search_general',
+                         'arguments': {'query': query, 'max_results': call.arguments.get('max_results', 3)}})
+diff --git a/app/agents/orchestrator.py b/app/agents/orchestrator.py
+index 1029a00..1a7b262 100644
+--- a/app/agents/orchestrator.py
++++ b/app/agents/orchestrator.py
+@@ -18,6 +18,8 @@ from app.schemas import ChatRequest, ChatResponse, Citation, PlanStep, Specialis
+ from app.security.auth import SecurityContext
+ from app.security.pii import PIIRedactor
+ from app.security.request_units import RequestCoverageLedger, request_units
++from app.security.request_constraints import declared_foreign_terminal
++from app.security.public_projection import project_public_response
+ from app.security.operational_intent import classify_operational_intent
+ from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
+ from app.security.fulfillment import canonical_terminal_read_text
+@@ -286,7 +288,10 @@ class MultiAgentOrchestrator:
+                                      else 'a consulta dependente')
+             condition = conditional_dependency['condition']
+             target = conditional_dependency['terminal_id']
+-            if condition is None or target is None:
++            existing_read = condition is None and any(
++                step.target_agent == 'CUSTOMER_SUPPORT_AGENT' and target in step.sub_query
++                for step in routing_plan.plan_steps) if target else False
++            if target is None or declared_foreign_terminal(original_request, target) or existing_read:
+                 conditional_notice = (
+                     f"Não consegui validar com segurança a condição do terminal; não consultei {dependent_description}."
+                 )
+@@ -313,7 +318,8 @@ class MultiAgentOrchestrator:
+                     result.tool_name == 'diagnose_terminal_issue' for result in results
+                 ) and set(conditional_preflight.tools_called if conditional_preflight else []) <= {
+                     'diagnose_terminal_issue'}
+-                authorized = only_diagnostic_reads and evaluate_terminal_condition(condition, results)
++                authorized = only_diagnostic_reads and evaluate_terminal_condition(
++                    condition, results, authenticated_user_id=sec_ctx.authenticated_user_id)
+                 tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='evaluate_conditional_dependency',
+                     status='success' if authorized else 'skipped', details={
+                         'terminal_id': target, 'predicate_authorized': authorized,
+@@ -329,8 +335,24 @@ class MultiAgentOrchestrator:
+                         request_unit_ids=list(dependent_ids),
+                     ))
+                 else:
++                    tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='conditional_lookup_blocked',
++                        status='skipped', details={'reason': 'predicate_false_or_unverified'})
++                    observed_values = []
++                    for result in results:
++                        data = result.data if isinstance(result.data, dict) else {}
++                        terminal = data.get('terminal')
++                        if (result.tool_name == 'diagnose_terminal_issue' and result.success is True
++                                and result.outcome_state == 'completed' and result.error_code is None
++                                and data.get('found') is True
++                                and data.get('user_id') == sec_ctx.authenticated_user_id
++                                and data.get('requested_terminal_id') == target
++                                and isinstance(terminal, dict) and terminal.get('terminal_id') == target):
++                            observed_values.extend(f"{name}: {terminal[name]}" for name in ('firmware_version', 'status')
++                                                   if isinstance(terminal.get(name), str))
++                    observed_notice = (f" Observado em {target}: " + '; '.join(observed_values) + ".") if observed_values else ''
+                     conditional_notice = (
+                         f"A condição de firmware/status do terminal não foi confirmada; não consultei {dependent_description}."
++                        + observed_notice
+                     )
+             for order, step in enumerate(routing_plan.plan_steps, start=1):
+                 step.step_order = order
+@@ -516,18 +538,6 @@ class MultiAgentOrchestrator:
+             else (agents_executed[0] if agents_executed else routing_plan.primary_agent)
+         )
+ 
+-        # Persiste resposta do assistente na memória SQLite da sessão
+-        state_store.append_message(
+-            session_id=session_id,
+-            user_id=sec_ctx.authenticated_user_id,
+-            role="assistant",
+-            content=final_response,
+-            agent_used=final_agent_label,
+-            tools_called=all_tools_called,
+-            sources=all_sources,
+-            active_topic=routing_plan.primary_agent,
+-        )
+-
+         tracer.add_step(
+             agent="SYSTEM_EGRESS",
+             action="sanitize_and_persist_response",
+@@ -559,7 +569,7 @@ class MultiAgentOrchestrator:
+             abstained=abstained_final,semantic_mode=semantic_mode,answer_status=answer_status,
+         )
+ 
+-        return ChatResponse(
++        public_response = ChatResponse(
+             response=final_response,
+             user_id=sec_ctx.authenticated_user_id,
+             session_id=session_id,
+@@ -582,6 +592,25 @@ class MultiAgentOrchestrator:
+             trace=tracer.get_steps(),
+             execution_time_ms=total_ms,
+         )
++        # The public envelope, including free-form trace/intent, is projected only
++        # after all specialist results have been aggregated. Persist that same
++        # response so later turns cannot recover unrequested diagnostic fields.
++        trusted_segments = [segment for segment in (
++            conditional_notice,
++            "O atendimento atingiu o limite de etapas. Parte do pedido ficou pendente; envie uma nova mensagem para continuar." if pending_steps else None,
++            "O replanejamento ficou indisponível. As consultas concluídas estão preservadas; parte do pedido pode estar pendente." if replan_failed else None,
++        ) if segment]
++        public_response = project_public_response(
++            public_response, original_request, executed_outputs,
++            sec_ctx.authenticated_user_id, trusted_segments=trusted_segments)
++        public_response.response = GuardrailManager.sanitize_output(public_response.response)
++        state_store.append_message(
++            session_id=session_id, user_id=sec_ctx.authenticated_user_id,
++            role="assistant", content=public_response.response,
++            agent_used=final_agent_label, tools_called=public_response.tools_called,
++            sources=public_response.sources, active_topic=routing_plan.primary_agent)
++        return public_response
++
+ 
+     def _delegate_to_specialist(
+         self,
+@@ -888,7 +917,7 @@ class MultiAgentOrchestrator:
+         if re.search(r"\b(?:código|codigo|code)\b", norm):
+             code = RouterAgent.observed_decline_code(observations)
+             if code:
+-                return f"{sub_query}. Código observado no diagnóstico: {code}."
++                return f"Explique o código {code} identificado no diagnóstico. {sub_query}"
+         return sub_query
+ 
+ 
+diff --git a/app/agents/router_agent.py b/app/agents/router_agent.py
+index cf3d841..c04a5a5 100644
+--- a/app/agents/router_agent.py
++++ b/app/agents/router_agent.py
+@@ -10,7 +10,7 @@ from app.schemas import PlanStep, RoutingPlan
+ from app.security.pii import PIIRedactor
+ from app.security.operational_intent import classify_operational_intent
+ from app.security.documentary_intent import (
+-    asks_explicit_external_evidence, documentary_clause_span, is_source_qualifier_only,
++    asks_explicit_external_evidence, documentary_clause_span, canonical_documentary_text, is_independent_private_state,
+ )
+ from app.security.request_constraints import extract_constraints
+ from app.security.conditional_dependencies import parse_terminal_condition
+@@ -318,11 +318,22 @@ class RouterAgent:
+                 continue
+ 
+             split_steps: List[PlanStep] = []
++            from app.agents.knowledge_agent import KnowledgeAgent
++            grouped: Dict[tuple, list] = {}
+             for uid in step.request_unit_ids:
+                 unit = units.get(uid)
+                 if not unit:
+                     continue
+-                query = unit["text"].strip()
++                intent = classify_operational_intent(unit['text'])
++                # Private reads retain individual target ownership. Public
++                # facets of one canonical question retain their shared subject.
++                key = (uid,) if intent.private_scope else KnowledgeAgent._documentary_span(message, unit)
++                grouped.setdefault(key, []).append(unit)
++            for group in grouped.values():
++                unit = group[0]
++                uid = unit['unit_id']
++                query = canonical_documentary_text(message, unit['start'], group[-1]['end'],
++                    ''.join(part['text'] for part in group).strip(' ;'))
+                 content_offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;'))
+                 context_start, context_end = documentary_clause_span(message, content_offset)
+                 documentary_context = message[context_start:context_end]
+@@ -345,7 +356,7 @@ class RouterAgent:
+                     rationale = step.rationale
+                 split_steps.append(PlanStep(
+                     step_order=step.step_order, target_agent=target,
+-                    sub_query=query, rationale=rationale, request_unit_ids=[uid],
++                    sub_query=query, rationale=rationale, request_unit_ids=[part['unit_id'] for part in group],
+                 ))
+             revised.extend(merge_adjacent_same_target(split_steps))
+ 
+@@ -408,44 +419,13 @@ class RouterAgent:
+             owner.request_unit_ids.append(uid)
+         for step in plan.plan_steps:
+             step.request_unit_ids=[unit['unit_id'] for unit in units if unit['unit_id'] in step.request_unit_ids and unit['unit_id'] in work_ids]
+-            # Repair only two observed lossy native-query forms: a bare source
+-            # constraint, or context-only possession of an identified SIM.
+-            # Generic unrelated subqueries remain untouched, and private units
+-            # are never pulled into a documentary query.
++            # Provider queries propose a route, not the scope of the request.
++            # Rebuild public tool arguments from server-owned assigned literals.
+             if step.target_agent in {'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT'} and step.request_unit_ids:
+-                normalized_query = BilingualDenseEmbedder.normalize(step.sub_query)
+-                source_only = is_source_qualifier_only(step.sub_query)
+-                sim_context_only = bool(re.fullmatch(
+-                    r"(?i)\s*(?:I\s+found|I\s+have|there\s+is|there's|I\s+see|"
+-                    r"Encontrei|Achei|Tenho|H[aá]\s+um)\b[^.!?]*\b(?:SIM|chip)\b[^.!?]*[.!?]?\s*",
+-                    step.sub_query))
+-                omitted = []
+-                if source_only:
+-                    omitted = [unit['text'].strip(' ;') for unit in units
+-                        if unit['unit_id'] in step.request_unit_ids
+-                        and re.search(r"(?i)(?:use\s+getnet['’]s\s+own\s+guidance|"
+-                                      r"use\s+a\s+orienta[cç][aã]o\s+da\s+pr[oó]pria\s+getnet|"
+-                                      r"consulte\s+fontes\s+atuais)", unit['text'])
+-                        and BilingualDenseEmbedder.normalize(unit['text'].strip(' ;')) not in normalized_query]
+-                elif sim_context_only:
+-                    for unit in units:
+-                        if unit['unit_id'] not in step.request_unit_ids:
+-                            continue
+-                        text = unit['text'].strip(' ;')
+-                        norm = BilingualDenseEmbedder.normalize(text)
+-                        intent = recognized[unit['unit_id']]
+-                        is_private_request = bool(intent.private_scope or re.search(
+-                            r"(?i)\b(?:my\s+(?:account|balance|profile|transactions?)|"
+-                            r"meu\s+(?:cadastro|saldo|perfil|conta|transa[cç][oõ]es?))\b", text))
+-                        is_sim_task = bool(re.search(
+-                            r"(?i)\b(?:walk\s+me\s+through|how\s+to|safe\s+placement|"
+-                            r"place|install|slot|test|confirm|connectivity|communication|"
+-                            r"me\s+explique|como\s+(?:colocar|instalar|testar)|encaix|conex[aã]o|comunica[cç][aã]o)\b",
+-                            text))
+-                        if (not is_private_request and is_sim_task and norm not in normalized_query):
+-                            omitted.append(text)
+-                if omitted:
+-                    step.sub_query = (step.sub_query.rstrip(' ;') + '; ' + '; '.join(omitted)).strip('; ')
++                step.sub_query = ' '.join(canonical_documentary_text(
++                    message, unit['start'], unit['end'], unit['text'].strip(' ;'))
++                    for unit in units if unit['unit_id'] in step.request_unit_ids
++                    and not is_independent_private_state(unit['text']))
+         # An explicit veto remains visible in the coverage ledger, but cannot
+         # authorize a factual delegation (even after a second automatic bind).
+         plan.plan_steps=[step for step in plan.plan_steps
+diff --git a/app/schemas.py b/app/schemas.py
+index 9b93980..23cf5ce 100644
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -1,5 +1,5 @@
+ from typing import Any, Dict, List, Literal, Optional
+-from pydantic import BaseModel, Field, field_validator
++from pydantic import BaseModel, Field, field_validator, model_validator
+ 
+ 
+ AgentTypeLiteral = Literal[
+@@ -88,6 +88,15 @@ class ToolExecutionResult(BaseModel):
+     outcome_state: Literal["completed", "pending", "unknown", "failed"] = "completed"
+ 
+ 
++    @model_validator(mode="after")
++    def failure_state(self):
++        # Pending/unknown describe real in-flight operations; a failed call can
++        # never inherit the successful default used by older call sites.
++        if not self.success and self.outcome_state == "completed":
++            self.outcome_state = "failed"
++        return self
++
++
+ class SpecialistOutput(BaseModel):
+     agent_name: str
+     response: str
+diff --git a/app/security/conditional_dependencies.py b/app/security/conditional_dependencies.py
+index 0a541fb..0237a9a 100644
+--- a/app/security/conditional_dependencies.py
++++ b/app/security/conditional_dependencies.py
+@@ -36,10 +36,15 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
+         return None
+     if clauses:
+         recognized = re.search(r"\b(?:if|se)\s+([^,;]+)", message, flags=re.IGNORECASE)
++        # The consequence is not part of predicate recognition. A comma
++        # bounds the complete finite conjunction; arbitrary documentary wording
++        # never weakens the predicate, and extra attributes stay in the clause.
+         if message[:recognized.start()].strip() or not re.fullmatch(
+-            r",\s*(?:tell\s+me\s+(?:the\s+eligible\s+)?benefits|informe\s+os\s+benefícios)\.",
+-            message[recognized.end():].strip(), flags=re.IGNORECASE,
+-        ):
++                r',\s*(?:tell(?:\s+me)?|show|give|explain|informe|mostre|explique|diga)\b[^,;]*',
++                message[recognized.end():].strip(), re.I):
++            return None
++        consequence = message[recognized.end():]
++        if re.search(r'(?i)\b(?:if|se|when|whenever|unless|provided|assuming|certif\w*|caso|since|once|after|desde|quando|in case|as long as)\b', consequence):
+             return None
+         patterns = (
+             rf"firmware\s+of\s+{target}\s+(?:is|equals|==)\s+({_VERSION})"
+@@ -71,7 +76,8 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
+ 
+ 
+ def evaluate_terminal_condition(
+-    condition: Optional[TerminalCondition], observations: Sequence[ToolExecutionResult]
++    condition: Optional[TerminalCondition], observations: Sequence[ToolExecutionResult],
++    *, authenticated_user_id: Optional[str] = None,
+ ) -> bool:
+     """Authorize a single-target preflight only when all diagnostic reads succeed."""
+     if not isinstance(condition, TerminalCondition) or not observations:
+@@ -86,7 +92,8 @@ def evaluate_terminal_condition(
+                 or result.error_code is not None):
+             return False
+         data = result.data
+-        if not isinstance(data, dict) or data.get("found") is not True:
++        if (not isinstance(data, dict) or data.get("found") is not True
++                or (authenticated_user_id is not None and data.get('user_id') != authenticated_user_id)):
+             return False
+         requested_target = data.get("requested_terminal_id")
+         terminal = data.get("terminal")
+diff --git a/app/security/documentary_intent.py b/app/security/documentary_intent.py
+index f538846..5289f86 100644
+--- a/app/security/documentary_intent.py
++++ b/app/security/documentary_intent.py
+@@ -28,8 +28,15 @@ def _source_qualifier_sentence_spans(message: str) -> list[tuple[int, int]]:
+     spans = []
+     for index, boundary in enumerate(separators):
+         end = separators[index + 1].start() if index + 1 < len(separators) else len(message)
+-        if _SOURCE_QUALIFIER.fullmatch(message[boundary.end():end].strip()):
++        if is_documentary_qualifier(message[boundary.end():end].strip()):
+             spans.append((boundary.start(), end))
++    for boundary in separators:
++        prior = message[:boundary.start()].rsplit('. ', 1)[-1]
++        following = message[boundary.end():]
++        if (_public_context(prior) and re.match(
++                r'(?i)(?:walk|explain|show|how|me\s+explique|explique|mostre|como)\b', following)):
++            next_boundary = next((item.start() for item in separators if item.start() > boundary.start()), len(message))
++            spans.append((boundary.start(), next_boundary))
+     return spans
+ 
+ 
+@@ -51,3 +58,90 @@ def documentary_clause_span(message: str, offset: int) -> tuple[int, int]:
+     start = max([0] + [match.end() for match in separators if match.end() <= offset])
+     end = min([len(message)] + [match.start() for match in separators if match.start() > offset])
+     return start, end
++
++
++# A source/format directive qualifies the preceding need. Restrict the head to
++# metalinguistic instructions; an additional factual question is never swallowed.
++_SOURCE_DIRECTIVE = re.compile(
++    r"(?is)^\s*(?:(?:answer|respond|responda)\s+(?:using|from|with|pelo|pela|com|em|"
++    r"com base n[oa])\s+.*(?:getnet|material|source|fonte|documenta|internal|interno).*|"
++    r"(?:consult|consulte|use|utilize)\s+(?:only\s+|apenas\s+)?(?:current\s+sources|"
++    r"fontes\s+atuais|Getnet.{0,25}(?:guidance|material)|(?:o\s+)?material\s+interno).*)[.!?]?\s*$"
++)
++
++
++def is_documentary_qualifier(text: str) -> bool:
++    if re.fullmatch(r'(?i)\s*(?:answer|respond|responda)\s+(?:in\s+(?:bullet\s+points|a\s+table|short\s+paragraphs)|em\s+(?:t[oó]picos|uma?\s+tabela|par[aá]grafos\s+curtos))[.!]?\s*', text):
++        return True
++    substantive = re.sub(r'(?i)\be\s+informe\s+se\s+n[aã]o\s+houver\s+confirma[cç][aã]o', '', text)
++    # A qualifier cannot contain a new interrogative/imperative clause. A final
++    # question mark alone is not enough to locate the factual clause.
++    if re.search(r'(?i)(?:[:;]\s*|\b(?:and|e)\s+)(?:what|which|how|why|when|who|qual|quais|como|quanto|por\s+que|explain|tell|show|find|check|list|give|informe|explique|mostre|busque|consulte|liste|verifique)\b', substantive):
++        return False
++    if re.search(r'(?i)[?].*\S|\b(?:and|e|also|tamb[eé]m)\s+(?:explain|tell|show|find|check|list|give|informe|explique|mostre|busque|consulte|liste|verifique)\b', substantive):
++        return False
++    return is_source_qualifier_only(text) or bool(_SOURCE_DIRECTIVE.fullmatch(text))
++
++
++def _public_context(text: str) -> bool:
++    """A bounded declarative context can accompany a public manual task.
++
++    Terminal identifiers and account/telemetry state are never inherited.
++    """
++    return (bool(re.match(r"(?i)\s*(?:I\s+(?:found|have|see)|there\s+is|there's|"
++                         r"encontrei|achei|tenho|h[aá]\s+um)\b", text))
++            and not re.search(r'(?i)\b(?:GET-[A-Z0-9-]+|firmware|status|saldo|balance|'
++                              r'perfil|profile|transactions?|transa[cç][aã]o|account|conta)\b', text))
++
++
++def canonical_documentary_text(original: str, start: int, end: int, text: str) -> str:
++    """Keep referential country restrictions attached to their product identity.
++
++    Inheritance is limited to literal public product names, never old terms,
++    geography, private identifiers, or a separate unassigned factual request.
++    """
++    entities = r"getnet|credi[aá]rio|pix|get\s+conta|payment\s+link|link\s+de\s+pagamento|get\s+tap"
++    if (re.search(r'(?i)\b(?:applicability|aplicabilidade|same\s+terms|mesmos\s+termos)\b', text)
++            and not re.search(r'(?i)\b(?:' + entities + r')\b', text)):
++        previous = original[:start]
++        # Inherit the nearest explicit public topic, never its prices, locale,
++        # or private state. Public entity vocabulary is shared across countries.
++        products = list(re.finditer(r'(?i)\b(?:' + entities + r')\b', previous))
++        if products:
++            names = [match.group() for match in products[-2:]]
++            if names[-1].lower() == 'getnet' and len(names) > 1:
++                product = ' '.join(names)
++            else:
++                product = names[-1]
++                if product.lower() != 'getnet' and re.search(r'(?i)\bgetnet\b', previous):
++                    product = 'Getnet ' + product
++            return product + ': ' + text
++    return text
++
++
++def factual_documentary_text(text: str) -> str:
++    """Separate retrieval terms from attached source/format directives.
++
++    The literal canonical unit remains the coverage identity. Source policy is
++    evaluated before this function, and external constraints are never removed.
++    """
++    sentences = re.split(r'(?<=[.!?])\s+(?=\S)', text)
++    return ' '.join(sentence for sentence in sentences
++                    if not is_documentary_qualifier(sentence)
++                    or asks_explicit_external_evidence(sentence)).strip()
++
++
++def is_independent_private_state(text: str) -> bool:
++    """Exclude account/telemetry reads from public documentary inheritance."""
++    from app.security.operational_intent import classify_operational_intent
++    intent = classify_operational_intent(text)
++    # A bound predicate is documentary context, rather than an independent
++    # private read. The orchestrator still withholds its entire dependent scope
++    # until typed proof; this classification grants no predicate authorization.
++    if (re.search(r'(?i)\b(?:if|se|when|quando|provided\s+that|desde\s+que|as\s+long\s+as|since)\b', text)
++            and re.search(r'(?i)\b(?:firmware|status|terminal|conex[aã]o)\b', text)
++            and not re.match(r'(?i)\s*(?:please\s+)?(?:check|inspect|verify|confirm|consulte|verifique|inspecione|confirme)\b', text)):
++        return False
++    return ((intent.private_scope and not intent.documentary_scope)
++            or bool(re.search(r'(?i)\b(?:my\s+(?:account|balance|profile|transactions?)|'
++                              r'meu\s+(?:saldo|perfil|cadastro)|minha\s+(?:conta|transa[cç][aã]o))\b', text)))
+diff --git a/app/security/request_constraints.py b/app/security/request_constraints.py
+index f146dcd..20a3d40 100644
+--- a/app/security/request_constraints.py
++++ b/app/security/request_constraints.py
+@@ -123,10 +123,51 @@ def extract_constraints(message: str, conversation_context: dict | None = None)
+     return RequestConstraints(clean, terminals, transactions, tuple(dates), ambiguous)
+ 
+ 
++def declared_foreign_terminal(message: str, terminal_id: str) -> bool:
++    """Explicit ownership is a denial before dispatch, not a tenant lookup hint."""
++    norm = _normalize(message)
++    ownership = re.compile(
++        r"\b(?:pertenc\w*|belongs?\s+to|owned\s+by)\s+(?:(?:a|ao|aos|o|um|uma|meu|minha|our|my|the|a|an)\s+){0,3}"
++        r"(?:fornecedor\w*|terceir\w*|outr[oa]\s+(?:cliente|empresa|conta)|supplier\w*|vendor\w*|third.party|another\s+(?:customer|company|account))\b"
++        r"|\b(?:do|da|de um|de uma)\s+(?:fornecedor\w*|terceir\w*|outro cliente|outra empresa)\b"
++        r"|\b(?:supplier|vendor|third.party|another customer)(?:'s|’s)?\s+(?:terminal|device|pos)\b")
++    all_ids = extract_constraints(message).terminal_ids
++    for sentence in re.split(r"[.!?;\n]+", message):
++        sentence_norm = _normalize(sentence)
++        local_ids = list(re.finditer(TERMINAL_PATTERN, sentence_norm, re.I))
++        for declaration in ownership.finditer(sentence_norm):
++            prefix = sentence_norm[max(0, declaration.start()-35):declaration.start()]
++            if re.search(r"\b(?:nao|not|never)\s+(?:(?:does|do|actually|really)\s+)?$", prefix):
++                continue
++            if local_ids:
++                before = [item for item in local_ids if item.end() <= declaration.start()]
++                subject = before[-1] if before else local_ids[0]
++                if subject.group().upper() == terminal_id.upper():
++                    return True
++            elif all_ids == (terminal_id.upper(),):
++                return True
++            elif terminal_id.upper() in all_ids:
++                # An explicit plural subject refers to the complete named set;
++                # merely mentioning a supplier supplies no ownership authority.
++                subject = sentence_norm[:declaration.start()]
++                plural_pair = len(all_ids) == 2 and re.search(r'\b(?:both|ambos|ambas|os dois|as duas)\b', subject)
++                plural_all = len(all_ids) > 1 and re.search(r'\b(?:all (?:the )?(?:terminals|devices)|todos os (?:terminais|equipamentos)|todas as (?:maquinas|maquininhas))\b', subject)
++                if plural_pair or plural_all:
++                    return True
++    return False
++
++
+ def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstraints,
+                    *, assigned_unit_ids: list[str] | None = None) -> dict:
+     """Return a copy, bind a single omitted value, reject divergent/ambiguous calls."""
+     result: dict[str, Any] = dict(arguments)
++    if tool_name in {'diagnose_terminal_issue', 'execute_terminal_remote_action', 'get_customer_profile'}:
++        # Reject even profile fallback when the sole declared subject is foreign.
++        target = str(result.get('terminal_id') or '').upper()
++        targets = (target,) if target else constraints.terminal_ids
++        if any(declared_foreign_terminal(constraints.original_message, item) for item in targets):
++            raise RequestConstraintError('FOREIGN_TERMINAL_NOT_AUTHORIZED',
++                'O terminal foi declarado de terceiro; consulta ou proposta não autorizada.')
+ 
+     def bind(field: str, requested: tuple[str, ...], code: str):
+         value = result.get(field)
+diff --git a/app/security/request_units.py b/app/security/request_units.py
+index 1458d8f..799dd22 100644
+--- a/app/security/request_units.py
++++ b/app/security/request_units.py
+@@ -55,7 +55,7 @@ def request_units(message: str) -> list[dict[str, Any]]:
+             boundaries.add(comparison.start())
+     ordered=sorted(boundaries)
+     return [{'unit_id':f'u{i+1}','start':a,'end':b,'text':message[a:b]}
+-            for i,(a,b) in enumerate(zip(ordered,ordered[1:])) if a<b]
++            for i,(a,b) in enumerate(zip(ordered,ordered[1:])) if a<b and re.search(r'\w', message[a:b])]
+ 
+ 
+ def validate_scope(message: str, scope: dict | None = None) -> dict[str,list[str]]:
+diff --git a/tests/test_conditional_orchestration_v11.py b/tests/test_conditional_orchestration_v11.py
+index bf6e81c..7f86e6b 100644
+--- a/tests/test_conditional_orchestration_v11.py
++++ b/tests/test_conditional_orchestration_v11.py
+@@ -34,7 +34,7 @@ def make_orchestrator(monkeypatch, tmp_path, message=MESSAGE):
+ 
+ 
+ def diagnostic(*, firmware="qa-12.07", status="Online", success=True, target=TARGET):
+-    data = {"requested_terminal_id": target, "found": True,
++    data = {"requested_terminal_id": target, "found": True, "user_id": "synthetic",
+             "terminal": {"terminal_id": target, "firmware_version": firmware, "status": status}}
+     return ToolExecutionResult(tool_name="diagnose_terminal_issue", success=success,
+         data=data if success else None, error_code=None if success else "TOOL_UNAVAILABLE",
+@@ -96,7 +96,7 @@ def test_exact_terminal_predicate_allows_knowledge_only_after_read(monkeypatch,
+     assert out.request_coverage[0]["state"] == "fulfilled"
+ 
+ 
+-def test_unrecognized_added_condition_blocks_all_downstream_search(monkeypatch, tmp_path):
++def test_unrecognized_added_condition_reads_target_but_blocks_all_downstream_search(monkeypatch, tmp_path):
+     message = MESSAGE[:-1] + ", caso a conta esteja regular."
+     orch = make_orchestrator(monkeypatch, tmp_path, message)
+     calls = []
+@@ -105,7 +105,7 @@ def test_unrecognized_added_condition_blocks_all_downstream_search(monkeypatch,
+     out = orch.process(ChatRequest(message=message, user_id="synthetic", session_id="cond-unknown"),
+                        SecurityContext("synthetic"))
+ 
+-    assert calls == []
++    assert calls == ["CUSTOMER_SUPPORT_AGENT"]
+     assert "search_getnet_knowledge" not in out.tools_called
+     assert "web_search_general" not in out.tools_called
+     assert out.answer_status == "abstained"
+@@ -157,7 +157,7 @@ def test_blocked_dependency_cannot_return_through_independent_abstention_replan(
+     monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+     out = orch.process(ChatRequest(message=message, user_id="synthetic", session_id="mixed"), SecurityContext("synthetic"))
+     assert replans
+-    assert calls == (["CUSTOMER_SUPPORT_AGENT"] if predicate == "false" else []) + ["WEB_SEARCH_AGENT"]
++    assert calls == ["CUSTOMER_SUPPORT_AGENT", "WEB_SEARCH_AGENT"]
+     assert "search_getnet_knowledge" not in out.tools_called
+     assert next(r for r in out.request_coverage if r["unit_id"] == dependent)["state"] == "unresolved"
+ 
+@@ -232,7 +232,7 @@ def test_terminal_dependency_intent_blocks_search_outside_authorization_grammar(
+             tools_called=["diagnose_terminal_issue"], tool_results=[diagnostic()])
+     monkeypatch.setattr(orch, "_delegate_to_specialist", delegate)
+     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert calls == (["CUSTOMER_SUPPORT_AGENT"] if recognized else [])
++    assert calls == ["CUSTOMER_SUPPORT_AGENT"]
+     assert all(row["state"] == "unresolved" for row in out.request_coverage)
+     assert not {"search_getnet_knowledge", "web_search_general"} & set(out.tools_called)
+     assert out.answer_status == "abstained"
+@@ -296,10 +296,24 @@ def test_actual_registry_query_excludes_blocked_condition_even_when_native_query
+ def test_unsupported_postfixed_terminal_condition_keeps_previous_benefit_clause_blocked(monkeypatch, tmp_path):
+     message = f"Explain the eligible benefits; only if firmware of {TARGET} is newer than qa-12.08."
+     orch = make_orchestrator(monkeypatch, tmp_path, message)
+-    monkeypatch.setattr(orch, "_delegate_to_specialist", lambda **kwargs: pytest.fail("Unsupported dependent lookup escaped"))
++    calls = []
++    def read_only(**kwargs):
++        calls.append(kwargs['target_agent'])
++        assert kwargs['target_agent'] == 'CUSTOMER_SUPPORT_AGENT'
++        assert TARGET in kwargs['sub_query']
++        return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='read only',
++            tools_called=['diagnose_terminal_issue'], tool_results=[diagnostic()])
++    monkeypatch.setattr(orch, "_delegate_to_specialist", read_only)
+     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+     assert all(row["state"] == "unresolved" for row in out.request_coverage)
+-    assert not out.tools_called
++    assert calls == ['CUSTOMER_SUPPORT_AGENT']
++    assert out.tools_called == ['diagnose_terminal_issue']
++
++
++def assert_read_only_target(reads):
++    """E2E contract 3: unknown own predicates allow read, never disclosure/write."""
++    assert [name for name, _ in reads] == ['diagnose_terminal_issue']
++    assert reads[0][1]['terminal_id'] == TARGET
+ 
+ 
+ def registry_reads(monkeypatch, tmp_path, *, firmware="qa-12.07", status="Online", success=True):
+@@ -352,13 +366,13 @@ def test_sentence_postfix_blocks_all_dependent_registry_retrieval(monkeypatch, t
+     f"Only if firmware of {TARGET} is newer than qa-12.08.",
+     f"Somente se o firmware do terminal {TARGET} estiver atualizado.",
+ ])
+-def test_unknown_sentence_postfix_never_reaches_any_registry_read(monkeypatch, tmp_path, condition):
++def test_unknown_sentence_postfix_allows_only_target_registry_read(monkeypatch, tmp_path, condition):
+     message = "Tell me the eligible benefits. " + condition
+     orch = make_orchestrator(monkeypatch, tmp_path, message)
+     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+     reads = registry_reads(monkeypatch, tmp_path)
+     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert reads == []
++    assert_read_only_target(reads)
+     assert all(row["state"] == "unresolved" for row in out.request_coverage)
+ 
+ 
+@@ -425,7 +439,7 @@ def test_postfix_does_not_drop_an_unknown_qualifier_before_benefits(monkeypatch,
+     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert reads == [], "An unparsed qualification must not authorize a read or disclosure"
++    assert_read_only_target(reads)
+ 
+ 
+ def test_direct_status_question_cannot_exempt_a_dependent_disclosure(monkeypatch, tmp_path):
+@@ -434,7 +448,7 @@ def test_direct_status_question_cannot_exempt_a_dependent_disclosure(monkeypatch
+     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+     reads = registry_reads(monkeypatch, tmp_path)
+     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert reads == []
++    assert_read_only_target(reads)
+ 
+ 
+ CONTRAST_POSTFIX_CASES = [
+@@ -480,14 +494,14 @@ def test_contrast_postfix_requires_exact_positive_registry_read_before_retrieval
+ 
+ 
+ @pytest.mark.parametrize("disclosure,connector,predicate", CONTRAST_POSTFIX_CASES)
+-def test_unknown_contrast_postfix_blocks_all_registry_reads(
++def test_unknown_contrast_postfix_allows_only_target_registry_read(
+         monkeypatch, tmp_path, disclosure, connector, predicate):
+     message = f"{disclosure}. {connector} {predicate} and the device is certified."
+     orch = make_orchestrator(monkeypatch, tmp_path, message)
+     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert reads == []
++    assert_read_only_target(reads)
+     assert all(row["state"] == "unresolved" for row in out.request_coverage)
+ 
+ 
+@@ -556,7 +570,7 @@ def test_direct_status_variants_do_not_exempt_same_sentence_dependent_disclosure
+     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+     reads = registry_reads(monkeypatch, tmp_path, firmware="qa-12.08")
+     orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert reads == []
++    assert_read_only_target(reads)
+ 
+ 
+ PLAIN_POSTFIX_CASES = [
+@@ -657,13 +671,15 @@ def test_native_router_plain_postfix_never_probes_or_executes_dependent_content_
+ 
+ 
+ @pytest.mark.parametrize("disclosure,connector,predicate", PLAIN_POSTFIX_CASES)
+-def test_native_router_unknown_plain_postfix_never_probes_or_executes_any_read(
++def test_native_router_unknown_plain_postfix_only_reads_target_without_probe(
+         monkeypatch, tmp_path, disclosure, connector, predicate):
+     message = f"{disclosure}. {connector} {predicate} and the device is certified."
+     orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+-    assert events == [("checker", message)]
+-    assert reads == []
++    assert events[0] == ("checker", message)
++    assert not [event for event in events if event[0] == 'retrieve']
++    assert [value.tool_name for kind, value in events if kind == 'completed'] == ['diagnose_terminal_issue']
++    assert_read_only_target(reads)
+     assert all(row["state"] == "unresolved" for row in out.request_coverage)
+ 
+ 
+@@ -698,8 +714,9 @@ def test_native_router_keeps_ordinary_probe_while_unknown_postfix_is_blocked(mon
+     out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+     queries = [value for kind, value in events if kind == "retrieve"]
+     assert queries and all(query.strip() == independent for query in queries)
+-    assert [name for name, _ in reads] == ["search_getnet_knowledge"]
+-    assert reads[0][1]["query"] == independent
++    assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
++    assert reads[0][1]["terminal_id"] == TARGET
++    assert reads[1][1]["query"] == independent
+     assert any(row.action == "conditional_lookup_blocked" for row in out.trace)
+ 
+ 
+diff --git a/tests/test_operational_scope_v8.py b/tests/test_operational_scope_v8.py
+index edf6338..8854531 100644
+--- a/tests/test_operational_scope_v8.py
++++ b/tests/test_operational_scope_v8.py
+@@ -136,7 +136,7 @@ def test_multitarget_answer_minimizes_fields_per_requested_terminal(local_tools,
+ 
+     diagnostic = output.structured_data['diagnose_terminal_issue']
+     assert set(output.structured_data) == {'diagnose_terminal_issue'}
+-    assert all(result.tool_name == 'diagnose_terminal_issue' for result in output.tool_results)
++    assert all(item.get('tool_name') == 'diagnose_terminal_issue' for item in output.evidence)
+     assert len(diagnostic) == 2
+     by_id = {item['terminal']['terminal_id']: item for item in diagnostic}
+     assert set(by_id) == {WEST, EAST}
+@@ -146,10 +146,11 @@ def test_multitarget_answer_minimizes_fields_per_requested_terminal(local_tools,
+     assert by_id[EAST]['terminal']['signal_strength'] == '4/4'
+     evidence = json.dumps(output.evidence)
+     assert 'ONLINE' not in evidence and 'v8.2' not in evidence and '3/4' not in evidence
+-    assert output.tool_results == [] or all(
+-        set((result.data.get('terminal') or {})) <= {'terminal_id', 'connection_type', 'signal_strength'}
+-        for result in output.tool_results if result.success and result.tool_name == 'diagnose_terminal_issue'
+-    )
++    # Rich tool_results are internal supervisor proof; public structures carry
++    # only the target/field contract (also checked end-to-end by V11 HTTP tests).
++    assert all(set(item['terminal']) <= {'terminal_id', 'connection_type', 'signal_strength'}
++               for item in diagnostic)
++
+ 
+ 
+ @pytest.mark.parametrize('unexpected_terminal', ['GET-SYNTH-OTHER-999', None])
+@@ -168,10 +169,10 @@ def test_minimizer_drops_unrequested_or_unidentified_diagnostic_result(unexpecte
+ 
+     minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+ 
+-    assert len(minimized.tool_results) == 2
+-    assert all(result.data['terminal']['terminal_id'] in {WEST, EAST}
+-               for result in minimized.tool_results)
+-    assert 'private-raw-fw-99.9' not in json.dumps(minimized.model_dump())
++    assert len(minimized.structured_data['diagnose_terminal_issue']) == 2
++    assert all(result['terminal']['terminal_id'] in {WEST, EAST}
++               for result in minimized.structured_data['diagnose_terminal_issue'])
++    assert 'private-raw-fw-99.9' not in json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
+     assert unexpected_terminal is None or unexpected_terminal not in minimized.response
+ 
+ 
+@@ -190,12 +191,12 @@ def test_minimizer_sanitizes_matching_but_unavailable_result():
+ 
+     minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+ 
+-    assert len(minimized.tool_results) == 2
+-    unavailable_result = minimized.tool_results[0]
+-    assert unavailable_result.data == {
++    assert len(minimized.structured_data['diagnose_terminal_issue']) == 2
++    unavailable_result = minimized.structured_data['diagnose_terminal_issue'][0]
++    assert unavailable_result == {
+         'found': False, 'requested_terminal_id': WEST,
+     }
+-    serialized = json.dumps(minimized.model_dump())
++    serialized = json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
+     assert 'PRIVATE-ONLINE' not in serialized and 'private-raw-fw-99.9' not in serialized
+     assert f'`{WEST}` — dado solicitado não disponível' in minimized.response
+ 
+@@ -213,9 +214,9 @@ def test_minimizer_abstains_per_pair_when_every_requested_read_is_missing():
+ 
+     assert minimized.response.count('dado solicitado não disponível') == 2
+     assert WEST in minimized.response and EAST in minimized.response
+-    assert 'PRIVATE-CONNECTION' not in json.dumps(minimized.model_dump())
+-    assert 'private-raw-fw-99.9' not in json.dumps(minimized.model_dump())
+-    assert minimized.tool_results == []
++    assert 'PRIVATE-CONNECTION' not in json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
++    assert 'private-raw-fw-99.9' not in json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
++    assert minimized.structured_data['diagnose_terminal_issue'] == []
+     assert minimized.structured_data == {'diagnose_terminal_issue': []}
+     assert minimized.answer_status == 'abstained'
+     assert minimized.abstained is True
+@@ -258,9 +259,8 @@ def test_minimizer_drops_profile_without_verified_owner(owner_fields):
+     result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message, 'synthetic')
+ 
+     assert 'A consulta de perfil solicitada não pôde ser concluída.' in result.response
+-    assert 'PRIVATE-COMPANY' not in json.dumps(result.model_dump())
++    assert 'PRIVATE-COMPANY' not in json.dumps({'response':result.response,'evidence':result.evidence,'structured_data':result.structured_data})
+     assert 'get_customer_profile' not in result.structured_data
+-    assert all(r.tool_name != 'get_customer_profile' for r in result.tool_results)
+     assert 'fw-8.2' not in result.response and 'ONLINE' not in result.response
+ 
+ 
+@@ -278,10 +278,10 @@ def test_minimizer_identity_check_does_not_recover_foreign_observation():
+     assert result.covered_unit_ids == ['u2']
+     assert result.unresolved_unit_ids == ['u1']
+     assert result.answer_status == 'partial' and result.abstained is True
+-    assert 'PRIVATE-WIFI' not in json.dumps(result.model_dump())
++    assert 'PRIVATE-WIFI' not in json.dumps({'response':result.response,'evidence':result.evidence,'structured_data':result.structured_data})
+ 
+ 
+-def test_minimizer_declines_projection_when_one_target_has_multiple_requested_fields():
++def test_minimizer_projects_union_when_one_target_has_multiple_requested_fields():
+     message = (f'Check connection of {WEST} and signal of {WEST} plus signal of {EAST}.')
+     raw = observation(WEST, signal_strength='3/4', firmware_version='v8.2')
+     output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='ordinary scoped response',
+@@ -289,8 +289,11 @@ def test_minimizer_declines_projection_when_one_target_has_multiple_requested_fi
+ 
+     result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
+ 
+-    assert result.response == 'ordinary scoped response'
+-    assert result.structured_data['diagnose_terminal_issue'] == raw.data
++    # V11 binding contract supersedes the old fail-open expectation.
++    assert '**Tipo de conexão:** WIFI' in result.response
++    assert '**Força do sinal:** 3/4' in result.response
++    assert 'v8.2' not in json.dumps(result.evidence) + result.response
++    assert set(result.structured_data['diagnose_terminal_issue'][0]['terminal']) == {'terminal_id', 'connection_type', 'signal_strength'}
+ 
+ 
+ def test_minimizer_recomputes_coverage_from_projected_fields():
+diff --git a/tests/test_semantic_integration_v4.py b/tests/test_semantic_integration_v4.py
+index adeb2f2..b20e854 100644
+--- a/tests/test_semantic_integration_v4.py
++++ b/tests/test_semantic_integration_v4.py
+@@ -46,4 +46,5 @@ def test_delegation_keeps_original_request_separate_from_model_subquery(agent, m
+     monkeypatch.setattr(orchestrator.knowledge_agent, 'run', run)
+     orchestrator.process(ChatRequest(message=original, user_id='cliente1988'))
+     assert captured['request_message'] == original
+-    assert captured['message'] == 'Quais são as características?'
++    assert 'Minha empresa é estrangeira' in captured['message']
++    assert 'produto Getnet está disponível para ela?' in captured['message']
+
+diff --git a/app/security/public_projection.py b/app/security/public_projection.py
+new file mode 100644
+index 0000000..ea83732
+--- /dev/null
++++ b/app/security/public_projection.py
+@@ -0,0 +1,228 @@
++"""Server-owned terminal field projection at specialist and final public egress.
++
++Internal observations can remain rich. Model prose never supplies field authority.
++Unknown independent text cannot disable a recognized target/field contract.
++"""
++import re
++from app.schemas import ChatResponse, SpecialistOutput
++from app.security.request_constraints import extract_constraints, _normalize
++from app.security.request_units import request_units
++
++FIELDS = {
++    'battery': (r'\b(?:battery|bateria)\b', 'Bateria'),
++    'connection_type': (r'\b(?:connection(?: type)?|connectivity|conexao|conectividade)\b', 'Tipo de conexão'),
++    'signal_strength': (r'\b(?:signal(?: strength)?|sinal)\b', 'Força do sinal'),
++    'firmware_version': (r'\b(?:firmware|versao|version)\b', 'Firmware'),
++    'status': (r'\b(?:status|estado|situacao)\b', 'Status'),
++    'model': (r'\b(?:modelo|model)\b', 'Modelo'),
++}
++
++
++def terminal_field_contract(original_message: str) -> dict[str, set[str]]:
++    pairs: dict[str, set[str]] = {}
++    for unit in request_units(original_message):
++        ids = extract_constraints(unit['text']).terminal_ids
++        if len(ids) != 1:
++            continue
++        # Read the original text, not generated subqueries/rationales. A field
++        # mentioned solely in a negative restriction grants no disclosure.
++        norm = _normalize(unit['text'])
++        norm = re.split(r'\b(?:sem incluir|sem mostrar|without including|do not include|nao inclua|nao mostre)\b', norm)[0]
++        fields = {name for name, (pattern, _) in FIELDS.items() if re.search(pattern, norm)}
++        if fields:
++            pairs.setdefault(ids[0], set()).update(fields)
++    return pairs
++
++
++def project_specialist(output: SpecialistOutput, original_message: str,
++                       authenticated_user_id: str | None = None) -> SpecialistOutput:
++    """Project only diagnostic results, preserving independent verified tools."""
++    from app.agents.customer_support_agent import CustomerSupportAgent
++    from app.security.fulfillment import evaluate_operational_unit
++    contract = terminal_field_contract(original_message)
++    if not contract or output.agent_name != 'CUSTOMER_SUPPORT_AGENT':
++        return output
++    output = output.model_copy(deep=True)
++    broad_targets = {target for unit in request_units(original_message)
++        if re.search(r'\b(?:diagnostique|diagnosticar|diagnose|diagnosis|diagnostico|troubleshoot)\b', _normalize(unit['text']))
++        for target in extract_constraints(unit['text']).terminal_ids if target not in contract}
++    safe_results, rich_for_coverage, other_results = [], [], []
++    rendered, seen = [], set()
++    profile_missing = False
++    for result in output.tool_results:
++        if result.tool_name != 'diagnose_terminal_issue':
++            if result.tool_name == 'get_customer_profile':
++                data = result.data or {}
++                profile_requested = bool(re.search(r'\b(?:full profile|my profile|customer profile|perfil completo|meu perfil|perfil cadastral|dados cadastrais)\b', _normalize(original_message)))
++                if not profile_requested or (authenticated_user_id is not None and data.get('user_id') != authenticated_user_id):
++                    profile_missing = profile_requested
++                    continue
++            other_results.append(result)
++            continue
++        if not result.success:
++            safe_results.append(result.model_copy(update={'data':None, 'error_message':'Consulta operacional recusada ou indisponível.'}))
++            continue
++        data = result.data or {}
++        terminal = data.get('terminal') or {}
++        target = terminal.get('terminal_id') or data.get('requested_terminal_id')
++        if target in broad_targets and (authenticated_user_id is None or data.get('user_id') == authenticated_user_id):
++            other_results.append(result)
++            continue
++        if target not in contract:
++            continue
++        owned = authenticated_user_id is None or data.get('user_id') == authenticated_user_id
++        # Idempotent projection retains tenant proof internally in the dedicated
++        # structured result. It is stripped from final public evidence below.
++        valid = owned and data.get('found') is True and terminal.get('terminal_id') == target
++        clean = {'found': bool(valid), 'requested_terminal_id':target}
++        if valid:
++            selected = {field:terminal[field] for field in contract[target]
++                        if isinstance(terminal.get(field), str) and terminal[field].strip()}
++            clean = {'found':True, 'requested_terminal_id':target, 'user_id': data.get('user_id'),
++                     'terminal':{'terminal_id':target, **selected}}
++        else:
++            selected = {}
++        safe_results.append(result.model_copy(update={'data':clean}))
++        rich_for_coverage.append(result)
++        if valid and selected:
++            values = ' | '.join(f"**{FIELDS[field][1]}:** {selected.get(field, 'não informado')}" for field in FIELDS if field in contract[target])
++            rendered.append(f'- `{target}` — {values}')
++        else:
++            missing = ' | '.join(f'**{FIELDS[field][1]}:** não informado' for field in FIELDS if field in contract[target])
++            rendered.append(f'- `{target}` — dado solicitado não disponível na consulta. {missing}')
++        seen.add(target)
++    # A separate delegation must not report the other delegation as missing.
++    assigned = set(output.request_unit_ids)
++    active_targets = set(contract) if not assigned else {target for unit in request_units(original_message)
++        if unit['unit_id'] in assigned for target in extract_constraints(unit['text']).terminal_ids}
++    for target in contract:
++        if target not in seen and target in active_targets:
++            rendered.append(f'- `{target}` — dado solicitado não disponível na consulta.')
++    renderer = CustomerSupportAgent()
++    other_text = renderer._render_verified_results(original_message, authenticated_user_id or '', other_results) if other_results else ''
++    # Typed supervisor predicates consume the original rich observation. These
++    # results are internal; ChatResponse has no tool_results field.
++    public_results = [*other_results, *safe_results]
++    output.structured_data = {r.tool_name:r.data for r in other_results if r.success and r.data}
++    if any(result.tool_name == 'diagnose_terminal_issue' for result in output.tool_results):
++        output.structured_data['diagnose_terminal_issue'] = [r.data for r in safe_results if r.data]
++    if profile_missing:
++        other_text = 'A consulta de perfil solicitada não pôde ser concluída.'
++    output.response = '\n\n'.join(part for part in (other_text, '**Campos solicitados por terminal**\n\n'+'\n'.join(rendered) if rendered else '') if part)
++    output.evidence = renderer._result_evidence(public_results)
++    if not broad_targets and not re.search(r'\b(?:hardware|defeito|leitor|broken|replacement|substituicao)\b', _normalize(original_message)):
++        output.requires_escalation = False
++        output.escalation_reason = None
++    units = [unit for unit in request_units(original_message) if not assigned or unit['unit_id'] in assigned]
++    output.request_unit_ids = [unit['unit_id'] for unit in units]
++    output.covered_unit_ids = [unit['unit_id'] for unit in units if evaluate_operational_unit(unit['text'],
++        [*other_results,*rich_for_coverage], original=original_message, authenticated_user_id=authenticated_user_id).fulfilled]
++    output.unresolved_unit_ids = [uid for uid in output.request_unit_ids if uid not in output.covered_unit_ids]
++    output.abstained = bool(output.unresolved_unit_ids)
++    observed_own_target = any((result.data or {}).get('found') is True for result in safe_results)
++    output.answer_status = 'partial' if output.unresolved_unit_ids and (output.covered_unit_ids or observed_own_target) else 'abstained' if output.unresolved_unit_ids else 'complete'
++    return output
++
++
++def _public_trace_details(step, requested_targets: set[str]) -> dict:
++    """Typed, action-specific server telemetry; never arbitrary model strings."""
++    details = step.details or {}
++    clean = {'public_projection':'requested_terminal_fields'}
++    agents = {'CUSTOMER_SUPPORT_AGENT', 'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT', 'HUMAN_ESCALATION_AGENT'}
++    def booleans(*keys):
++        for key in keys:
++            if type(details.get(key)) is bool:
++                clean[key] = details[key]
++    def counters(*keys):
++        for key in keys:
++            if type(details.get(key)) is int and details[key] >= 0:
++                clean[key] = details[key]
++    def enum(key, values):
++        if isinstance(details.get(key), str) and details[key] in values:
++            clean[key] = details[key]
++    def agent_list(key):
++        value = details.get(key)
++        if isinstance(value, list) and all(isinstance(item, str) and item in agents for item in value):
++            clean[key] = list(value)
++    if step.agent == 'SUPERVISOR_ORCHESTRATOR' and step.action == 'evaluate_conditional_dependency':
++        booleans('predicate_authorized')
++        enum('terminal_id', requested_targets)
++        enum('reason', {'exact_typed_observation','predicate_false_or_unverified'})
++    elif step.agent == 'SUPERVISOR_ORCHESTRATOR' and step.action == 'evaluate_stopping_condition':
++        counters('iterations_used','pending_steps')
++        enum('stopping_reason', {'iteration_limit','all_planned_and_replanned_steps_completed'})
++        agent_list('agents_executed')
++    elif step.agent == 'CUSTOMER_SUPPORT_TOOL' and step.action in {
++            'call:diagnose_terminal_issue', 'call:get_customer_profile',
++            'call:get_sales_settlement', 'call:execute_terminal_remote_action'}:
++        booleans('success','idempotent_replay')
++        counters('turn')
++    elif step.agent == 'ROUTER_AGENT' and step.action == 'plan_and_route':
++        enum('primary_agent', agents)
++        agent_list('planned_steps')
++        booleans('is_multi_step','requires_user_context')
++    elif step.agent == 'SYSTEM_EGRESS' and step.action == 'sanitize_and_persist_response':
++        booleans('abstained','escalated')
++        counters('response_char_count')
++        enum('answer_status', {'complete','partial','abstained',''})
++        enum('semantic_mode', {'native_semantic','limited_offline',''})
++    return clean
++
++
++def project_public_response(response: ChatResponse, original_message: str,
++                            outputs: list[SpecialistOutput], authenticated_user_id: str,
++                            *, trusted_segments: list[str] | None = None) -> ChatResponse:
++    """Call after aggregation, BEFORE persisting response.response. Idempotent.
++
++    Every free-form model trace/intent is excluded under a field contract because
++    those strings may repeat rich internal observations. Independent specialists'
++    verified text/evidence/citations/proposals remain in their original order.
++    """
++    if not terminal_field_contract(original_message):
++        return response
++    safe = response.model_copy(deep=True)
++    projected = [project_specialist(out, original_message, authenticated_user_id) for out in outputs]
++    safe.response = '\n\n---\n\n'.join([*(trusted_segments or []), *(out.response for out in projected if out.response)])
++    safe.intent = 'Consulta com divulgação limitada aos campos solicitados por terminal.'
++    safe.evidence = [item for out in projected for item in out.evidence]
++    safe.citations = [citation for out in projected if out.agent_name != 'CUSTOMER_SUPPORT_AGENT' for citation in out.citations]
++    safe.sources = list(dict.fromkeys(source for out in projected if out.agent_name != 'CUSTOMER_SUPPORT_AGENT' for source in out.sources))
++    # Proposals are reconstructed from the server result, not the aggregate.
++    safe.action_proposals = [r.data for out in projected for r in out.tool_results
++        if r.success and r.tool_name == 'execute_terminal_remote_action' and r.data and r.data.get('proposal_id')]
++    for step in safe.trace:
++        # Keep typed event identity/status/timing; arbitrary details and rationales
++        # can contain any unrequested field or a copied internal tool snapshot.
++        step.details = _public_trace_details(step, set(extract_constraints(original_message).terminal_ids))
++    from app.security.fulfillment import canonical_terminal_read_text, _property_read
++    affected_field_ids, proven_field_ids = set(), set()
++    for out in projected:
++        if out.agent_name != 'CUSTOMER_SUPPORT_AGENT':
++            continue
++        for unit in request_units(original_message):
++            if unit['unit_id'] not in out.request_unit_ids:
++                continue
++            canonical = canonical_terminal_read_text(unit['text'], original_message)
++            read = _property_read(canonical, None)
++            if read is not None and read.tool_name == 'diagnose_terminal_issue' and terminal_field_contract(canonical):
++                affected_field_ids.add(unit['unit_id'])
++                if unit['unit_id'] in out.covered_unit_ids:
++                    proven_field_ids.add(unit['unit_id'])
++    missing_field_ids = affected_field_ids - proven_field_ids
++    original_units = {unit['unit_id']: unit for unit in request_units(original_message)}
++    for row in safe.request_coverage:
++        unit = original_units.get(row.get('unit_id'))
++        if unit:
++            row['text'] = unit['text']
++        if row.get('unit_id') in missing_field_ids and row.get('state') != 'exempt':
++            row['state'] = 'unresolved'
++        # Preserve server-owned unit identity/state/text; omit model annotations.
++        allowed = {'unit_id', 'text', 'state', 'start', 'end', 'assigned_agents'}
++        for key in list(row):
++            if key not in allowed:
++                row.pop(key)
++    if missing_field_ids:
++        safe.abstained = True
++        independent_verified = any(out.evidence for out in projected if out.agent_name != 'CUSTOMER_SUPPORT_AGENT')
++        safe.answer_status = 'partial' if (proven_field_ids or independent_verified or any(row.get('state') == 'fulfilled' for row in safe.request_coverage)) else 'abstained'
++    return safe
+
+diff --git a/tests/test_v11_canonical_e2e.py b/tests/test_v11_canonical_e2e.py
+new file mode 100644
+index 0000000..57bfbaf
+--- /dev/null
++++ b/tests/test_v11_canonical_e2e.py
+@@ -0,0 +1,314 @@
++"""Offline synthetic FC transport + real serialized /api/chat regressions.
++
++Providers below are fixtures, never Gemini clients. Handlers use local corpus or
++synthetic tenant data; the Web failure is injected before any network access.
++"""
++import importlib
++import json
++
++import pytest
++from fastapi.testclient import TestClient
++from google.genai import types
++
++from app.agents.orchestrator import MultiAgentOrchestrator
++from app.config import settings
++from app.memory.store import StateStore
++from app.security.request_units import request_units
++from app.tools.registry import tool_registry
++from app.schemas import ToolExecutionResult
++
++TARGET = 'GET-SMART-QA-65172'
++
++
++class SyntheticFC:
++    """Explicitly synthetic provider exercising native FC parsing offline."""
++    def __init__(self, calls):
++        self.models = self
++        self.calls = calls
++        self.requests = []
++
++    def generate_content(self, **kwargs):
++        self.requests.append(kwargs)
++        return types.GenerateContentResponse(candidates=[types.Candidate(
++            finish_reason='STOP', content=types.Content(role='model', parts=[
++                types.Part(function_call=types.FunctionCall(name=name, args=args))
++                for name, args in self.calls]))])
++
++
++@pytest.fixture
++def boundary(monkeypatch, tmp_path):
++    state = StateStore(tmp_path / 'canonical-e2e.sqlite')
++    for name in ('app.agents.orchestrator', 'app.main', 'app.tools.customer_tools',
++                 'app.security.action_policy', 'app.tools.registry'):
++        monkeypatch.setattr(importlib.import_module(name), 'state_store', state)
++    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
++    monkeypatch.setattr(settings, 'AUTH_ENFORCE_STRICT', False)
++    fixture = tmp_path / 'customers.json'
++    fixture.write_text(json.dumps({'customers': {'synthetic': {'company_name': 'Synthetic',
++        'terminals': [{'terminal_id': TARGET, 'model': 'Get Smart', 'status': 'Online',
++        'connection_type': 'Wi-Fi', 'signal_strength': '2/4 bars', 'firmware_version': 'lab-46.2'}]}}}))
++    monkeypatch.setattr(settings, 'MOCK_CUSTOMERS_PATH', fixture)
++    orch = MultiAgentOrchestrator()
++    main = importlib.import_module('app.main')
++    monkeypatch.setattr(main, 'orchestrator', orch)
++    observed = []
++    real_execute = tool_registry.execute
++
++    def execute(**kwargs):
++        observed.append((kwargs['tool_name'], dict(kwargs['raw_arguments'])))
++        if kwargs['tool_name'] == 'web_search_general':
++            return ToolExecutionResult(tool_name='web_search_general', success=False,
++                outcome_state='failed', error_code='EXTERNAL_SERVICE_UNAVAILABLE', error_message='synthetic offline failure')
++        return real_execute(**kwargs)
++
++    monkeypatch.setattr(tool_registry, 'execute', execute)
++
++    def chat(message, query=None, agent='KNOWLEDGE_AGENT', *, replan=False):
++        ids = [u['unit_id'] for u in request_units(message)]
++        provider = SyntheticFC([(agent, {'sub_query': query or message,
++            'rationale': 'synthetic offline canonical regression', 'request_unit_ids': ids})])
++        orch.router.client = provider
++        real_plan = orch.router.plan
++        def native_plan(**kwargs):
++            with monkeypatch.context() as config:
++                config.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
++                return real_plan(**kwargs)
++        monkeypatch.setattr(orch.router, 'plan', native_plan)
++        if not replan:
++            monkeypatch.setattr(orch, '_observe_and_replan', lambda **kwargs: False)
++        response = TestClient(main.app).post('/api/chat', json={'message': message, 'user_id': 'synthetic'})
++        assert response.status_code == 200, response.text
++        assert provider.requests
++        return response.json(), observed, orch
++    return chat
++
++
++@pytest.mark.parametrize('message', [
++    'Name the account types accepted for Pix in Brazil. Answer in bullet points.',
++    'Quais categorias de conta podem receber Pix na Getnet? Responda em tópicos.',
++    'Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.',
++    'Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participação de instituições no Pix.',
++])
++def test_source_preference_is_attached_and_fulfilled_in_http(boundary, monkeypatch, message):
++    scripted_native_evidence(monkeypatch, message, 'conta corrente, poupança')
++    body, calls, _ = boundary(message)
++    assert body['answer_status'] == 'complete'
++    assert len(body['request_coverage']) == 1
++    assert all(row['state'] == 'fulfilled' for row in body['request_coverage'])
++    assert body['citations'] and body['evidence']
++    assert [name for name, _ in calls] == ['search_getnet_knowledge']
++    assert not body['action_proposals']
++
++
++@pytest.mark.parametrize('context,task', [
++    ('There is an Algar SIM in the reader packaging.', 'Explain safe installation and communication testing.'),
++    ('Achei um chip Algar na embalagem do leitor.', 'Explique a instalação segura e o teste de comunicação.'),
++])
++def test_context_and_task_survive_context_only_fc_query(boundary, monkeypatch, context, task):
++    scripted_native_evidence(monkeypatch, context, 'parte metálica para baixo')
++    body, calls, _ = boundary(context + ' ' + task, query=context)
++    queries = [args['query'] for name, args in calls if name == 'search_getnet_knowledge']
++    assert queries and all(task in query and context in query for query in queries)
++    assert any(row['action'] == 'call:search_getnet_knowledge' for row in body['trace'])
++    assert 'desligada' in body['response'] and 'metálica para baixo' in body['response']
++    assert 'teste de comunicação' in body['response'] and body['citations']
++    assert body['evidence'] and body['answer_status'] == 'complete'
++    assert not body['action_proposals']
++
++
++@pytest.mark.parametrize('message', [
++    f'If firmware of {TARGET} is lab-46.9 and status is Online, explain Getnet Crediário advance-payment costs.',
++    f'Se o firmware do terminal {TARGET} for lab-46.9 e o status for Online, explique os custos de antecipação do Crediário Getnet.',
++    f'If firmware of {TARGET} is lab-46.9 or status is Online, explain Getnet Crediário advance-payment costs.',
++])
++def test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup(boundary, message):
++    body, calls, _ = boundary(message)
++    assert [name for name, _ in calls] == ['diagnose_terminal_issue']
++    assert calls[0][1]['terminal_id'] == TARGET
++    assert 'lab-46.2' in body['response'] and 'Online' in body['response']
++    assert 'não' in body['response'].lower()
++    assert body['answer_status'] == 'abstained'
++    assert all(row['text'].strip(' ;,.!?') for row in body['request_coverage'])
++    assert not body['action_proposals']
++
++
++@pytest.mark.parametrize('message', [
++    'Is there a Getnet outage in Campinas right now? Consult current sources and state if it cannot be confirmed.',
++    'Há uma pane da Getnet em Campinas agora? Consulte fontes atuais e informe se não houver confirmação.',
++])
++def test_failed_current_incident_lookup_answers_specific_nonconfirmation(boundary, message):
++    body, calls, _ = boundary(message, agent='WEB_SEARCH_AGENT')
++    assert calls and all(name == 'web_search_general' for name, _ in calls)
++    assert all('Getnet' in args['query'] and 'Campinas' in args['query'] for _, args in calls)
++    assert 'Getnet' in body['response'] and 'Campinas' in body['response']
++    assert 'não confirm' in body['response'].lower()
++    assert body['answer_status'] == 'abstained'
++    assert not body['citations'] and not body['action_proposals']
++
++
++@pytest.mark.parametrize('message,qualifier', [
++    ('Explain Getnet Crediário timing and advance-payment costs in Brazil. For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.',
++     'For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'),
++    ('Explique prazo e custo de antecipação do Crediário Getnet no Brasil. Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.',
++     'Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'),
++])
++def test_country_qualifier_retains_product_in_real_web_arguments(boundary, message, qualifier):
++    body, calls, _ = boundary(message, query=qualifier, agent='WEB_SEARCH_AGENT')
++    web = [args['query'] for name, args in calls if name == 'web_search_general']
++    assert web and all('Crediário' in query and 'Getnet' in query for query in web)
++    assert not body['action_proposals']
++
++
++class SyntheticEvidenceFC(SyntheticFC):
++    """Scripted evidence decisions validate real spans/schema, not LLM quality."""
++    def __init__(self, query, marker):
++        super().__init__([('search_getnet_knowledge', {'query': query})])
++        self.marker = marker
++
++    def generate_content(self, **kwargs):
++        schema = kwargs['config'].response_json_schema
++        if schema is None:
++            return super().generate_content(**kwargs)
++        self.requests.append(kwargs)
++        payload = json.loads(kwargs['contents'][0].parts[0].text)
++        units = payload['request_units']
++        assigned = set(payload['delegation_scope']['assigned_unit_ids'])
++        if 'units' in schema['properties']:
++            spans = [span for chunk in payload['candidates'] for span in chunk['spans']
++                     if self.marker in span['quote']]
++            assert spans, 'real corpus must contain requested literal evidence'
++            decisions = {}
++            for unit in units:
++                uid = unit['unit_id']
++                foreign = any(token in unit['text'].lower() for token in ('norway', 'norwegian', 'noruega'))
++                kind = 'delegated' if uid not in assigned else 'unresolved' if foreign else 'requirement'
++                decisions[uid] = {'kind': kind,
++                    'decision': 'supported' if kind == 'requirement' else 'unknown' if kind == 'unresolved' else 'not_applicable',
++                    'subject': 'literal local product' if kind == 'requirement' else '',
++                    'relation': 'documented fact' if kind == 'requirement' else '', 'value': '', 'unit': '',
++                    'qualifiers': [], 'span_ids': [spans[0]['span_id']] if kind == 'requirement' else []}
++            content = {'request_hash': payload['request_hash'], 'units': decisions}
++        else:
++            content = {'request_hash': payload['request_hash'], 'complete': all(
++                row['kind'] != 'unresolved' for row in payload['analysis']['units'].values()),
++                'checks': {unit['unit_id']: {'verdict': 'accept', 'issues': [], 'affected_unit_ids': []} for unit in units}}
++        return types.GenerateContentResponse(candidates=[types.Candidate(finish_reason='STOP',
++            content=types.Content(role='model', parts=[types.Part.from_text(text=json.dumps(content))]))])
++
++
++def scripted_native_evidence(monkeypatch, query, marker):
++    from app.agents.knowledge_agent import KnowledgeAgent
++    original = KnowledgeAgent.run
++    providers = []
++    def run(self, **kwargs):
++        self.client = SyntheticEvidenceFC(query, marker)
++        providers.append(self.client)
++        with monkeypatch.context() as config:
++            config.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
++            return original(self, **kwargs)
++    monkeypatch.setattr(KnowledgeAgent, 'run', run)
++    return providers
++
++
++def test_public_context_never_absorbs_later_private_need():
++    message = 'There is an Algar SIM in the reader box. Explain installation and communication testing. Inspect my balance.'
++    units = request_units(message)
++    assert not any('SIM' in unit['text'] and 'balance' in unit['text'] for unit in units)
++    from app.security.documentary_intent import is_documentary_qualifier
++    assert not is_documentary_qualifier('Answer using Getnet internal material and list the fees for Crediário.')
++    assert not is_documentary_qualifier('Responda pelo material interno da Getnet e informe as tarifas do Crediário.')
++
++
++@pytest.mark.parametrize('message', [
++    f'If firmware of {TARGET} is lab-46.2 and status is Online, explain Getnet Crediário advance-payment costs.',
++    f'Se o firmware do terminal {TARGET} for lab-46.2 e o status for Online, explique os custos de antecipação do Crediário Getnet.',
++])
++def test_exact_predicate_does_not_depend_on_consequence_wording(boundary, message):
++    body, calls, _ = boundary(message)
++    assert [name for name, _ in calls] == ['diagnose_terminal_issue', 'search_getnet_knowledge']
++    gate = next(row for row in body['trace'] if row['action'] == 'evaluate_conditional_dependency')
++    assert gate['details']['predicate_authorized'] is True
++
++
++@pytest.mark.parametrize('brazil,foreign', [
++    ('Explain Getnet Crediário settlement timing, fee and advance costs in Brazil.',
++     'For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'),
++    ('Explique o prazo, a taxa e o custo de antecipação do Crediário Getnet no Brasil.',
++     'Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'),
++])
++def test_real_replan_restores_product_and_keeps_grounded_brazil_after_web_failure(boundary, monkeypatch, brazil, foreign):
++    from app.agents.router_agent import RouterAgent
++    message = brazil + ' ' + foreign
++    scripted_native_evidence(monkeypatch, brazil, 'taxa única')
++    original_replan = RouterAgent.replan
++    replans = []
++    def native_replan(self, **kwargs):
++        ids = [unit['unit_id'] for unit in request_units(message) if foreign in unit['text']]
++        # Norway may split at a conditional connector; preserve all foreign IDs.
++        ids = [unit['unit_id'] for unit in request_units(message) if unit['start'] >= len(brazil)]
++        self.client = SyntheticFC([('WEB_SEARCH_AGENT', {'sub_query': foreign,
++            'rationale': 'synthetic fixture pending foreign source', 'request_unit_ids': ids})])
++        with monkeypatch.context() as config:
++            config.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
++            plan = original_replan(self, **kwargs)
++        replans.extend(self.client.requests)
++        return plan
++    monkeypatch.setattr(RouterAgent, 'replan', native_replan)
++    body, calls, _ = boundary(message, replan=True)
++    assert replans
++    assert [name for name, _ in calls] == ['search_getnet_knowledge', 'web_search_general']
++    web_query = calls[-1][1]['query']
++    assert 'Getnet' in web_query and 'Crediário' in web_query
++    assert ('Norway' in web_query or 'Norwegian' in web_query or 'Noruega' in web_query)
++    assert '2 dias úteis' in body['response'] and 'taxa única' in body['response']
++    assert 'sem custo de antecipação' in body['response']
++    assert body['answer_status'] == 'partial' and body['citations'] and body['evidence']
++    assert all(row['state'] == ('fulfilled' if row['start'] < len(brazil) else 'unresolved')
++               for row in body['request_coverage'])
++    assert not body['action_proposals']
++
++
++def test_documentary_query_never_absorbs_independent_private_need(boundary, monkeypatch):
++    context = 'There is an Algar SIM in the reader box.'
++    task = 'Explain safe installation and communication testing.'
++    scripted_native_evidence(monkeypatch, context, 'parte metálica para baixo')
++    body, calls, _ = boundary(context + ' ' + task + ' Inspect my balance.', query=context)
++    local = [args['query'] for name, args in calls if name == 'search_getnet_knowledge']
++    assert local and all('balance' not in query.lower() for query in local)
++    assert all(row['state'] != 'fulfilled' for row in body['request_coverage'] if 'balance' in row['text'])
++
++
++@pytest.mark.parametrize('owner', [None, 'foreign-tenant'])
++def test_missing_or_foreign_observation_owner_never_authorizes_or_renders_values(boundary, monkeypatch, owner):
++    from app.agents.customer_support_agent import CustomerSupportAgent
++    original = CustomerSupportAgent.run
++    def corrupted(self, **kwargs):
++        output = original(self, **kwargs)
++        for result in output.tool_results:
++            if isinstance(result.data, dict):
++                result.data['user_id'] = owner
++        return output
++    monkeypatch.setattr(CustomerSupportAgent, 'run', corrupted)
++    message = f'If firmware of {TARGET} is lab-46.2 and status is Online, explain Crediário fees.'
++    body, calls, _ = boundary(message)
++    assert [name for name, _ in calls] == ['diagnose_terminal_issue']
++    assert 'Observado em' not in body['response']
++    assert body['answer_status'] == 'abstained'
++    gate = next(row for row in body['trace'] if row['action'] == 'evaluate_conditional_dependency')
++    assert gate['details']['predicate_authorized'] is False
++
++
++@pytest.mark.parametrize('message,factual', [
++    ('Explain Getnet Pix eligibility. Answer using Getnet material: what is the cancellation fee?', 'cancellation fee'),
++    ('Explique a elegibilidade do Pix Getnet. Responda pelo material Getnet: qual é a tarifa de cancelamento?', 'tarifa de cancelamento'),
++])
++def test_source_directive_with_new_question_preserves_factual_task(message, factual):
++    from app.agents.knowledge_agent import KnowledgeAgent
++    from app.schemas import ToolCallSpec
++    units = request_units(message)
++    scope = {'assigned_unit_ids': [unit['unit_id'] for unit in units], 'other_unit_ids': []}
++    calls = KnowledgeAgent._bind_documentary_scopes(
++        [ToolCallSpec(tool_name='search_getnet_knowledge', arguments={'query': message})],
++        message, scope, message)
++    assert factual in calls[0][0].arguments['query']
++    assert len(units) == 2
+
+diff --git a/tests/test_v11_public_boundary_integration.py b/tests/test_v11_public_boundary_integration.py
+new file mode 100644
+index 0000000..8ba35eb
+--- /dev/null
++++ b/tests/test_v11_public_boundary_integration.py
+@@ -0,0 +1,72 @@
++"""Final HTTP boundary contract; synthetic specialists deliberately return excess data."""
++import importlib
++
++from fastapi.testclient import TestClient
++from app.agents.orchestrator import MultiAgentOrchestrator
++from app.config import settings
++from app.memory.store import StateStore
++from app.schemas import Citation, PlanStep, RoutingPlan, SpecialistOutput, ToolExecutionResult
++from app.security.auth import AuthManager
++from app.security.request_units import request_units
++
++
++def test_final_projection_covers_full_http_envelope_and_persisted_assistant(monkeypatch, tmp_path):
++    main = importlib.import_module('app.main')
++    orchestration = importlib.import_module('app.agents.orchestrator')
++    store = StateStore(tmp_path / 'boundary.sqlite')
++    monkeypatch.setattr(orchestration, 'state_store', store)
++    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
++    monkeypatch.setattr(settings, 'AUTH_ENFORCE_STRICT', True)
++    user = 'boundary_synthetic'
++    first, second = 'GET-SMART-QA-44031', 'GET-CLASSICA-QA-44032'
++    message = (f'Informe somente o sinal de {first}; informe a conexão de {second}. '
++               'Identifique cada máquina em uma linha curta.')
++    units = request_units(message)
++    targets = (first, second)
++    orch = MultiAgentOrchestrator()
++    plan = RoutingPlan(primary_agent='CUSTOMER_SUPPORT_AGENT', confidence=.9,
++        reasoning='SENTINEL_INTENT_FIRMWARE', plan_steps=[PlanStep(step_order=i+1,
++            target_agent='CUSTOMER_SUPPORT_AGENT', sub_query=target,
++            rationale='SENTINEL_RATIONALE_STATUS',
++            request_unit_ids=[next(u['unit_id'] for u in units if target in u['text'])])
++            for i, target in enumerate(targets)])
++    monkeypatch.setattr(orch.router, 'plan', lambda **kw: plan)
++    monkeypatch.setattr(orch, '_observe_and_replan', lambda **kw: False)
++
++    def specialist(**kw):
++        ids = kw['delegation_scope']['assigned_unit_ids']
++        target = next(t for t in targets if t in kw['message'])
++        kw['tracer'].add_step(agent='SYNTHETIC_SPECIALIST', action='rich_internal_observation',
++            details={'terminal': {'firmware_version': 'SENTINEL_TRACE_FIRMWARE'},
++                     'arbitrary_nested': ['SENTINEL_TRACE_OTHER']})
++        result = ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
++            'user_id': user, 'found': True, 'requested_terminal_id': target,
++            'terminal': {'terminal_id': target, 'signal_strength': '1/4 bars' if target == first else '3/4 bars',
++                'connection_type': 'Wi-Fi' if target == first else '4G Algar',
++                'firmware_version': 'SENTINEL_TOOL_FIRMWARE', 'status': 'SENTINEL_TOOL_STATUS'},
++            'recommended_troubleshooting': {'connectivity': ['SENTINEL_INSTRUCTION']}})
++        return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='SENTINEL_PROSE',
++            request_unit_ids=ids, covered_unit_ids=ids, answer_status='complete',
++            tools_called=['diagnose_terminal_issue'], tool_results=[result],
++            structured_data={'diagnose_terminal_issue': result.data},
++            evidence=[{'tool_name': 'diagnose_terminal_issue', 'field': 'terminal.firmware_version',
++                       'value': 'SENTINEL_EVIDENCE'}], sources=['SENTINEL_SOURCE'],
++            citations=[Citation(chunk_id='SENTINEL_CITATION', title='SENTINEL_TITLE', source='SENTINEL_CITE_SOURCE',
++                source_url='https://example.invalid/SENTINEL_URL', relevance_score=1)])
++
++    monkeypatch.setattr(orch.customer_support_agent, 'run', specialist)
++    monkeypatch.setattr(main, 'orchestrator', orch)
++    token = AuthManager.create_jwt_token(user, role='merchant')
++    with TestClient(main.app) as client:
++        result = client.post('/api/chat', json={'message': message, 'user_id': user},
++                             headers={'Authorization': f'Bearer {token}'})
++    assert result.status_code == 200
++    payload = result.json()
++    assert 'SENTINEL_' not in result.text
++    assert '1/4 bars' in payload['response'] and '4G Algar' in payload['response']
++    assert '3/4 bars' not in result.text and 'Wi-Fi' not in result.text
++    assert first in payload['response'] and second in payload['response']
++    public_assistant = [m['content'] for m in store.get_conversation_context(payload['session_id'], user)['recent_messages']
++                        if m['role'] == 'assistant']
++    assert public_assistant == [payload['response']]
++    assert all('SENTINEL_' not in text for text in public_assistant)
+
+diff --git a/tests/test_v11_public_safety_e2e.py b/tests/test_v11_public_safety_e2e.py
+new file mode 100644
+index 0000000..ab09ee8
+--- /dev/null
++++ b/tests/test_v11_public_safety_e2e.py
+@@ -0,0 +1,384 @@
++"""V11 public contracts. All providers/operational data in this file are synthetic."""
++import json
++import pytest
++from app.agents.customer_support_agent import CustomerSupportAgent
++from app.schemas import ToolExecutionResult
++from app.security.request_constraints import constrain_call, extract_constraints, RequestConstraintError
++
++@pytest.mark.parametrize('message', [
++    'Crie apenas a proposta de reinício para GET-CLASSICA-10442. Esta mensagem não confirma a execução.',
++    'Prepare only a reboot proposal for GET-CLASSICA-10442. Do not execute it.',
++])
++def test_explicit_proposal_has_distinct_authority(message):
++    assert CustomerSupportAgent._authorized_remote_action(message, 'remote_reboot', 'GET-CLASSICA-10442')
++
++@pytest.mark.parametrize('message', [
++    'Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.',
++    'Check signal of GET-SMART-99999, which belongs to my supplier.',
++])
++def test_foreign_target_rejected_before_registry(message):
++    with pytest.raises(RequestConstraintError, match='terceiro'):
++        constrain_call('diagnose_terminal_issue', {'terminal_id':'GET-SMART-99999'}, extract_constraints(message))
++
++
++def test_failed_result_never_reports_completed():
++    assert ToolExecutionResult(tool_name='x', success=False, error_code='DENIED').outcome_state == 'failed'
++
++
++def test_unrecognized_format_clause_never_disables_projection():
++    from app.schemas import SpecialistOutput
++    message = 'Confira somente o sinal de GET-SMART-88219; informe a conexão de GET-CLASSICA-10442. Identifique cada máquina em uma linha curta.'
++    result = ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
++        'found':True, 'user_id':'cliente1988', 'terminal':{'terminal_id':'GET-SMART-88219',
++        'signal_strength':'1/4 bars', 'firmware_version':'SECRET-FIRMWARE'}})
++    output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='SECRET-FIRMWARE', tool_results=[result])
++    safe = CustomerSupportAgent._minimize_multi_terminal_fields(output, message, 'cliente1988')
++    assert 'SECRET-FIRMWARE' not in safe.response + json.dumps(safe.evidence) + json.dumps(safe.structured_data)
++
++
++@pytest.fixture
++def http_runtime(monkeypatch, tmp_path):
++    import importlib
++    from fastapi.testclient import TestClient
++    from app.agents.orchestrator import MultiAgentOrchestrator
++    from app.config import settings
++    from app.memory.store import StateStore
++    from app.security.auth import AuthManager
++    from app.tools import customer_tools
++    from app.security import action_policy
++    from app.observability.resilience import breaker_registry
++    store = StateStore(tmp_path/'public-safety.sqlite')
++    main = importlib.import_module('app.main')
++    for mod in (main, importlib.import_module('app.agents.orchestrator'),
++                importlib.import_module('app.tools.registry'), customer_tools, action_policy):
++        monkeypatch.setattr(mod, 'state_store', store)
++    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
++    monkeypatch.setattr(settings, 'AUTH_ENFORCE_STRICT', True)
++    monkeypatch.setattr(customer_tools, '_load_customers_db', lambda: {'synthetic_owner': {
++        'company_name':'Synthetic company', 'terminals': [
++            {'terminal_id':'GET-SMART-88219', 'model':'Get Smart', 'status':'ONLINE',
++             'connection_type':'PRIVATE-WIFI', 'signal_strength':'1/4 bars', 'firmware_version':'PRIVATE-FW'},
++            {'terminal_id':'GET-CLASSICA-10442', 'model':'Get Clássica', 'status':'OFFLINE',
++             'connection_type':'4G Algar', 'signal_strength':'PRIVATE-OTHER-SIGNAL', 'firmware_version':'PRIVATE-FW2'}]},
++        'synthetic_foreign': {'terminals':[{'terminal_id':'GET-SMART-99999', 'firmware_version':'FOREIGN-SECRET'}]}})
++    orch = MultiAgentOrchestrator()
++    monkeypatch.setattr(main, 'orchestrator', orch)
++    monkeypatch.setattr(orch, '_observe_and_replan', lambda **kw:False)
++    token = AuthManager.create_jwt_token('synthetic_owner')
++    headers = {'Authorization':f'Bearer {token}'}
++    breaker_registry.reset_all()
++    with TestClient(main.app) as client:
++        yield orch, store, client, headers
++    breaker_registry.reset_all()
++
++
++def set_synthetic_plan(monkeypatch, orch, message, *, separate=False):
++    from app.schemas import PlanStep, RoutingPlan
++    from app.security.request_units import request_units
++    units = request_units(message)
++    groups = [[unit] for unit in units if extract_constraints(unit['text']).terminal_ids] if separate else [units]
++    steps = [PlanStep(step_order=i+1, target_agent='CUSTOMER_SUPPORT_AGENT',
++        sub_query=' '.join(unit['text'] for unit in group), rationale='Synthetic offline fixture',
++        request_unit_ids=[unit['unit_id'] for unit in group]) for i, group in enumerate(groups)]
++    monkeypatch.setattr(orch.router, 'plan', lambda **kw: RoutingPlan(primary_agent='CUSTOMER_SUPPORT_AGENT',
++        confidence=.9, reasoning='Synthetic provider plan', plan_steps=steps))
++
++
++class SyntheticFunctionCallingProvider:
++    """Native SDK-shaped transport fixture: never contacts a provider."""
++    def __init__(self, tool_name, arguments):
++        self.models = self
++        self.tool_name, self.arguments = tool_name, arguments
++        self.calls = 0
++
++    def generate_content(self, **kwargs):
++        from google.genai import types
++        self.calls += 1
++        if self.calls == 1:
++            parts = [types.Part(function_call=types.FunctionCall(name=self.tool_name,
++                args=self.arguments, id='synthetic-v11'))]
++        else:
++            assert any(part.function_response for part in kwargs['contents'][-1].parts)
++            parts = [types.Part.from_text(text='Synthetic untrusted model assertion; no receipt.')]
++        return types.GenerateContentResponse(candidates=[types.Candidate(
++            content=types.Content(role='model', parts=parts), finish_reason='STOP')])
++
++
++@pytest.mark.parametrize('message', [
++    'Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.',
++    'Check signal of GET-SMART-99999, which belongs to my supplier.',
++])
++def test_http_foreign_declaration_prevents_real_registry_dispatch(http_runtime, monkeypatch, message):
++    from app.config import settings
++    from app.tools.registry import tool_registry
++    orch, store, client, headers = http_runtime
++    set_synthetic_plan(monkeypatch, orch, message)
++    provider = SyntheticFunctionCallingProvider('diagnose_terminal_issue', {'terminal_id':'GET-SMART-99999'})
++    orch.customer_support_agent.client = provider
++    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-not-a-secret-never-sent')
++    monkeypatch.setattr(tool_registry, 'execute', lambda *args, **kw: pytest.fail('foreign target reached registry'))
++    result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
++    assert result.status_code == 200
++    assert provider.calls == 2
++    assert 'FOREIGN-SECRET' not in result.text
++    assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in result.text
++    assert '"outcome_state":"completed"' not in result.text
++    with store._connect() as conn:
++        assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0] == 0
++
++
++@pytest.mark.parametrize('message', [
++    'Crie apenas a proposta de reinício para GET-CLASSICA-10442. Esta mensagem não confirma a execução.',
++    'Prepare only a reboot proposal for GET-CLASSICA-10442. Do not execute it.',
++])
++def test_http_proposal_persisted_then_confirmed_by_owner_hash_once(http_runtime, monkeypatch, message):
++    from app.config import settings
++    from app.security.auth import AuthManager
++    from app.tools.registry import tool_registry
++    orch, store, client, headers = http_runtime
++    set_synthetic_plan(monkeypatch, orch, message)
++    provider = SyntheticFunctionCallingProvider('execute_terminal_remote_action', {
++        'terminal_id':'GET-CLASSICA-10442', 'action_type':'remote_reboot', 'reason':'Explicit proposal only',
++        'idempotency_key':'synthetic-fixed'})
++    orch.customer_support_agent.client = provider
++    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-not-a-secret-never-sent')
++    calls = []
++    real_execute = tool_registry.execute
++    def spy(*args, **kwargs):
++        calls.append((args, kwargs))
++        return real_execute(*args, **kwargs)
++    monkeypatch.setattr(tool_registry, 'execute', spy)
++    result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
++    assert result.status_code == 200
++    assert len(calls) == 1 and calls[0][0][1]['terminal_id'] == 'GET-CLASSICA-10442'
++    payload = result.json()
++    assert len(payload['action_proposals']) == 1
++    proposal = payload['action_proposals'][0]
++    assert proposal['status'] == 'PENDING_CONFIRMATION'
++    with store._connect() as conn:
++        assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0] == 0
++        assert conn.execute('SELECT COUNT(*) FROM terminal_action_proposals').fetchone()[0] == 1
++    url = '/api/actions/'+proposal['proposal_id']+'/confirm'
++    body = {'user_id':'synthetic_owner', 'expected_payload_hash':proposal['payload_hash'], 'confirmation':'CONFIRM'}
++    other = {'Authorization':'Bearer '+AuthManager.create_jwt_token('synthetic_foreign')}
++    assert client.post(url, json=body, headers=other).status_code == 403
++    assert client.post(url, json={**body,'expected_payload_hash':'0'*64}, headers=headers).status_code == 409
++    first = client.post(url, json=body, headers=headers)
++    second = client.post(url, json=body, headers=headers)
++    assert first.status_code == second.status_code == 200
++    assert first.json()['action_id'] == second.json()['action_id']
++    with store._connect() as conn:
++        assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0] == 1
++
++
++@pytest.mark.parametrize('message', [
++    'Como criar uma proposta de reinício para GET-CLASSICA-10442?',
++    'How can I create a reboot proposal for GET-CLASSICA-10442?',
++    'Se eu pedisse uma proposta de reinício para GET-CLASSICA-10442, o que aconteceria?',
++    'If I requested a reboot proposal for GET-CLASSICA-10442, what would happen?',
++    'Não prepare uma proposta de reinício para GET-CLASSICA-10442.',
++    'Do not prepare a reboot proposal for GET-CLASSICA-10442.',
++    'O manual diz "Prepare a reboot proposal for GET-CLASSICA-10442".',
++])
++def test_http_nonconsent_never_persists_proposal(http_runtime, monkeypatch, message):
++    from app.config import settings
++    from app.tools.registry import tool_registry
++    orch, store, client, headers = http_runtime
++    set_synthetic_plan(monkeypatch, orch, message)
++    orch.customer_support_agent.client = SyntheticFunctionCallingProvider('execute_terminal_remote_action', {
++        'terminal_id':'GET-CLASSICA-10442', 'action_type':'remote_reboot', 'reason':'Untrusted model attempt'})
++    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-not-a-secret-never-sent')
++    monkeypatch.setattr(tool_registry, 'execute', lambda *args, **kwargs: pytest.fail('nonconsent reached registry'))
++    result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
++    assert result.status_code == 200
++    assert result.json()['action_proposals'] == []
++    assert 'ACTION_NOT_AUTHORIZED' in result.text
++    assert '"outcome_state":"completed"' not in result.text
++    with store._connect() as conn:
++        exists = conn.execute("SELECT name FROM sqlite_master WHERE name='terminal_action_proposals'").fetchone()
++        if exists:
++            assert conn.execute('SELECT COUNT(*) FROM terminal_action_proposals').fetchone()[0] == 0
++        assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0] == 0
++
++
++@pytest.mark.parametrize('message', [
++    'Check signal of GET-SMART-88219. The supplier also sells paper rolls.',
++    'Check signal of GET-SMART-88219, which does not belong to my supplier.',
++    'Verifique o sinal de GET-SMART-88219, que não pertence ao fornecedor.',
++])
++def test_foreign_ownership_requires_affirmative_target_relation(message):
++    assert constrain_call('diagnose_terminal_issue', {'terminal_id':'GET-SMART-88219'},
++        extract_constraints(message))['terminal_id'] == 'GET-SMART-88219'
++
++
++@pytest.mark.parametrize('message', [
++    'Confira somente o sinal de GET-SMART-88219; informe a conexão de GET-CLASSICA-10442. Identifique cada máquina em uma linha curta.',
++    'Show only signal of GET-SMART-88219; show connection of GET-CLASSICA-10442. Use one short line per device.',
++])
++@pytest.mark.parametrize('separate', [False, True])
++def test_http_actual_tools_minimize_entire_envelope_and_memory(http_runtime, monkeypatch, message, separate):
++    from app.tools.registry import tool_registry
++    orch, store, client, headers = http_runtime
++    set_synthetic_plan(monkeypatch, orch, message, separate=separate)
++    calls = []
++    real_execute = tool_registry.execute
++    def spy(*args, **kwargs):
++        calls.append((args, kwargs))
++        return real_execute(*args, **kwargs)
++    monkeypatch.setattr(tool_registry, 'execute', spy)
++    result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
++    assert result.status_code == 200
++    payload = result.json()
++    args = [call[1].get('raw_arguments', call[0][1] if len(call[0]) > 1 else {}) for call in calls]
++    assert {item['terminal_id'] for item in args} == {'GET-SMART-88219', 'GET-CLASSICA-10442'}
++    assert '1/4 bars' in payload['response'] and '4G Algar' in payload['response']
++    for secret in ('PRIVATE-WIFI','PRIVATE-FW','PRIVATE-OTHER-SIGNAL','ONLINE','OFFLINE'):
++        assert secret not in result.text
++    context = store.get_conversation_context(payload['session_id'], 'synthetic_owner')
++    assistant = [item['content'] for item in context['recent_messages'] if item['role'] == 'assistant']
++    assert assistant == [payload['response']]
++    assert all('PRIVATE-' not in text for text in assistant)
++
++
++def test_proposal_creation_veto_overrides_earlier_preparation():
++    message = 'Prepare a reboot proposal for GET-CLASSICA-10442. Do not prepare any remote reboot proposal.'
++    assert not CustomerSupportAgent._authorized_remote_action(message, 'remote_reboot', 'GET-CLASSICA-10442')
++
++
++def test_projection_is_idempotent_and_preserves_independent_verified_work():
++    from app.schemas import ChatResponse, Citation, SpecialistOutput
++    from app.security.public_projection import project_public_response
++    message = ('Show my full profile. Check signal of GET-SMART-88219; check connection of GET-CLASSICA-10442. '
++               'Prepare a reboot proposal for GET-CLASSICA-10442. Explain Getnet Pix.')
++    diagnosis = ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
++        'found':True,'user_id':'owner','terminal':{'terminal_id':'GET-SMART-88219','signal_strength':'1/4',
++        'status':'PRIVATE-STATUS','firmware_version':'PRIVATE-FW'}})
++    profile = ToolExecutionResult(tool_name='get_customer_profile', success=True,
++        data={'found':True,'user_id':'owner','company_name':'Requested Company'})
++    proposal = ToolExecutionResult(tool_name='execute_terminal_remote_action', success=True, data={
++        'proposal_id':'PROP-SYNTHETIC','terminal_id':'GET-CLASSICA-10442','status':'PENDING_CONFIRMATION',
++        'action_type':'remote_reboot','payload_hash':'a'*64})
++    support = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT',response='untrusted PRIVATE-STATUS',
++        tool_results=[diagnosis, profile, proposal])
++    citation = Citation(chunk_id='doc', title='Pix', source='Getnet', source_url='https://example.invalid/pix',relevance_score=1)
++    knowledge = SpecialistOutput(agent_name='KNOWLEDGE_AGENT',response='Verified independent Pix explanation.',
++        evidence=[{'chunk_id':'doc'}],citations=[citation],sources=['Getnet'])
++    response = ChatResponse(response='unsafe aggregate',user_id='owner',agent_used='CHAIN',
++        abstained=True,answer_status='partial')
++    first = project_public_response(response,message,[support,knowledge],'owner',trusted_segments=['Server-owned limit notice.'])
++    second = project_public_response(first,message,[support,knowledge],'owner',trusted_segments=['Server-owned limit notice.'])
++    assert first == second
++    assert 'Requested Company' in first.response and 'Verified independent Pix explanation.' in first.response
++    assert 'Server-owned limit notice.' in first.response
++    assert first.citations == [citation] and {'chunk_id':'doc'} in first.evidence
++    assert first.action_proposals == [proposal.data]
++    assert first.answer_status == 'partial' and first.abstained
++    assert 'PRIVATE-' not in first.model_dump_json()
++    assert diagnosis.data['terminal']['status'] == 'PRIVATE-STATUS'  # rich internal observation remains intact
++
++
++def test_trace_projection_preserves_only_typed_action_specific_server_metadata():
++    from app.schemas import ChatResponse, TraceStep
++    from app.security.public_projection import project_public_response
++    message = 'Check firmware of GET-SMART-88219.'
++    trace = [TraceStep(step_id=1, agent='SUPERVISOR_ORCHESTRATOR',action='evaluate_conditional_dependency',
++        details={'predicate_authorized':True,'terminal_id':'GET-SMART-88219','reason':'exact_typed_observation',
++                 'firmware':'PRIVATE-FW','arbitrary':'SENTINEL'}),
++        TraceStep(step_id=2,agent='SUPERVISOR_ORCHESTRATOR',action='evaluate_stopping_condition',
++            details={'iterations_used':1,'pending_steps':0,'stopping_reason':'all_planned_and_replanned_steps_completed',
++                     'agents_executed':['CUSTOMER_SUPPORT_AGENT'],'reason':'SENTINEL'}),
++        TraceStep(step_id=3,agent='SUPERVISOR_ORCHESTRATOR',action='evaluate_conditional_dependency',
++            details={'predicate_authorized':'SENTINEL','terminal_id':'GET-FOREIGN-1111'}),
++        TraceStep(step_id=4,agent='MODEL',action='unknown',details={'predicate_authorized':True,'reason':'SENTINEL'})]
++    response = ChatResponse(response='Server notice',user_id='owner',agent_used='SUPPORT',trace=trace)
++    safe = project_public_response(response,message,[],'owner')
++    assert safe.trace[0].details['predicate_authorized'] is True
++    assert safe.trace[0].details['terminal_id'] == 'GET-SMART-88219'
++    assert safe.trace[1].details['pending_steps'] == 0
++    assert 'predicate_authorized' not in safe.trace[2].details
++    assert 'terminal_id' not in safe.trace[2].details
++    assert 'predicate_authorized' not in safe.trace[3].details
++    assert 'SENTINEL' not in safe.model_dump_json() and 'PRIVATE-' not in safe.model_dump_json()
++
++
++@pytest.mark.parametrize('with_operator', [False, True])
++def test_http_field_contract_applies_without_any_diagnostic_result(http_runtime, monkeypatch, with_operator):
++    from app.schemas import SpecialistOutput
++    orch, store, client, headers = http_runtime
++    message = 'Informe somente o sinal de GET-SMART-88219; informe a conexão de GET-CLASSICA-10442.'
++    set_synthetic_plan(monkeypatch, orch, message)
++    session = 'no-diagnostic-public-contract'
++    store.ensure_session(session, 'synthetic_owner')
++    if with_operator:
++        store.append_message(session_id=session,user_id='synthetic_owner',role='human_operator',
++            content='SENTINEL_OPERATOR_FIRMWARE extra status PRIVATE-STATUS')
++    def no_diagnostic(**kw):
++        return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT',
++            response='SENTINEL_NO_DIAGNOSTIC_PROFILE firmware PRIVATE-FW',
++            request_unit_ids=kw['delegation_scope']['assigned_unit_ids'],
++            abstained=True, answer_status='abstained',
++            tool_results=[ToolExecutionResult(tool_name='get_customer_profile',success=True,
++                data={'found':True,'user_id':'synthetic_owner','company_name':'SENTINEL_UNREQUESTED_COMPANY'})],
++            evidence=[{'tool_name':'get_customer_profile','value':'SENTINEL_UNREQUESTED_PROFILE'}])
++    monkeypatch.setattr(orch.customer_support_agent,'run',no_diagnostic)
++    result = client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner','session_id':session},headers=headers)
++    assert result.status_code == 200
++    payload = result.json()
++    assert 'SENTINEL_' not in result.text and 'PRIVATE-' not in result.text
++    assert 'GET-SMART-88219' in payload['response'] and 'GET-CLASSICA-10442' in payload['response']
++    assert 'não disponível' in payload['response']
++    assert payload['abstained'] and payload['answer_status'] == 'abstained'
++    assert all(row['state'] != 'fulfilled' for row in payload['request_coverage'])
++    assistant = [row['content'] for row in store.get_conversation_context(session,'synthetic_owner')['recent_messages']
++                 if row['role']=='assistant']
++    assert assistant == [payload['response']]
++    assert all('SENTINEL_' not in text and 'PRIVATE-' not in text for text in assistant)
++
++
++@pytest.mark.parametrize('message', [
++    'Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals belong to my supplier.',
++    'Verifique o sinal de GET-SMART-88219 e a conexão de GET-CLASSICA-10442; ambos os terminais pertencem ao fornecedor.',
++])
++def test_http_plural_foreign_ownership_prevents_both_registry_calls(http_runtime, monkeypatch, message):
++    from app.tools.registry import tool_registry
++    orch, store, client, headers = http_runtime
++    set_synthetic_plan(monkeypatch, orch, message, separate=True)
++    monkeypatch.setattr(tool_registry,'execute',lambda *args,**kw:pytest.fail('plural foreign owner reached registry'))
++    result = client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
++    assert result.status_code == 200
++    assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in result.text
++    assert 'PRIVATE-' not in result.text
++    assert not result.json()['action_proposals']
++    for target in ('GET-SMART-88219','GET-CLASSICA-10442'):
++        with pytest.raises(RequestConstraintError,match='terceiro'):
++            constrain_call('diagnose_terminal_issue', {'terminal_id':target}, extract_constraints(message))
++
++
++@pytest.mark.parametrize('message', [
++    'Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals do not belong to my supplier.',
++    'Verifique o sinal de GET-SMART-88219 e a conexão de GET-CLASSICA-10442; ambos os terminais não pertencem ao fornecedor.',
++    'Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals use paper sold by my supplier.',
++])
++def test_plural_supplier_mention_and_negated_ownership_do_not_block(message):
++    for target in ('GET-SMART-88219','GET-CLASSICA-10442'):
++        assert constrain_call('diagnose_terminal_issue',{'terminal_id':target},extract_constraints(message))['terminal_id']==target
++
++
++def test_final_projection_downgrades_unproved_field_without_reopening_independent_work():
++    from app.schemas import ChatResponse, SpecialistOutput
++    from app.security.public_projection import project_public_response
++    from app.security.request_units import request_units
++    message = 'Check signal of GET-SMART-88219. Explain Pix Getnet.'
++    units = request_units(message)
++    first, second = units[0]['unit_id'], units[1]['unit_id']
++    support = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT',response='Unproved signal',
++        request_unit_ids=[first],covered_unit_ids=[first],answer_status='complete')
++    doc = SpecialistOutput(agent_name='KNOWLEDGE_AGENT',response='Verified independent Pix',
++        request_unit_ids=[second],covered_unit_ids=[second],evidence=[{'chunk_id':'pix'}])
++    response = ChatResponse(response='Unsafe aggregate',user_id='owner',agent_used='CHAIN',answer_status='complete',
++        request_coverage=[{'unit_id':first,'state':'fulfilled'},{'unit_id':second,'state':'fulfilled'}])
++    safe = project_public_response(response,message,[support,doc],'owner')
++    assert safe.abstained and safe.answer_status == 'partial'
++    assert safe.request_coverage[0]['state'] == 'unresolved'
++    assert safe.request_coverage[1]['state'] == 'fulfilled'
++    assert 'Verified independent Pix' in safe.response

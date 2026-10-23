@@ -55,7 +55,7 @@ def request_units(message: str) -> list[dict[str, Any]]:
             boundaries.add(comparison.start())
     ordered=sorted(boundaries)
     return [{'unit_id':f'u{i+1}','start':a,'end':b,'text':message[a:b]}
-            for i,(a,b) in enumerate(zip(ordered,ordered[1:])) if a<b]
+            for i,(a,b) in enumerate(zip(ordered,ordered[1:])) if a<b and re.search(r'\w', message[a:b])]
 
 
 def validate_scope(message: str, scope: dict | None = None) -> dict[str,list[str]]:

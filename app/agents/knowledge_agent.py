@@ -17,7 +17,7 @@ from app.schemas import Citation, SpecialistOutput, ToolCallSpec, ToolExecutionR
 from app.security.auth import SecurityContext
 from app.security.request_units import request_units, validate_scope
 from app.security.pii import PIIRedactor
-from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
+from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span, canonical_documentary_text, factual_documentary_text, is_independent_private_state
 from app.tools.registry import tool_registry
 import app.tools.search_tools  # noqa: F401 - garante registro das tools de busca e RAG
 
@@ -100,7 +100,7 @@ class KnowledgeAgent:
         # Retrieval is bounded by canonical assigned units. The immutable full
         # request remains available only to planning/semantic authorization.
         assigned_text = ''.join(unit['text'] for unit in request_units(original_request)
-                                if unit['unit_id'] in scope['assigned_unit_ids']).strip(' ;')
+                                if unit['unit_id'] in scope['assigned_unit_ids'] and not is_independent_private_state(unit['text'])).strip(' ;')
         authoritative_query = (assigned_text if scope['other_unit_ids'] else
                                self._enrich_query_with_memory(assigned_text, conversation_context))
         try:
@@ -240,6 +240,9 @@ class KnowledgeAgent:
                 f"Por política de integridade e confiabilidade, não exibimos estimativas ou valores não verificados. "
                 f"Por favor, tente novamente em alguns instantes."
             )
+            if (primary_res.tool_name == 'web_search_general' and re.search(
+                    r'(?i)\b(?:outage|incident|pane|indisponibilidade|falha)\b', assigned_text)):
+                honest_msg += "\n\nIncidente não confirmado para o pedido: " + assigned_text
             return SpecialistOutput(
                 agent_name="WEB_SEARCH_AGENT" if is_web_search else "KNOWLEDGE_AGENT",
                 response=honest_msg,
@@ -350,7 +353,7 @@ class KnowledgeAgent:
     def _offline_coverage(original: str,data: Dict[str,Any],scope: Dict[str,List[str]]) -> Dict[str,Any]:
         from app.rag.answerability import offline_request_coverage
         canonical=request_units(original);assigned=set(scope['assigned_unit_ids'])
-        whole=offline_request_coverage(original)
+        whole=offline_request_coverage(factual_documentary_text(original))
         covered=[]
         chunks=data.get('chunks',[])
         if not data.get('abstained') and whole['complete_parse']:
@@ -362,15 +365,15 @@ class KnowledgeAgent:
             # accepts the whole scoped text and actual retrieved spans cover it.
             assigned_text=''.join(unit['text'] for unit in canonical
                                   if unit['unit_id'] in assigned).strip(' ;')
-            scoped_parse=offline_request_coverage(assigned_text)
+            scoped_parse=offline_request_coverage(factual_documentary_text(assigned_text))
             if (not data.get('abstained') and scoped_parse['complete_parse'] and chunks
                     and any(chunk.get('answerability',{}).get('answerable')
                             for chunk in chunks)):
                 covered=[unit['unit_id'] for unit in canonical if unit['unit_id'] in assigned]
             else:
                 for unit in canonical:
-                    if unit['unit_id'] not in assigned or not offline_request_coverage(unit['text'])['complete_parse']:continue
-                    if any(assess(unit['text'],chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
+                    if unit['unit_id'] not in assigned or not offline_request_coverage(factual_documentary_text(unit['text']))['complete_parse']:continue
+                    if any(assess(factual_documentary_text(unit['text']),chunk.get('content',''),chunk_id=chunk.get('chunk_id','inline'))['answerable'] for chunk in chunks):
                         covered.append(unit['unit_id'])
         unresolved=[u['unit_id'] for u in canonical if u['unit_id'] in assigned and u['unit_id'] not in covered]
         data.update(semantic_mode='limited_offline',request_unit_ids=scope['assigned_unit_ids'],
@@ -566,11 +569,11 @@ class KnowledgeAgent:
         assigned = set(scope['assigned_unit_ids'])
         groups: Dict[tuple[int, int], List[Dict[str, Any]]] = {}
         for unit in canonical:
-            if unit['unit_id'] in assigned:
+            if unit['unit_id'] in assigned and not is_independent_private_state(unit['text']):
                 groups.setdefault(cls._documentary_span(original_request, unit), []).append(unit)
         clauses = []
         for (start, end), units in groups.items():
-            text = ''.join(unit['text'] for unit in units).strip(' ;')
+            text = canonical_documentary_text(original_request, start, end, ''.join(unit['text'] for unit in units).strip(' ;'))
             external = asks_explicit_external_evidence(original_request[start:end])
             if external and not asks_explicit_external_evidence(text):
                 # Carry only the source constraint, never an unassigned subject,
@@ -619,19 +622,6 @@ class KnowledgeAgent:
                                 == BilingualDenseEmbedder.normalize(authoritative_query).strip())
             selected = clauses if whole_assignment else [
                 clause for clause, score in zip(clauses, scores) if score == best]
-            # Router binding preserves the full original query, but native
-            # function calling can still propose only the contextual SIM
-            # sentence. Keep its explicitly assigned public manual steps in
-            # the actual retrieval call; never widen to unrelated/private units.
-            if (_sim_context_only_query(proposed_query)
-                    and re.search(r"(?i)\b(?:SIM|chip)\b", original_request)):
-                sim_tasks = [clause for clause in clauses
-                             if _safe_sim_instruction_clause(clause['text'])]
-                for clause in sim_tasks:
-                    if clause not in selected:
-                        selected.append(clause)
-                selected.sort(key=lambda clause: min(
-                    unit['start'] for unit in canonical if unit['unit_id'] in clause['ids']))
             mixed_sources = len({clause['external'] for clause in selected}) > 1
             if not whole_assignment and len(selected) > 1 and mixed_sources:
                 raise ValueError('Não foi possível associar a consulta a um escopo documental único com segurança.')
@@ -643,9 +633,9 @@ class KnowledgeAgent:
                 ids = [uid for clause in selection for uid in clause['ids']]
                 call_scope = {'assigned_unit_ids': ids,
                               'other_unit_ids': [unit['unit_id'] for unit in canonical if unit['unit_id'] not in ids]}
-                query = ' '.join(clause['text'] for clause in selection)
+                query = factual_documentary_text(' '.join(clause['text'] for clause in selection))
                 if len(clauses) == 1 and not scope['other_unit_ids'] and not selection[0]['external']:
-                    query = authoritative_query
+                    query = factual_documentary_text(authoritative_query)
                 if selection[0]['external']:
                     bound = call.model_copy(update={'tool_name': 'web_search_general',
                         'arguments': {'query': query, 'max_results': call.arguments.get('max_results', 3)}})

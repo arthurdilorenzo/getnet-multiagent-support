@@ -1,0 +1,95 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_final_projection_covers_full_http_envelope_and_persisted_assistant ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c448c30>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-493/test_final_projection_covers_f0')
+
+    def test_final_projection_covers_full_http_envelope_and_persisted_assistant(monkeypatch, tmp_path):
+        main = importlib.import_module('app.main')
+        orchestration = importlib.import_module('app.agents.orchestrator')
+        store = StateStore(tmp_path / 'boundary.sqlite')
+        monkeypatch.setattr(orchestration, 'state_store', store)
+        monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
+        monkeypatch.setattr(settings, 'AUTH_ENFORCE_STRICT', True)
+        user = 'boundary_synthetic'
+        first, second = 'GET-SMART-QA-44031', 'GET-CLASSICA-QA-44032'
+        message = (f'Informe somente o sinal de {first}; informe a conexão de {second}. '
+                   'Identifique cada máquina em uma linha curta.')
+        units = request_units(message)
+        targets = (first, second)
+        orch = MultiAgentOrchestrator()
+        plan = RoutingPlan(primary_agent='CUSTOMER_SUPPORT_AGENT', confidence=.9,
+            reasoning='SENTINEL_INTENT_FIRMWARE', plan_steps=[PlanStep(step_order=i+1,
+                target_agent='CUSTOMER_SUPPORT_AGENT', sub_query=target,
+                rationale='SENTINEL_RATIONALE_STATUS',
+                request_unit_ids=[next(u['unit_id'] for u in units if target in u['text'])])
+                for i, target in enumerate(targets)])
+        monkeypatch.setattr(orch.router, 'plan', lambda **kw: plan)
+        monkeypatch.setattr(orch, '_observe_and_replan', lambda **kw: False)
+    
+        def specialist(**kw):
+            ids = kw['delegation_scope']['assigned_unit_ids']
+            target = next(t for t in targets if t in kw['message'])
+            kw['tracer'].add_step(agent='SYNTHETIC_SPECIALIST', action='rich_internal_observation',
+                details={'terminal': {'firmware_version': 'SENTINEL_TRACE_FIRMWARE'},
+                         'arbitrary_nested': ['SENTINEL_TRACE_OTHER']})
+            result = ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
+                'user_id': user, 'found': True, 'requested_terminal_id': target,
+                'terminal': {'terminal_id': target, 'signal_strength': '1/4 bars' if target == first else '3/4 bars',
+                    'connection_type': 'Wi-Fi' if target == first else '4G Algar',
+                    'firmware_version': 'SENTINEL_TOOL_FIRMWARE', 'status': 'SENTINEL_TOOL_STATUS'},
+                'recommended_troubleshooting': {'connectivity': ['SENTINEL_INSTRUCTION']}})
+            return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='SENTINEL_PROSE',
+                request_unit_ids=ids, covered_unit_ids=ids, answer_status='complete',
+                tools_called=['diagnose_terminal_issue'], tool_results=[result],
+                structured_data={'diagnose_terminal_issue': result.data},
+                evidence=[{'tool_name': 'diagnose_terminal_issue', 'field': 'terminal.firmware_version',
+                           'value': 'SENTINEL_EVIDENCE'}], sources=['SENTINEL_SOURCE'],
+                citations=[Citation(chunk_id='SENTINEL_CITATION', title='SENTINEL_TITLE', source='SENTINEL_CITE_SOURCE',
+                    source_url='https://example.invalid/SENTINEL_URL', relevance_score=1)])
+    
+        monkeypatch.setattr(orch.customer_support_agent, 'run', specialist)
+        monkeypatch.setattr(main, 'orchestrator', orch)
+        token = AuthManager.create_jwt_token(user, role='merchant')
+        with TestClient(main.app) as client:
+            result = client.post('/api/chat', json={'message': message, 'user_id': user},
+                                 headers={'Authorization': f'Bearer {token}'})
+        assert result.status_code == 200
+        payload = result.json()
+>       assert 'SENTINEL_' not in result.text
+E       assert 'SENTINEL_' not in '{"response"...me_ms":9.18}'
+E         
+E         'SENTINEL_' is contained here:
+E           {"response":"SENTINEL_PROSE\n\n---\n\nSENTINEL_PROSE","user_id":"boundary_synthetic","session_id":"sess_boundary_synthetic","trace_id":"trc_a264a9f87f80474f","agent_used":"CHAIN: CUSTOMER_SUPPORT_AGENT -> CUSTOMER_SUPPORT_AGENT","intent":"SENTINEL_INTENT_FIRMWARE","confidence":0.9,"abstained":false,"semantic_mode":"","answer_status":"complete","request_coverage":[{"unit_id":"u1","start":0,"end":45,"text":"Informe somente o sinal de GET-SMART-QA-44031","assigned_agents":["CUSTOMER_SUPPORT_AGENT"],"fulfilled_by":["CUSTOMER_SUPPORT_AGENT"],"evidence_reported...
+E         
+E         ...Full output truncated (2 lines hidden), use '-vv' to show
+
+tests/test_v11_public_boundary_integration.py:65: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:39:27.728267+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.77, "cumulative_ms": 0.77, "details": {"user_id": "boundary_synthetic", "session_id": "sess_boundary_synthetic", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:39:27.733752+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 5.58, "cumulative_ms": 6.35, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": true, "planned_steps": ["CUSTOMER_SUPPORT_AGENT", "CUSTOMER_SUPPORT_AGENT"], "reasoning": "SENTINEL_INTENT_FIRMWARE"}}
+{"timestamp": "2026-10-23T23:39:27.734190+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 3, "agent": "SYNTHETIC_SPECIALIST", "action": "rich_internal_observation", "status": "success", "step_duration_ms": 0.46, "cumulative_ms": 6.81, "details": {"terminal": {"firmware_version": "SENTINEL_TRACE_FIRMWARE"}, "arbitrary_nested": ["SENTINEL_TRACE_OTHER"]}}
+{"timestamp": "2026-10-23T23:39:27.734314+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 6.94, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.9}}
+{"timestamp": "2026-10-23T23:39:27.735162+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 5, "agent": "SYNTHETIC_SPECIALIST", "action": "rich_internal_observation", "status": "success", "step_duration_ms": 0.84, "cumulative_ms": 7.79, "details": {"terminal": {"firmware_version": "SENTINEL_TRACE_FIRMWARE"}, "arbitrary_nested": ["SENTINEL_TRACE_OTHER"]}}
+{"timestamp": "2026-10-23T23:39:27.735268+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 6, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.11, "cumulative_ms": 7.9, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.9}}
+{"timestamp": "2026-10-23T23:39:27.735781+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 7, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.5, "cumulative_ms": 8.4, "details": {"iterations_used": 2, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:39:27.736430+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a264a9f87f80474f", "session_id": "sess_boundary_synthetic", "user_id": "boundary_synthetic", "step_id": 8, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.65, "cumulative_ms": 9.05, "details": {"response_char_count": 35, "session_id": "sess_boundary_synthetic", "abstained": false, "semantic_mode": "", "answer_status": "complete", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=============================== warnings summary ===============================
+../../../Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_v11_public_boundary_integration.py::test_final_projection_covers_full_http_envelope_and_persisted_assistant
+1 failed, 1 warning in 0.41s

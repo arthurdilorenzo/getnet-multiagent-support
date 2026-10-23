@@ -4,7 +4,7 @@ import pytest
 from app.agents.router_agent import RouterAgent
 from app.agents.orchestrator import MultiAgentOrchestrator
 from app.observability.tracer import SystemTracer
-from app.schemas import PlanStep, RoutingPlan, SpecialistOutput
+from app.schemas import PlanStep, RoutingPlan, SpecialistOutput, ToolExecutionResult
 from app.security.request_units import request_units
 
 
@@ -109,7 +109,10 @@ def test_native_sdk_initial_veto_filtered_and_no_replan_after_read(monkeypatch,t
         assert kwargs['target_agent']=='CUSTOMER_SUPPORT_AGENT'
         assert kwargs['delegation_scope']['assigned_unit_ids']==['u1']
         return SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT',response='Status: Offline',
-            request_unit_ids=['u1'],covered_unit_ids=['u1'],evidence=[{'source':'synthetic observation'}])
+            request_unit_ids=['u1'],covered_unit_ids=['u1'],evidence=[{'source':'synthetic observation'}],
+            tool_results=[ToolExecutionResult(tool_name='diagnose_terminal_issue', success=True, data={
+                'found': True, 'user_id': 'synthetic', 'requested_terminal_id': 'GET-SYNTH-READ-772',
+                'terminal': {'terminal_id': 'GET-SYNTH-READ-772', 'status': 'Offline'}})])
     monkeypatch.setattr(orch,'_delegate_to_specialist',delegate)
     result=orch.process(ChatRequest(message=message,user_id='synthetic',session_id='planning-v9'),SecurityContext('synthetic'))
     assert sdk.calls==1 and len(executed)==1

@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 AgentTypeLiteral = Literal[
@@ -86,6 +86,15 @@ class ToolExecutionResult(BaseModel):
     idempotent_replay: bool = False
     operation_id: Optional[str] = None
     outcome_state: Literal["completed", "pending", "unknown", "failed"] = "completed"
+
+
+    @model_validator(mode="after")
+    def failure_state(self):
+        # Pending/unknown describe real in-flight operations; a failed call can
+        # never inherit the successful default used by older call sites.
+        if not self.success and self.outcome_state == "completed":
+            self.outcome_state = "failed"
+        return self
 
 
 class SpecialistOutput(BaseModel):

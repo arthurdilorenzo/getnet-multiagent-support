@@ -36,10 +36,15 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
         return None
     if clauses:
         recognized = re.search(r"\b(?:if|se)\s+([^,;]+)", message, flags=re.IGNORECASE)
+        # The consequence is not part of predicate recognition. A comma
+        # bounds the complete finite conjunction; arbitrary documentary wording
+        # never weakens the predicate, and extra attributes stay in the clause.
         if message[:recognized.start()].strip() or not re.fullmatch(
-            r",\s*(?:tell\s+me\s+(?:the\s+eligible\s+)?benefits|informe\s+os\s+benefícios)\.",
-            message[recognized.end():].strip(), flags=re.IGNORECASE,
-        ):
+                r',\s*(?:tell(?:\s+me)?|show|give|explain|informe|mostre|explique|diga)\b[^,;]*',
+                message[recognized.end():].strip(), re.I):
+            return None
+        consequence = message[recognized.end():]
+        if re.search(r'(?i)\b(?:if|se|when|whenever|unless|provided|assuming|certif\w*|caso|since|once|after|desde|quando|in case|as long as)\b', consequence):
             return None
         patterns = (
             rf"firmware\s+of\s+{target}\s+(?:is|equals|==)\s+({_VERSION})"
@@ -71,7 +76,8 @@ def parse_terminal_condition(message: str, terminal_id: str) -> Optional[Termina
 
 
 def evaluate_terminal_condition(
-    condition: Optional[TerminalCondition], observations: Sequence[ToolExecutionResult]
+    condition: Optional[TerminalCondition], observations: Sequence[ToolExecutionResult],
+    *, authenticated_user_id: Optional[str] = None,
 ) -> bool:
     """Authorize a single-target preflight only when all diagnostic reads succeed."""
     if not isinstance(condition, TerminalCondition) or not observations:
@@ -86,7 +92,8 @@ def evaluate_terminal_condition(
                 or result.error_code is not None):
             return False
         data = result.data
-        if not isinstance(data, dict) or data.get("found") is not True:
+        if (not isinstance(data, dict) or data.get("found") is not True
+                or (authenticated_user_id is not None and data.get('user_id') != authenticated_user_id)):
             return False
         requested_target = data.get("requested_terminal_id")
         terminal = data.get("terminal")

@@ -1,0 +1,54 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____ test_http_field_contract_applies_without_any_diagnostic_result[False] _____
+tests/test_v11_public_safety_e2e.py:327: in test_http_field_contract_applies_without_any_diagnostic_result
+    assert 'SENTINEL_' not in result.text and 'PRIVATE-' not in result.text
+E   assert ('SENTINEL_' not in '{"response"...me_ms":7.01}'
+E     
+E     'SENTINEL_' is contained here:
+E       {"response":"SENTINEL_NO_DIAGNOSTIC_PROFILE firmware PRIVATE-FW\n\nPartes do pedido sem resposta verificada:\n- Informe somente o sinal de GET-SMART-88219\n- ; informe a conexão de GET-CLASSICA-10442.","user_id":"synthetic_owner","session_id":"no-diagnostic-public-contract","trace_id":"trc_6a6bc3cae4c64bc9","agent_used":"CUSTOMER_SUPPORT_AGENT","intent":"Consulta com divulgação limitada aos campos solicitados por terminal.","confidence":0.9,"abstained":true,"semantic_mode":"","answer_status":"abstained","request_coverage":[{"unit_id":"u1","start":0,"end":...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show)
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:41.566273+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_6a6bc3cae4c64bc9", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.46, "cumulative_ms": 0.46, "details": {"user_id": "synthetic_owner", "session_id": "no-diagnostic-public-contract", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:41.571777+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_6a6bc3cae4c64bc9", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 5.57, "cumulative_ms": 6.03, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-23T23:47:41.572191+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_6a6bc3cae4c64bc9", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 3, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.47, "cumulative_ms": 6.5, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.9}}
+{"timestamp": "2026-10-23T23:47:41.572417+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_6a6bc3cae4c64bc9", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 4, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.22, "cumulative_ms": 6.72, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:41.572598+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_6a6bc3cae4c64bc9", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 5, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.18, "cumulative_ms": 6.9, "details": {"response_char_count": 183, "session_id": "no-diagnostic-public-contract", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_____ test_http_field_contract_applies_without_any_diagnostic_result[True] _____
+tests/test_v11_public_safety_e2e.py:327: in test_http_field_contract_applies_without_any_diagnostic_result
+    assert 'SENTINEL_' not in result.text and 'PRIVATE-' not in result.text
+E   assert ('SENTINEL_' not in '{"response"...me_ms":2.48}'
+E     
+E     'SENTINEL_' is contained here:
+E       ão):**\n> SENTINEL_OPERATOR_FIRMWARE extra status PRIVATE-STATUS\n\n---\n\nSENTINEL_NO_DIAGNOSTIC_PROFILE firmware PRIVATE-FW\n\nPartes do pedido sem resposta verificada:\n- Informe somente o sinal de GET-SMART-88219\n- ; informe a conexão de GET-CLASSICA-10442.","user_id":"synthetic_owner","session_id":"no-diagnostic-public-contract","trace_id":"trc_5a568ac4ecfc4706","agent_used":"CUSTOMER_SUPPORT_AGENT","intent":"Consulta com divulgação limitada aos campos solicitados por terminal.","confidence":0.9,"abstained":true,"semantic_mode":"","answer_status":"a...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show)
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:41.619909+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_5a568ac4ecfc4706", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.46, "cumulative_ms": 0.46, "details": {"user_id": "synthetic_owner", "session_id": "no-diagnostic-public-contract", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": true}}
+{"timestamp": "2026-10-23T23:47:41.621126+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_5a568ac4ecfc4706", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.24, "cumulative_ms": 1.71, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-23T23:47:41.621450+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_5a568ac4ecfc4706", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 3, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.35, "cumulative_ms": 2.06, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.9}}
+{"timestamp": "2026-10-23T23:47:41.621639+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_5a568ac4ecfc4706", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 4, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.18, "cumulative_ms": 2.24, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:41.621782+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_5a568ac4ecfc4706", "session_id": "no-diagnostic-public-contract", "user_id": "synthetic_owner", "step_id": 5, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.15, "cumulative_ms": 2.39, "details": {"response_char_count": 307, "session_id": "no-diagnostic-public-contract", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=============================== warnings summary ===============================
+tests/test_v11_public_safety_e2e.py::test_http_field_contract_applies_without_any_diagnostic_result[False]
+  /Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_v11_public_safety_e2e.py::test_http_field_contract_applies_without_any_diagnostic_result[False]
+FAILED tests/test_v11_public_safety_e2e.py::test_http_field_contract_applies_without_any_diagnostic_result[True]
+2 failed, 1 warning in 0.53s

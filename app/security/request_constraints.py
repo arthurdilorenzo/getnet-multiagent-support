@@ -123,10 +123,51 @@ def extract_constraints(message: str, conversation_context: dict | None = None) 
     return RequestConstraints(clean, terminals, transactions, tuple(dates), ambiguous)
 
 
+def declared_foreign_terminal(message: str, terminal_id: str) -> bool:
+    """Explicit ownership is a denial before dispatch, not a tenant lookup hint."""
+    norm = _normalize(message)
+    ownership = re.compile(
+        r"\b(?:pertenc\w*|belongs?\s+to|owned\s+by)\s+(?:(?:a|ao|aos|o|um|uma|meu|minha|our|my|the|a|an)\s+){0,3}"
+        r"(?:fornecedor\w*|terceir\w*|outr[oa]\s+(?:cliente|empresa|conta)|supplier\w*|vendor\w*|third.party|another\s+(?:customer|company|account))\b"
+        r"|\b(?:do|da|de um|de uma)\s+(?:fornecedor\w*|terceir\w*|outro cliente|outra empresa)\b"
+        r"|\b(?:supplier|vendor|third.party|another customer)(?:'s|’s)?\s+(?:terminal|device|pos)\b")
+    all_ids = extract_constraints(message).terminal_ids
+    for sentence in re.split(r"[.!?;\n]+", message):
+        sentence_norm = _normalize(sentence)
+        local_ids = list(re.finditer(TERMINAL_PATTERN, sentence_norm, re.I))
+        for declaration in ownership.finditer(sentence_norm):
+            prefix = sentence_norm[max(0, declaration.start()-35):declaration.start()]
+            if re.search(r"\b(?:nao|not|never)\s+(?:(?:does|do|actually|really)\s+)?$", prefix):
+                continue
+            if local_ids:
+                before = [item for item in local_ids if item.end() <= declaration.start()]
+                subject = before[-1] if before else local_ids[0]
+                if subject.group().upper() == terminal_id.upper():
+                    return True
+            elif all_ids == (terminal_id.upper(),):
+                return True
+            elif terminal_id.upper() in all_ids:
+                # An explicit plural subject refers to the complete named set;
+                # merely mentioning a supplier supplies no ownership authority.
+                subject = sentence_norm[:declaration.start()]
+                plural_pair = len(all_ids) == 2 and re.search(r'\b(?:both|ambos|ambas|os dois|as duas)\b', subject)
+                plural_all = len(all_ids) > 1 and re.search(r'\b(?:all (?:the )?(?:terminals|devices)|todos os (?:terminais|equipamentos)|todas as (?:maquinas|maquininhas))\b', subject)
+                if plural_pair or plural_all:
+                    return True
+    return False
+
+
 def constrain_call(tool_name: str, arguments: dict, constraints: RequestConstraints,
                    *, assigned_unit_ids: list[str] | None = None) -> dict:
     """Return a copy, bind a single omitted value, reject divergent/ambiguous calls."""
     result: dict[str, Any] = dict(arguments)
+    if tool_name in {'diagnose_terminal_issue', 'execute_terminal_remote_action', 'get_customer_profile'}:
+        # Reject even profile fallback when the sole declared subject is foreign.
+        target = str(result.get('terminal_id') or '').upper()
+        targets = (target,) if target else constraints.terminal_ids
+        if any(declared_foreign_terminal(constraints.original_message, item) for item in targets):
+            raise RequestConstraintError('FOREIGN_TERMINAL_NOT_AUTHORIZED',
+                'O terminal foi declarado de terceiro; consulta ou proposta não autorizada.')
 
     def bind(field: str, requested: tuple[str, ...], code: str):
         value = result.get(field)

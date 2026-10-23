@@ -1,0 +1,422 @@
+........................................................................ [ 29%]
+.........................................................FFFFFFFF....... [ 59%]
+........................................................................ [ 88%]
+............................                                             [100%]
+=================================== FAILURES ===================================
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[O recebimento do Credi\xe1rio s\xf3 deve ser explicado quando o GET-SMART-QA-73146 tiver firmware qa-12.08 com conex\xe3o online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c93cd70>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed0')
+message = 'O recebimento do Crediário só deve ser explicado quando o GET-SMART-QA-73146 tiver firmware qa-12.08 com conexão online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+>       assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+E       AssertionError: assert ['diagnose_terminal_issue'] == ['diagnose_te...et_knowledge']
+E         
+E         Right contains one more item: 'search_getnet_knowledge'
+E         Use -v to get more diff
+
+tests/test_conditional_orchestration_v11.py:696: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.133703+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.47, "cumulative_ms": 0.47, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.135516+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.81, "cumulative_ms": 2.28, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5317, "response_schema_bytes": 2, "estimated_prompt_tokens": 1367, "tokens_consumed_before_call": 0, "duration_ms": 0.24, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.140549+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 5.01, "cumulative_ms": 7.29, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 1.0}}
+{"timestamp": "2026-10-23T23:47:18.142599+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 2.07, "cumulative_ms": 9.36, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.142751+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.18, "cumulative_ms": 9.54, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.142889+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.14, "cumulative_ms": 9.67, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.149497+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 6.59, "cumulative_ms": 16.26, "details": {"tools_invoked": [], "citations_count": 0, "confidence": 0.0, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.149683+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 16.46, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.149827+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_4b88e55806084c2a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.15, "cumulative_ms": 16.61, "details": {"response_char_count": 214, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. Only if firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c93f7e0>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed1')
+message = 'Tell me the eligible benefits. Only if firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Tell me the eligible benefits. Only and status is Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10cc84520>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.195432+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.49, "cumulative_ms": 0.49, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.197306+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.88, "cumulative_ms": 2.37, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5478, "response_schema_bytes": 2, "estimated_prompt_tokens": 1411, "tokens_consumed_before_call": 0, "duration_ms": 0.26, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.202051+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.74, "cumulative_ms": 7.11, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.61}}
+{"timestamp": "2026-10-23T23:47:18.204259+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 2.23, "cumulative_ms": 9.34, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.204376+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.12, "cumulative_ms": 9.46, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.204514+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 9.6, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.221186+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 16.65, "cumulative_ms": 26.25, "details": {"arguments": {"query": "Tell me the eligible benefits. Only and status is Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 11.38}}
+{"timestamp": "2026-10-23T23:47:18.221371+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.21, "cumulative_ms": 26.46, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.6676, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.225631+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.26, "cumulative_ms": 30.72, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.225827+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a3050d47d1624dd8", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 30.92, "details": {"response_char_count": 684, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. If firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cda8830>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed2')
+message = 'Tell me the eligible benefits. If firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Tell me the eligible benefits. and status is Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10ccdc930>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.246577+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.5, "cumulative_ms": 0.5, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.248424+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.86, "cumulative_ms": 2.36, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5399, "response_schema_bytes": 2, "estimated_prompt_tokens": 1390, "tokens_consumed_before_call": 0, "duration_ms": 0.25, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.252675+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.24, "cumulative_ms": 6.6, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.64}}
+{"timestamp": "2026-10-23T23:47:18.254478+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 1.83, "cumulative_ms": 8.43, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.254585+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.11, "cumulative_ms": 8.54, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.254713+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.12, "cumulative_ms": 8.67, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.265082+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 10.36, "cumulative_ms": 19.03, "details": {"arguments": {"query": "Tell me the eligible benefits. and status is Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 8.39}}
+{"timestamp": "2026-10-23T23:47:18.265253+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.18, "cumulative_ms": 19.21, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.7098, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.269525+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.26, "cumulative_ms": 23.48, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.269737+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_bf2fc86250fc44f6", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.22, "cumulative_ms": 23.69, "details": {"response_char_count": 675, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. Provided that firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c9e39a0>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed3')
+message = 'Tell me the eligible benefits. Provided that firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Tell me the eligible benefits. and status is Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10cc86e90>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.290860+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.52, "cumulative_ms": 0.52, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.292783+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.94, "cumulative_ms": 2.46, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5422, "response_schema_bytes": 2, "estimated_prompt_tokens": 1396, "tokens_consumed_before_call": 0, "duration_ms": 0.26, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.297316+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.53, "cumulative_ms": 6.99, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.66}}
+{"timestamp": "2026-10-23T23:47:18.299201+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 1.91, "cumulative_ms": 8.9, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.299306+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.11, "cumulative_ms": 9.01, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.299436+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 9.14, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.309934+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 10.48, "cumulative_ms": 19.62, "details": {"arguments": {"query": "Tell me the eligible benefits. and status is Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 8.43}}
+{"timestamp": "2026-10-23T23:47:18.310111+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.2, "cumulative_ms": 19.81, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.7098, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.314438+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.32, "cumulative_ms": 24.14, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.314636+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2e7f60716d824146", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 24.34, "details": {"response_char_count": 686, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. As long as firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cda9940>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed4')
+message = 'Tell me the eligible benefits. As long as firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Tell me the eligible benefits. and status is Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10cc85ff0>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.335507+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.51, "cumulative_ms": 0.51, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.337452+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.95, "cumulative_ms": 2.46, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5417, "response_schema_bytes": 2, "estimated_prompt_tokens": 1395, "tokens_consumed_before_call": 0, "duration_ms": 0.26, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.342036+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.58, "cumulative_ms": 7.04, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.65}}
+{"timestamp": "2026-10-23T23:47:18.344544+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 2.54, "cumulative_ms": 9.58, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.344650+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.11, "cumulative_ms": 9.69, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.344781+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 9.82, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.355248+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 10.45, "cumulative_ms": 20.27, "details": {"arguments": {"query": "Tell me the eligible benefits. and status is Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 8.41}}
+{"timestamp": "2026-10-23T23:47:18.355420+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.19, "cumulative_ms": 20.46, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.7098, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.359739+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.31, "cumulative_ms": 24.77, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.359938+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9b01521f31fe4c01", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 24.98, "details": {"response_char_count": 684, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. Since firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c9e3e70>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed5')
+message = 'Tell me the eligible benefits. Since firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Tell me the eligible benefits. and status is Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10cda2dc0>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.381269+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.52, "cumulative_ms": 0.52, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.383132+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.87, "cumulative_ms": 2.39, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5407, "response_schema_bytes": 2, "estimated_prompt_tokens": 1392, "tokens_consumed_before_call": 0, "duration_ms": 0.26, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.387666+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.52, "cumulative_ms": 6.91, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.69}}
+{"timestamp": "2026-10-23T23:47:18.390102+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 2.47, "cumulative_ms": 9.38, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.390209+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.11, "cumulative_ms": 9.49, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.390336+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.12, "cumulative_ms": 9.62, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.400681+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 10.32, "cumulative_ms": 19.94, "details": {"arguments": {"query": "Tell me the eligible benefits. and status is Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 8.37}}
+{"timestamp": "2026-10-23T23:47:18.400863+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.2, "cumulative_ms": 20.15, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.7098, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.405263+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.38, "cumulative_ms": 24.52, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.405493+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_e9b7677cb4404e8e", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.25, "cumulative_ms": 24.77, "details": {"response_char_count": 679, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Informe os benef\xedcios. Se o firmware do terminal GET-SMART-QA-73146 for qa-12.08 e o status for Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c9e3cb0>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed6')
+message = 'Informe os benefícios. Se o firmware do terminal GET-SMART-QA-73146 for qa-12.08 e o status for Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Informe os benefícios. e o status for Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10cc865a0>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.426008+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.49, "cumulative_ms": 0.49, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.427853+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.86, "cumulative_ms": 2.35, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5412, "response_schema_bytes": 2, "estimated_prompt_tokens": 1393, "tokens_consumed_before_call": 0, "duration_ms": 0.25, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.432378+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.52, "cumulative_ms": 6.87, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.72}}
+{"timestamp": "2026-10-23T23:47:18.434200+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 1.85, "cumulative_ms": 8.72, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.434302+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.1, "cumulative_ms": 8.82, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.434429+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.12, "cumulative_ms": 8.95, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.445027+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 10.56, "cumulative_ms": 19.51, "details": {"arguments": {"query": "Informe os benefícios. e o status for Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 8.31}}
+{"timestamp": "2026-10-23T23:47:18.445257+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.27, "cumulative_ms": 19.77, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.7314, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.449653+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.39, "cumulative_ms": 24.16, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.449867+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_94f45e4a1174492f", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.22, "cumulative_ms": 24.38, "details": {"response_char_count": 680, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Informe os benef\xedcios. Desde que o firmware do terminal GET-SMART-QA-73146 for qa-12.08 e o status for Online.] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cdab2a0>
+tmp_path = PosixPath('/private/var/folders/y0/91h5gtrn5lz8trbp1yzj71hw0000gn/T/pytest-of-arthurdilorenzo/pytest-518/test_native_router_exact_typed7')
+message = 'Informe os benefícios. Desde que o firmware do terminal GET-SMART-QA-73146 for qa-12.08 e o status for Online.'
+
+    @pytest.mark.parametrize("message", [
+        MESSAGE,
+        f"Tell me the eligible benefits. Only if firmware of {TARGET} is qa-12.08 and status is Online.",
+        *[f"{disclosure}. {connector} {predicate}." for disclosure, connector, predicate in PLAIN_POSTFIX_CASES],
+    ])
+    def test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query(
+            monkeypatch, tmp_path, message):
+        orch, events, reads = native_probe_boundary(monkeypatch, tmp_path, message, firmware="qa-12.08")
+        out = orch.process(ChatRequest(message=message, user_id="synthetic"), SecurityContext("synthetic"))
+        assert events[0] == ("checker", message)
+        assert [name for name, _ in reads] == ["diagnose_terminal_issue", "search_getnet_knowledge"]
+        assert reads[0][1]["terminal_id"] == TARGET
+        assert events[1][0] == "completed"
+        proof = events[1][1]
+        assert proof.tool_name == "diagnose_terminal_issue" and proof.success is True
+        assert proof.outcome_state == "completed" and proof.error_code is None
+        assert proof.data["terminal"] == {
+            "terminal_id": TARGET, "firmware_version": "qa-12.08", "status": "Online"}
+        retrievals = [value for kind, value in events[2:] if kind == "retrieve"]
+>       assert retrievals and all(query == message for query in retrievals)
+E       AssertionError: assert (['Informe os benefícios. e o status for Online.'] and False)
+E        +  where False = all(<generator object test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query.<locals>.<genexpr> at 0x10cc86330>)
+
+tests/test_conditional_orchestration_v11.py:705: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:47:18.471284+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.56, "cumulative_ms": 0.56, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "scoped_session", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:47:18.473301+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 2.04, "cumulative_ms": 2.61, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5426, "response_schema_bytes": 2, "estimated_prompt_tokens": 1397, "tokens_consumed_before_call": 0, "duration_ms": 0.28, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:47:18.478309+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:diagnose_terminal_issue", "status": "success", "step_duration_ms": 4.98, "cumulative_ms": 7.59, "details": {"turn": 1, "arguments": {"terminal_id": "GET-SMART-QA-73146", "terminal_model": "Get Smart", "symptom": "general", "decline_code": null, "error_context": "Verifique firmware e status do terminal GET-SMART-QA-73146."}, "success": true, "idempotent_replay": false, "error_code": null, "execution_ms": 0.86}}
+{"timestamp": "2026-10-23T23:47:18.480295+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 2.03, "cumulative_ms": 9.62, "details": {"tools_invoked": ["diagnose_terminal_issue"], "requires_escalation": false, "confidence": 0.95}}
+{"timestamp": "2026-10-23T23:47:18.480414+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_conditional_dependency", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 9.75, "details": {"terminal_id": "GET-SMART-QA-73146", "predicate_authorized": true, "reason": "exact_typed_observation"}}
+{"timestamp": "2026-10-23T23:47:18.480550+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 9.88, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "Synthetic model delegation"}}
+{"timestamp": "2026-10-23T23:47:18.491151+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 10.58, "cumulative_ms": 20.46, "details": {"arguments": {"query": "Informe os benefícios. e o status for Online.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 8.41}}
+{"timestamp": "2026-10-23T23:47:18.491343+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.22, "cumulative_ms": 20.68, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.7314, "abstained": true}}
+{"timestamp": "2026-10-23T23:47:18.495599+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.25, "cumulative_ms": 24.93, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:47:18.495794+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b3b7d50ee3394f23", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 25.13, "details": {"response_char_count": 687, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=========================== short test summary info ============================
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[O recebimento do Credi\xe1rio s\xf3 deve ser explicado quando o GET-SMART-QA-73146 tiver firmware qa-12.08 com conex\xe3o online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. Only if firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. If firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. Provided that firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. As long as firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Tell me the eligible benefits. Since firmware of GET-SMART-QA-73146 is qa-12.08 and status is Online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Informe os benef\xedcios. Se o firmware do terminal GET-SMART-QA-73146 for qa-12.08 e o status for Online.]
+FAILED tests/test_conditional_orchestration_v11.py::test_native_router_exact_typed_diagnostic_completes_before_any_dependent_retriever_query[Informe os benef\xedcios. Desde que o firmware do terminal GET-SMART-QA-73146 for qa-12.08 e o status for Online.]
+8 failed, 236 passed in 6.07s

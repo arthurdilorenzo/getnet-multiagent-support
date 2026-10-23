@@ -10,7 +10,7 @@ from app.schemas import PlanStep, RoutingPlan
 from app.security.pii import PIIRedactor
 from app.security.operational_intent import classify_operational_intent
 from app.security.documentary_intent import (
-    asks_explicit_external_evidence, documentary_clause_span, is_source_qualifier_only,
+    asks_explicit_external_evidence, documentary_clause_span, canonical_documentary_text, is_independent_private_state,
 )
 from app.security.request_constraints import extract_constraints
 from app.security.conditional_dependencies import parse_terminal_condition
@@ -318,11 +318,22 @@ class RouterAgent:
                 continue
 
             split_steps: List[PlanStep] = []
+            from app.agents.knowledge_agent import KnowledgeAgent
+            grouped: Dict[tuple, list] = {}
             for uid in step.request_unit_ids:
                 unit = units.get(uid)
                 if not unit:
                     continue
-                query = unit["text"].strip()
+                intent = classify_operational_intent(unit['text'])
+                # Private reads retain individual target ownership. Public
+                # facets of one canonical question retain their shared subject.
+                key = (uid,) if intent.private_scope else KnowledgeAgent._documentary_span(message, unit)
+                grouped.setdefault(key, []).append(unit)
+            for group in grouped.values():
+                unit = group[0]
+                uid = unit['unit_id']
+                query = canonical_documentary_text(message, unit['start'], group[-1]['end'],
+                    ''.join(part['text'] for part in group).strip(' ;'))
                 content_offset = unit['start'] + len(unit['text']) - len(unit['text'].lstrip(' ;'))
                 context_start, context_end = documentary_clause_span(message, content_offset)
                 documentary_context = message[context_start:context_end]
@@ -345,7 +356,7 @@ class RouterAgent:
                     rationale = step.rationale
                 split_steps.append(PlanStep(
                     step_order=step.step_order, target_agent=target,
-                    sub_query=query, rationale=rationale, request_unit_ids=[uid],
+                    sub_query=query, rationale=rationale, request_unit_ids=[part['unit_id'] for part in group],
                 ))
             revised.extend(merge_adjacent_same_target(split_steps))
 
@@ -408,44 +419,13 @@ class RouterAgent:
             owner.request_unit_ids.append(uid)
         for step in plan.plan_steps:
             step.request_unit_ids=[unit['unit_id'] for unit in units if unit['unit_id'] in step.request_unit_ids and unit['unit_id'] in work_ids]
-            # Repair only two observed lossy native-query forms: a bare source
-            # constraint, or context-only possession of an identified SIM.
-            # Generic unrelated subqueries remain untouched, and private units
-            # are never pulled into a documentary query.
+            # Provider queries propose a route, not the scope of the request.
+            # Rebuild public tool arguments from server-owned assigned literals.
             if step.target_agent in {'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT'} and step.request_unit_ids:
-                normalized_query = BilingualDenseEmbedder.normalize(step.sub_query)
-                source_only = is_source_qualifier_only(step.sub_query)
-                sim_context_only = bool(re.fullmatch(
-                    r"(?i)\s*(?:I\s+found|I\s+have|there\s+is|there's|I\s+see|"
-                    r"Encontrei|Achei|Tenho|H[aá]\s+um)\b[^.!?]*\b(?:SIM|chip)\b[^.!?]*[.!?]?\s*",
-                    step.sub_query))
-                omitted = []
-                if source_only:
-                    omitted = [unit['text'].strip(' ;') for unit in units
-                        if unit['unit_id'] in step.request_unit_ids
-                        and re.search(r"(?i)(?:use\s+getnet['’]s\s+own\s+guidance|"
-                                      r"use\s+a\s+orienta[cç][aã]o\s+da\s+pr[oó]pria\s+getnet|"
-                                      r"consulte\s+fontes\s+atuais)", unit['text'])
-                        and BilingualDenseEmbedder.normalize(unit['text'].strip(' ;')) not in normalized_query]
-                elif sim_context_only:
-                    for unit in units:
-                        if unit['unit_id'] not in step.request_unit_ids:
-                            continue
-                        text = unit['text'].strip(' ;')
-                        norm = BilingualDenseEmbedder.normalize(text)
-                        intent = recognized[unit['unit_id']]
-                        is_private_request = bool(intent.private_scope or re.search(
-                            r"(?i)\b(?:my\s+(?:account|balance|profile|transactions?)|"
-                            r"meu\s+(?:cadastro|saldo|perfil|conta|transa[cç][oõ]es?))\b", text))
-                        is_sim_task = bool(re.search(
-                            r"(?i)\b(?:walk\s+me\s+through|how\s+to|safe\s+placement|"
-                            r"place|install|slot|test|confirm|connectivity|communication|"
-                            r"me\s+explique|como\s+(?:colocar|instalar|testar)|encaix|conex[aã]o|comunica[cç][aã]o)\b",
-                            text))
-                        if (not is_private_request and is_sim_task and norm not in normalized_query):
-                            omitted.append(text)
-                if omitted:
-                    step.sub_query = (step.sub_query.rstrip(' ;') + '; ' + '; '.join(omitted)).strip('; ')
+                step.sub_query = ' '.join(canonical_documentary_text(
+                    message, unit['start'], unit['end'], unit['text'].strip(' ;'))
+                    for unit in units if unit['unit_id'] in step.request_unit_ids
+                    and not is_independent_private_state(unit['text']))
         # An explicit veto remains visible in the coverage ledger, but cannot
         # authorize a factual delegation (even after a second automatic bind).
         plan.plan_steps=[step for step in plan.plan_steps

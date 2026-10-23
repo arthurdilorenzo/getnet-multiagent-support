@@ -1,0 +1,436 @@
+FFFFFFFFFFF                                                              [100%]
+=================================== FAILURES ===================================
+_ test_source_preference_is_attached_and_fulfilled_in_http[Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.] _
+
+boundary = <function boundary.<locals>.chat at 0x108453740>
+message = 'Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.'
+
+    @pytest.mark.parametrize('message', [
+        'Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.',
+        'Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participação de instituições no Pix.',
+    ])
+    def test_source_preference_is_attached_and_fulfilled_in_http(boundary, message):
+        body, calls, _ = boundary(message)
+>       assert body['answer_status'] == 'complete'
+E       AssertionError: assert 'abstained' == 'complete'
+E         
+E         - complete
+E         + abstained
+
+tests/test_v11_canonical_e2e.py:92: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:13.793286+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 1.07, "cumulative_ms": 1.07, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:13.812018+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 18.79, "cumulative_ms": 19.86, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5438, "response_schema_bytes": 2, "estimated_prompt_tokens": 1400, "tokens_consumed_before_call": 0, "duration_ms": 5.17, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.815332+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 3.37, "cumulative_ms": 23.22, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:13.842165+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 26.79, "cumulative_ms": 50.01, "details": {"arguments": {"query": "Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 19.99}}
+{"timestamp": "2026-10-23T23:38:13.842378+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.27, "cumulative_ms": 50.28, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 0, "confidence": 0.3033, "abstained": true}}
+{"timestamp": "2026-10-23T23:38:13.846174+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 3.77, "cumulative_ms": 54.05, "details": {"iterations_used": 1, "agents_executed": ["KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:13.847290+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_ed0837f16c9e48f7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 1.13, "cumulative_ms": 55.19, "details": {"response_char_count": 327, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_source_preference_is_attached_and_fulfilled_in_http[Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participa\xe7\xe3o de institui\xe7\xf5es no Pix.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087a3560>
+message = 'Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participação de instituições no Pix.'
+
+    @pytest.mark.parametrize('message', [
+        'Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.',
+        'Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participação de instituições no Pix.',
+    ])
+    def test_source_preference_is_attached_and_fulfilled_in_http(boundary, message):
+        body, calls, _ = boundary(message)
+>       assert body['answer_status'] == 'complete'
+E       AssertionError: assert 'abstained' == 'complete'
+E         
+E         - complete
+E         + abstained
+
+tests/test_v11_canonical_e2e.py:92: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:13.882808+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.52, "cumulative_ms": 0.52, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:13.884694+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.89, "cumulative_ms": 2.41, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5480, "response_schema_bytes": 2, "estimated_prompt_tokens": 1409, "tokens_consumed_before_call": 0, "duration_ms": 0.23, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.885611+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.93, "cumulative_ms": 3.35, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:13.903357+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 17.7, "cumulative_ms": 21.05, "details": {"arguments": {"query": "Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participação de instituições no Pix.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 15.8}}
+{"timestamp": "2026-10-23T23:38:13.903536+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.23, "cumulative_ms": 21.28, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 0, "confidence": 0.3255, "abstained": true}}
+{"timestamp": "2026-10-23T23:38:13.906783+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 3.25, "cumulative_ms": 24.52, "details": {"iterations_used": 1, "agents_executed": ["KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:13.907724+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_9515075166e4494b", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.93, "cumulative_ms": 25.45, "details": {"response_char_count": 344, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_context_and_task_survive_context_only_fc_query[There is an Algar SIM in the reader packaging.-Explain safe installation and communication testing.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087a3b00>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1087e1bf0>
+context = 'There is an Algar SIM in the reader packaging.'
+task = 'Explain safe installation and communication testing.'
+
+    @pytest.mark.parametrize('context,task', [
+        ('There is an Algar SIM in the reader packaging.', 'Explain safe installation and communication testing.'),
+        ('Achei um chip Algar na embalagem do leitor.', 'Explique a instalação segura e o teste de comunicação.'),
+    ])
+    def test_context_and_task_survive_context_only_fc_query(boundary, monkeypatch, context, task):
+        # Router FC and Knowledge FC both propose context only, independently.
+        from app.agents.knowledge_agent import KnowledgeAgent
+        original = KnowledgeAgent._plan_tool_calls
+        def plan(self, **kwargs):
+            self.client = SyntheticFC([('search_getnet_knowledge', {'query': context})])
+            with monkeypatch.context() as config:
+                config.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
+                return original(self, **kwargs)
+        monkeypatch.setattr(KnowledgeAgent, '_plan_tool_calls', plan)
+        body, calls, _ = boundary(context + ' ' + task, query=context)
+        queries = [args['query'] for name, args in calls if name == 'search_getnet_knowledge']
+>       assert queries and all(task in query and context in query for query in queries)
+E       AssertionError: assert (['There is an Algar SIM in the reader packaging.'] and False)
+E        +  where False = all(<generator object test_context_and_task_survive_context_only_fc_query.<locals>.<genexpr> at 0x1087cfe60>)
+
+tests/test_v11_canonical_e2e.py:115: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:13.917324+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.5, "cumulative_ms": 0.5, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:13.919043+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.72, "cumulative_ms": 2.23, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5402, "response_schema_bytes": 2, "estimated_prompt_tokens": 1391, "tokens_consumed_before_call": 0, "duration_ms": 0.22, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.920152+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.12, "cumulative_ms": 3.35, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:13.921811+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.65, "cumulative_ms": 5.0, "details": {"phase": "generation", "model": "gemini-3.5-flash-lite", "request_bytes": 4285, "response_schema_bytes": 2, "estimated_prompt_tokens": 1113, "tokens_consumed_before_call": 1391, "duration_ms": 0.17, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.928670+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 6.86, "cumulative_ms": 11.86, "details": {"arguments": {"query": "There is an Algar SIM in the reader packaging.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 4.97}}
+{"timestamp": "2026-10-23T23:38:13.928812+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.17, "cumulative_ms": 12.02, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 0, "confidence": 0.4655, "abstained": true}}
+{"timestamp": "2026-10-23T23:38:13.931964+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 3.15, "cumulative_ms": 15.17, "details": {"iterations_used": 1, "agents_executed": ["KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:13.932792+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_0c4c23e708ed4d08", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.82, "cumulative_ms": 15.99, "details": {"response_char_count": 279, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_context_and_task_survive_context_only_fc_query[Achei um chip Algar na embalagem do leitor.-Explique a instala\xe7\xe3o segura e o teste de comunica\xe7\xe3o.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087efc40>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1085c4d70>
+context = 'Achei um chip Algar na embalagem do leitor.'
+task = 'Explique a instalação segura e o teste de comunicação.'
+
+    @pytest.mark.parametrize('context,task', [
+        ('There is an Algar SIM in the reader packaging.', 'Explain safe installation and communication testing.'),
+        ('Achei um chip Algar na embalagem do leitor.', 'Explique a instalação segura e o teste de comunicação.'),
+    ])
+    def test_context_and_task_survive_context_only_fc_query(boundary, monkeypatch, context, task):
+        # Router FC and Knowledge FC both propose context only, independently.
+        from app.agents.knowledge_agent import KnowledgeAgent
+        original = KnowledgeAgent._plan_tool_calls
+        def plan(self, **kwargs):
+            self.client = SyntheticFC([('search_getnet_knowledge', {'query': context})])
+            with monkeypatch.context() as config:
+                config.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
+                return original(self, **kwargs)
+        monkeypatch.setattr(KnowledgeAgent, '_plan_tool_calls', plan)
+        body, calls, _ = boundary(context + ' ' + task, query=context)
+        queries = [args['query'] for name, args in calls if name == 'search_getnet_knowledge']
+>       assert queries and all(task in query and context in query for query in queries)
+E       AssertionError: assert (['Achei um chip Algar na embalagem do leitor.'] and False)
+E        +  where False = all(<generator object test_context_and_task_survive_context_only_fc_query.<locals>.<genexpr> at 0x10880aea0>)
+
+tests/test_v11_canonical_e2e.py:115: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:13.942918+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.63, "cumulative_ms": 0.63, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:13.944791+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.89, "cumulative_ms": 2.51, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5408, "response_schema_bytes": 2, "estimated_prompt_tokens": 1390, "tokens_consumed_before_call": 0, "duration_ms": 0.23, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.945590+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.81, "cumulative_ms": 3.33, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["KNOWLEDGE_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:13.947161+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.56, "cumulative_ms": 4.89, "details": {"phase": "generation", "model": "gemini-3.5-flash-lite", "request_bytes": 4294, "response_schema_bytes": 2, "estimated_prompt_tokens": 1113, "tokens_consumed_before_call": 1390, "duration_ms": 0.17, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.956062+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 8.9, "cumulative_ms": 13.79, "details": {"arguments": {"query": "Achei um chip Algar na embalagem do leitor.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 7.67}}
+{"timestamp": "2026-10-23T23:38:13.956247+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.21, "cumulative_ms": 13.99, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 1, "confidence": 0.5466, "abstained": true}}
+{"timestamp": "2026-10-23T23:38:13.960545+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 4.29, "cumulative_ms": 18.29, "details": {"iterations_used": 1, "agents_executed": ["KNOWLEDGE_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:13.964680+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a8807b760b094678", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 4.11, "cumulative_ms": 22.4, "details": {"response_char_count": 666, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup[If firmware of GET-SMART-QA-65172 is lab-46.9 and status is Online, explain Getnet Credi\xe1rio advance-payment costs.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087ee5c0>
+message = 'If firmware of GET-SMART-QA-65172 is lab-46.9 and status is Online, explain Getnet Crediário advance-payment costs.'
+
+    @pytest.mark.parametrize('message', [
+        f'If firmware of {TARGET} is lab-46.9 and status is Online, explain Getnet Crediário advance-payment costs.',
+        f'Se o firmware do terminal {TARGET} for lab-46.9 e o status for Online, explique os custos de antecipação do Crediário Getnet.',
+        f'If firmware of {TARGET} is lab-46.9 or status is Online, explain Getnet Crediário advance-payment costs.',
+    ])
+    def test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup(boundary, message):
+        body, calls, _ = boundary(message)
+>       assert [name for name, _ in calls] == ['diagnose_terminal_issue']
+E       AssertionError: assert [] == ['diagnose_terminal_issue']
+E         
+E         Right contains one more item: 'diagnose_terminal_issue'
+E         Use -v to get more diff
+
+tests/test_v11_canonical_e2e.py:127: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:13.973259+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_be7afe6853804d59", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.59, "cumulative_ms": 0.59, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:13.975220+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_be7afe6853804d59", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.95, "cumulative_ms": 2.54, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5370, "response_schema_bytes": 2, "estimated_prompt_tokens": 1382, "tokens_consumed_before_call": 0, "duration_ms": 0.24, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.977268+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_be7afe6853804d59", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "conditional_lookup_blocked", "status": "skipped", "step_duration_ms": 2.08, "cumulative_ms": 4.63, "details": {"reason": "unsupported_or_ambiguous_terminal_condition"}}
+{"timestamp": "2026-10-23T23:38:13.977373+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_be7afe6853804d59", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.1, "cumulative_ms": 4.73, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": [], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:13.977521+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_be7afe6853804d59", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.14, "cumulative_ms": 4.87, "details": {"iterations_used": 0, "agents_executed": [], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:13.978663+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_be7afe6853804d59", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 1.15, "cumulative_ms": 6.02, "details": {"response_char_count": 260, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup[Se o firmware do terminal GET-SMART-QA-65172 for lab-46.9 e o status for Online, explique os custos de antecipa\xe7\xe3o do Credi\xe1rio Getnet.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087eeca0>
+message = 'Se o firmware do terminal GET-SMART-QA-65172 for lab-46.9 e o status for Online, explique os custos de antecipação do Crediário Getnet.'
+
+    @pytest.mark.parametrize('message', [
+        f'If firmware of {TARGET} is lab-46.9 and status is Online, explain Getnet Crediário advance-payment costs.',
+        f'Se o firmware do terminal {TARGET} for lab-46.9 e o status for Online, explique os custos de antecipação do Crediário Getnet.',
+        f'If firmware of {TARGET} is lab-46.9 or status is Online, explain Getnet Crediário advance-payment costs.',
+    ])
+    def test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup(boundary, message):
+        body, calls, _ = boundary(message)
+>       assert [name for name, _ in calls] == ['diagnose_terminal_issue']
+E       AssertionError: assert [] == ['diagnose_terminal_issue']
+E         
+E         Right contains one more item: 'diagnose_terminal_issue'
+E         Use -v to get more diff
+
+tests/test_v11_canonical_e2e.py:127: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:13.987856+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_dbde45162b994d09", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.53, "cumulative_ms": 0.53, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:13.989652+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_dbde45162b994d09", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.8, "cumulative_ms": 2.33, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5414, "response_schema_bytes": 2, "estimated_prompt_tokens": 1392, "tokens_consumed_before_call": 0, "duration_ms": 0.22, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:13.990788+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_dbde45162b994d09", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "conditional_lookup_blocked", "status": "skipped", "step_duration_ms": 1.16, "cumulative_ms": 3.49, "details": {"reason": "unsupported_or_ambiguous_terminal_condition"}}
+{"timestamp": "2026-10-23T23:38:13.990897+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_dbde45162b994d09", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.11, "cumulative_ms": 3.6, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": [], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:13.990990+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_dbde45162b994d09", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.1, "cumulative_ms": 3.7, "details": {"iterations_used": 0, "agents_executed": [], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:13.991813+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_dbde45162b994d09", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.81, "cumulative_ms": 4.51, "details": {"response_char_count": 280, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup[If firmware of GET-SMART-QA-65172 is lab-46.9 or status is Online, explain Getnet Credi\xe1rio advance-payment costs.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087ef240>
+message = 'If firmware of GET-SMART-QA-65172 is lab-46.9 or status is Online, explain Getnet Crediário advance-payment costs.'
+
+    @pytest.mark.parametrize('message', [
+        f'If firmware of {TARGET} is lab-46.9 and status is Online, explain Getnet Crediário advance-payment costs.',
+        f'Se o firmware do terminal {TARGET} for lab-46.9 e o status for Online, explique os custos de antecipação do Crediário Getnet.',
+        f'If firmware of {TARGET} is lab-46.9 or status is Online, explain Getnet Crediário advance-payment costs.',
+    ])
+    def test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup(boundary, message):
+        body, calls, _ = boundary(message)
+>       assert [name for name, _ in calls] == ['diagnose_terminal_issue']
+E       AssertionError: assert [] == ['diagnose_terminal_issue']
+E         
+E         Right contains one more item: 'diagnose_terminal_issue'
+E         Use -v to get more diff
+
+tests/test_v11_canonical_e2e.py:127: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:14.000465+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_437ec99346de44a7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.51, "cumulative_ms": 0.51, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:14.002207+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_437ec99346de44a7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.74, "cumulative_ms": 2.25, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5301, "response_schema_bytes": 2, "estimated_prompt_tokens": 1364, "tokens_consumed_before_call": 0, "duration_ms": 0.21, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:14.003147+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_437ec99346de44a7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "conditional_lookup_blocked", "status": "skipped", "step_duration_ms": 0.97, "cumulative_ms": 3.22, "details": {"reason": "unsupported_or_ambiguous_terminal_condition"}}
+{"timestamp": "2026-10-23T23:38:14.003248+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_437ec99346de44a7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 0.1, "cumulative_ms": 3.31, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": [], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:14.003338+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_437ec99346de44a7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.1, "cumulative_ms": 3.41, "details": {"iterations_used": 0, "agents_executed": [], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:14.004098+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_437ec99346de44a7", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.75, "cumulative_ms": 4.16, "details": {"response_char_count": 256, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_failed_current_incident_lookup_answers_specific_nonconfirmation[Is there a Getnet outage in Campinas right now? Consult current sources and state if it cannot be confirmed.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087ec680>
+message = 'Is there a Getnet outage in Campinas right now? Consult current sources and state if it cannot be confirmed.'
+
+    @pytest.mark.parametrize('message', [
+        'Is there a Getnet outage in Campinas right now? Consult current sources and state if it cannot be confirmed.',
+        'Há uma pane da Getnet em Campinas agora? Consulte fontes atuais e informe se não houver confirmação.',
+    ])
+    def test_failed_current_incident_lookup_answers_specific_nonconfirmation(boundary, message):
+        body, calls, _ = boundary(message, agent='WEB_SEARCH_AGENT')
+        assert calls and all(name == 'web_search_general' for name, _ in calls)
+>       assert all('Getnet' in args['query'] and 'Campinas' in args['query'] for _, args in calls)
+E       assert False
+E        +  where False = all(<generator object test_failed_current_incident_lookup_answers_specific_nonconfirmation.<locals>.<genexpr> at 0x108809e00>)
+
+tests/test_v11_canonical_e2e.py:143: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:14.013923+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.57, "cumulative_ms": 0.57, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:14.015779+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.86, "cumulative_ms": 2.44, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5488, "response_schema_bytes": 2, "estimated_prompt_tokens": 1413, "tokens_consumed_before_call": 0, "duration_ms": 0.23, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:14.017891+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 2.12, "cumulative_ms": 4.56, "details": {"primary_agent": "WEB_SEARCH_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["WEB_SEARCH_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:14.019282+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 1.4, "cumulative_ms": 5.95, "details": {"arguments": {"query": "Is there a Getnet outage in Campinas right now?", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.019408+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 0.13, "cumulative_ms": 6.08, "details": {"arguments": {"query": "Consult current sources and state if it cannot be confirmed.", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.019525+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "WEB_SEARCH_AGENT", "action": "complete_external_search", "status": "abstained", "step_duration_ms": 0.13, "cumulative_ms": 6.21, "details": {"tools_invoked": ["web_search_general", "web_search_general"], "sources_consulted": [], "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.019758+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.23, "cumulative_ms": 6.44, "details": {"iterations_used": 1, "agents_executed": ["WEB_SEARCH_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:14.020958+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_b38684c0e79c453a", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 1.19, "cumulative_ms": 7.63, "details": {"response_char_count": 531, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_failed_current_incident_lookup_answers_specific_nonconfirmation[H\xe1 uma pane da Getnet em Campinas agora? Consulte fontes atuais e informe se n\xe3o houver confirma\xe7\xe3o.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087ef6a0>
+message = 'Há uma pane da Getnet em Campinas agora? Consulte fontes atuais e informe se não houver confirmação.'
+
+    @pytest.mark.parametrize('message', [
+        'Is there a Getnet outage in Campinas right now? Consult current sources and state if it cannot be confirmed.',
+        'Há uma pane da Getnet em Campinas agora? Consulte fontes atuais e informe se não houver confirmação.',
+    ])
+    def test_failed_current_incident_lookup_answers_specific_nonconfirmation(boundary, message):
+        body, calls, _ = boundary(message, agent='WEB_SEARCH_AGENT')
+        assert calls and all(name == 'web_search_general' for name, _ in calls)
+>       assert all('Getnet' in args['query'] and 'Campinas' in args['query'] for _, args in calls)
+E       assert False
+E        +  where False = all(<generator object test_failed_current_incident_lookup_answers_specific_nonconfirmation.<locals>.<genexpr> at 0x1087cd9a0>)
+
+tests/test_v11_canonical_e2e.py:143: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:14.033612+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.66, "cumulative_ms": 0.66, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:14.035663+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 2.06, "cumulative_ms": 2.72, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5480, "response_schema_bytes": 2, "estimated_prompt_tokens": 1409, "tokens_consumed_before_call": 0, "duration_ms": 0.25, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:14.037499+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.86, "cumulative_ms": 4.58, "details": {"primary_agent": "WEB_SEARCH_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["WEB_SEARCH_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:14.038565+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 1.07, "cumulative_ms": 5.65, "details": {"arguments": {"query": "Há uma pane da Getnet em Campinas agora?", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.038682+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 0.13, "cumulative_ms": 5.77, "details": {"arguments": {"query": "Consulte fontes atuais", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.038782+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 0.1, "cumulative_ms": 5.88, "details": {"arguments": {"query": "e informe se não houver confirmação.", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.038899+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "WEB_SEARCH_AGENT", "action": "complete_external_search", "status": "abstained", "step_duration_ms": 0.12, "cumulative_ms": 5.99, "details": {"tools_invoked": ["web_search_general", "web_search_general", "web_search_general"], "sources_consulted": [], "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.039160+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.26, "cumulative_ms": 6.25, "details": {"iterations_used": 1, "agents_executed": ["WEB_SEARCH_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:14.040314+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_19068b2759664c71", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 1.14, "cumulative_ms": 7.4, "details": {"response_char_count": 523, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_country_qualifier_retains_product_in_real_web_arguments[Explain Getnet Credi\xe1rio timing and advance-payment costs in Brazil. For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.-For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087edb20>
+message = 'Explain Getnet Crediário timing and advance-payment costs in Brazil. For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'
+qualifier = 'For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'
+
+    @pytest.mark.parametrize('message,qualifier', [
+        ('Explain Getnet Crediário timing and advance-payment costs in Brazil. For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.',
+         'For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'),
+        ('Explique prazo e custo de antecipação do Crediário Getnet no Brasil. Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.',
+         'Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'),
+    ])
+    def test_country_qualifier_retains_product_in_real_web_arguments(boundary, message, qualifier):
+        body, calls, _ = boundary(message, query=qualifier, agent='WEB_SEARCH_AGENT')
+        web = [args['query'] for name, args in calls if name == 'web_search_general']
+>       assert web and all('Crediário' in query and 'Getnet' in query for query in web)
+E       AssertionError: assert (['For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'] and False)
+E        +  where False = all(<generator object test_country_qualifier_retains_product_in_real_web_arguments.<locals>.<genexpr> at 0x1089e4450>)
+
+tests/test_v11_canonical_e2e.py:159: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:14.050385+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.54, "cumulative_ms": 0.54, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:14.052345+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.97, "cumulative_ms": 2.51, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5634, "response_schema_bytes": 2, "estimated_prompt_tokens": 1451, "tokens_consumed_before_call": 0, "duration_ms": 0.24, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:14.055104+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 2.77, "cumulative_ms": 5.28, "details": {"primary_agent": "KNOWLEDGE_AGENT", "confidence": 0.9, "is_multi_step": true, "planned_steps": ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:14.069377+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 14.26, "cumulative_ms": 19.54, "details": {"arguments": {"query": "Explain Getnet Crediário timing and advance-payment costs in Brazil.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 12.53}}
+{"timestamp": "2026-10-23T23:38:14.069528+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.18, "cumulative_ms": 19.72, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 0, "confidence": 0.5458, "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.073552+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 4.01, "cumulative_ms": 23.73, "details": {"arguments": {"query": "For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.073673+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "WEB_SEARCH_AGENT", "action": "complete_external_search", "status": "abstained", "step_duration_ms": 0.14, "cumulative_ms": 23.87, "details": {"tools_invoked": ["web_search_general"], "sources_consulted": [], "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.073881+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.19, "cumulative_ms": 24.06, "details": {"iterations_used": 2, "agents_executed": ["KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:14.075036+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_8363eba8096f47fc", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 1.14, "cumulative_ms": 25.2, "details": {"response_char_count": 737, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_country_qualifier_retains_product_in_real_web_arguments[Explique prazo e custo de antecipa\xe7\xe3o do Credi\xe1rio Getnet no Brasil. Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual espec\xedfica do pa\xeds.-Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual espec\xedfica do pa\xeds.] _
+
+boundary = <function boundary.<locals>.chat at 0x1087ec860>
+message = 'Explique prazo e custo de antecipação do Crediário Getnet no Brasil. Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'
+qualifier = 'Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'
+
+    @pytest.mark.parametrize('message,qualifier', [
+        ('Explain Getnet Crediário timing and advance-payment costs in Brazil. For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.',
+         'For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.'),
+        ('Explique prazo e custo de antecipação do Crediário Getnet no Brasil. Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.',
+         'Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'),
+    ])
+    def test_country_qualifier_retains_product_in_real_web_arguments(boundary, message, qualifier):
+        body, calls, _ = boundary(message, query=qualifier, agent='WEB_SEARCH_AGENT')
+        web = [args['query'] for name, args in calls if name == 'web_search_general']
+>       assert web and all('Crediário' in query and 'Getnet' in query for query in web)
+E       AssertionError: assert (['Explique prazo', 'Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.'] and False)
+E        +  where False = all(<generator object test_country_qualifier_retains_product_in_real_web_arguments.<locals>.<genexpr> at 0x108a19560>)
+
+tests/test_v11_canonical_e2e.py:159: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-23T23:38:14.085584+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.55, "cumulative_ms": 0.55, "details": {"user_id": "synthetic", "session_id": "sess_synthetic", "auth_method": "demo_unverified", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-23T23:38:14.087637+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 2, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 2.06, "cumulative_ms": 2.61, "details": {"phase": "routing", "model": "gemini-3.5-flash-lite", "request_bytes": 5559, "response_schema_bytes": 2, "estimated_prompt_tokens": 1430, "tokens_consumed_before_call": 0, "duration_ms": 0.23, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-23T23:38:14.090246+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 3, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 2.62, "cumulative_ms": 5.23, "details": {"primary_agent": "WEB_SEARCH_AGENT", "confidence": 0.9, "is_multi_step": true, "planned_steps": ["WEB_SEARCH_AGENT", "KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"], "reasoning": "synthetic offline canonical regression"}}
+{"timestamp": "2026-10-23T23:38:14.091185+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 4, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 0.94, "cumulative_ms": 6.17, "details": {"arguments": {"query": "Explique prazo", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.091329+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 5, "agent": "WEB_SEARCH_AGENT", "action": "complete_external_search", "status": "abstained", "step_duration_ms": 0.16, "cumulative_ms": 6.33, "details": {"tools_invoked": ["web_search_general"], "sources_consulted": [], "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.103901+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 6, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:search_getnet_knowledge", "status": "success", "step_duration_ms": 12.55, "cumulative_ms": 18.88, "details": {"arguments": {"query": "e custo de antecipação do Crediário Getnet no Brasil.", "top_k": 3}, "success": true, "error_code": null, "execution_ms": 10.93}}
+{"timestamp": "2026-10-23T23:38:14.104044+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 7, "agent": "KNOWLEDGE_AGENT", "action": "retrieve_and_synthesize_hybrid_rag", "status": "abstained", "step_duration_ms": 0.17, "cumulative_ms": 19.05, "details": {"tools_invoked": ["search_getnet_knowledge"], "citations_count": 0, "confidence": 0.7092, "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.108399+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 8, "agent": "KNOWLEDGE_AGENT_TOOL", "action": "call:web_search_general", "status": "error", "step_duration_ms": 4.32, "cumulative_ms": 23.37, "details": {"arguments": {"query": "Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual específica do país.", "max_results": 3}, "success": false, "error_code": "EXTERNAL_SERVICE_UNAVAILABLE", "execution_ms": 0.0}}
+{"timestamp": "2026-10-23T23:38:14.108571+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 9, "agent": "WEB_SEARCH_AGENT", "action": "complete_external_search", "status": "abstained", "step_duration_ms": 0.2, "cumulative_ms": 23.57, "details": {"tools_invoked": ["web_search_general"], "sources_consulted": [], "abstained": true}}
+{"timestamp": "2026-10-23T23:38:14.108782+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 10, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 23.78, "details": {"iterations_used": 3, "agents_executed": ["WEB_SEARCH_AGENT", "KNOWLEDGE_AGENT", "WEB_SEARCH_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-23T23:38:14.109979+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_fad7a0d8247b4414", "session_id": "sess_synthetic", "user_id": "synthetic", "step_id": 11, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 1.19, "cumulative_ms": 24.97, "details": {"response_char_count": 1102, "session_id": "sess_synthetic", "abstained": true, "semantic_mode": "limited_offline", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=============================== warnings summary ===============================
+../../../Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_v11_canonical_e2e.py::test_source_preference_is_attached_and_fulfilled_in_http[Name the account types accepted for Pix in Brazil. Answer using Getnet internal material, without replacing it with institutional participation rules.]
+FAILED tests/test_v11_canonical_e2e.py::test_source_preference_is_attached_and_fulfilled_in_http[Quais categorias de conta podem receber Pix na Getnet? Responda pelo material interno da Getnet, sem substituir isso por regras de participa\xe7\xe3o de institui\xe7\xf5es no Pix.]
+FAILED tests/test_v11_canonical_e2e.py::test_context_and_task_survive_context_only_fc_query[There is an Algar SIM in the reader packaging.-Explain safe installation and communication testing.]
+FAILED tests/test_v11_canonical_e2e.py::test_context_and_task_survive_context_only_fc_query[Achei um chip Algar na embalagem do leitor.-Explique a instala\xe7\xe3o segura e o teste de comunica\xe7\xe3o.]
+FAILED tests/test_v11_canonical_e2e.py::test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup[If firmware of GET-SMART-QA-65172 is lab-46.9 and status is Online, explain Getnet Credi\xe1rio advance-payment costs.]
+FAILED tests/test_v11_canonical_e2e.py::test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup[Se o firmware do terminal GET-SMART-QA-65172 for lab-46.9 e o status for Online, explique os custos de antecipa\xe7\xe3o do Credi\xe1rio Getnet.]
+FAILED tests/test_v11_canonical_e2e.py::test_unknown_or_false_predicate_still_reads_exact_target_without_dependent_lookup[If firmware of GET-SMART-QA-65172 is lab-46.9 or status is Online, explain Getnet Credi\xe1rio advance-payment costs.]
+FAILED tests/test_v11_canonical_e2e.py::test_failed_current_incident_lookup_answers_specific_nonconfirmation[Is there a Getnet outage in Campinas right now? Consult current sources and state if it cannot be confirmed.]
+FAILED tests/test_v11_canonical_e2e.py::test_failed_current_incident_lookup_answers_specific_nonconfirmation[H\xe1 uma pane da Getnet em Campinas agora? Consulte fontes atuais e informe se n\xe3o houver confirma\xe7\xe3o.]
+FAILED tests/test_v11_canonical_e2e.py::test_country_qualifier_retains_product_in_real_web_arguments[Explain Getnet Credi\xe1rio timing and advance-payment costs in Brazil. For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.-For the Norwegian shop, leave applicability open unless a current Norway-specific external source supports it.]
+FAILED tests/test_v11_canonical_e2e.py::test_country_qualifier_retains_product_in_real_web_arguments[Explique prazo e custo de antecipa\xe7\xe3o do Credi\xe1rio Getnet no Brasil. Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual espec\xedfica do pa\xeds.-Para a loja na Noruega, mantenha a aplicabilidade em aberto sem fonte externa atual espec\xedfica do pa\xeds.]
+11 failed, 1 warning in 0.77s

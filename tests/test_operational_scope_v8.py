@@ -136,7 +136,7 @@ def test_multitarget_answer_minimizes_fields_per_requested_terminal(local_tools,
 
     diagnostic = output.structured_data['diagnose_terminal_issue']
     assert set(output.structured_data) == {'diagnose_terminal_issue'}
-    assert all(result.tool_name == 'diagnose_terminal_issue' for result in output.tool_results)
+    assert all(item.get('tool_name') == 'diagnose_terminal_issue' for item in output.evidence)
     assert len(diagnostic) == 2
     by_id = {item['terminal']['terminal_id']: item for item in diagnostic}
     assert set(by_id) == {WEST, EAST}
@@ -146,10 +146,11 @@ def test_multitarget_answer_minimizes_fields_per_requested_terminal(local_tools,
     assert by_id[EAST]['terminal']['signal_strength'] == '4/4'
     evidence = json.dumps(output.evidence)
     assert 'ONLINE' not in evidence and 'v8.2' not in evidence and '3/4' not in evidence
-    assert output.tool_results == [] or all(
-        set((result.data.get('terminal') or {})) <= {'terminal_id', 'connection_type', 'signal_strength'}
-        for result in output.tool_results if result.success and result.tool_name == 'diagnose_terminal_issue'
-    )
+    # Rich tool_results are internal supervisor proof; public structures carry
+    # only the target/field contract (also checked end-to-end by V11 HTTP tests).
+    assert all(set(item['terminal']) <= {'terminal_id', 'connection_type', 'signal_strength'}
+               for item in diagnostic)
+
 
 
 @pytest.mark.parametrize('unexpected_terminal', ['GET-SYNTH-OTHER-999', None])
@@ -168,10 +169,10 @@ def test_minimizer_drops_unrequested_or_unidentified_diagnostic_result(unexpecte
 
     minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
 
-    assert len(minimized.tool_results) == 2
-    assert all(result.data['terminal']['terminal_id'] in {WEST, EAST}
-               for result in minimized.tool_results)
-    assert 'private-raw-fw-99.9' not in json.dumps(minimized.model_dump())
+    assert len(minimized.structured_data['diagnose_terminal_issue']) == 2
+    assert all(result['terminal']['terminal_id'] in {WEST, EAST}
+               for result in minimized.structured_data['diagnose_terminal_issue'])
+    assert 'private-raw-fw-99.9' not in json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
     assert unexpected_terminal is None or unexpected_terminal not in minimized.response
 
 
@@ -190,12 +191,12 @@ def test_minimizer_sanitizes_matching_but_unavailable_result():
 
     minimized = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
 
-    assert len(minimized.tool_results) == 2
-    unavailable_result = minimized.tool_results[0]
-    assert unavailable_result.data == {
+    assert len(minimized.structured_data['diagnose_terminal_issue']) == 2
+    unavailable_result = minimized.structured_data['diagnose_terminal_issue'][0]
+    assert unavailable_result == {
         'found': False, 'requested_terminal_id': WEST,
     }
-    serialized = json.dumps(minimized.model_dump())
+    serialized = json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
     assert 'PRIVATE-ONLINE' not in serialized and 'private-raw-fw-99.9' not in serialized
     assert f'`{WEST}` — dado solicitado não disponível' in minimized.response
 
@@ -213,9 +214,9 @@ def test_minimizer_abstains_per_pair_when_every_requested_read_is_missing():
 
     assert minimized.response.count('dado solicitado não disponível') == 2
     assert WEST in minimized.response and EAST in minimized.response
-    assert 'PRIVATE-CONNECTION' not in json.dumps(minimized.model_dump())
-    assert 'private-raw-fw-99.9' not in json.dumps(minimized.model_dump())
-    assert minimized.tool_results == []
+    assert 'PRIVATE-CONNECTION' not in json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
+    assert 'private-raw-fw-99.9' not in json.dumps({'response':minimized.response,'evidence':minimized.evidence,'structured_data':minimized.structured_data})
+    assert minimized.structured_data['diagnose_terminal_issue'] == []
     assert minimized.structured_data == {'diagnose_terminal_issue': []}
     assert minimized.answer_status == 'abstained'
     assert minimized.abstained is True
@@ -258,9 +259,8 @@ def test_minimizer_drops_profile_without_verified_owner(owner_fields):
     result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message, 'synthetic')
 
     assert 'A consulta de perfil solicitada não pôde ser concluída.' in result.response
-    assert 'PRIVATE-COMPANY' not in json.dumps(result.model_dump())
+    assert 'PRIVATE-COMPANY' not in json.dumps({'response':result.response,'evidence':result.evidence,'structured_data':result.structured_data})
     assert 'get_customer_profile' not in result.structured_data
-    assert all(r.tool_name != 'get_customer_profile' for r in result.tool_results)
     assert 'fw-8.2' not in result.response and 'ONLINE' not in result.response
 
 
@@ -278,10 +278,10 @@ def test_minimizer_identity_check_does_not_recover_foreign_observation():
     assert result.covered_unit_ids == ['u2']
     assert result.unresolved_unit_ids == ['u1']
     assert result.answer_status == 'partial' and result.abstained is True
-    assert 'PRIVATE-WIFI' not in json.dumps(result.model_dump())
+    assert 'PRIVATE-WIFI' not in json.dumps({'response':result.response,'evidence':result.evidence,'structured_data':result.structured_data})
 
 
-def test_minimizer_declines_projection_when_one_target_has_multiple_requested_fields():
+def test_minimizer_projects_union_when_one_target_has_multiple_requested_fields():
     message = (f'Check connection of {WEST} and signal of {WEST} plus signal of {EAST}.')
     raw = observation(WEST, signal_strength='3/4', firmware_version='v8.2')
     output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT', response='ordinary scoped response',
@@ -289,8 +289,11 @@ def test_minimizer_declines_projection_when_one_target_has_multiple_requested_fi
 
     result = CustomerSupportAgent._minimize_multi_terminal_fields(output, message)
 
-    assert result.response == 'ordinary scoped response'
-    assert result.structured_data['diagnose_terminal_issue'] == raw.data
+    # V11 binding contract supersedes the old fail-open expectation.
+    assert '**Tipo de conexão:** WIFI' in result.response
+    assert '**Força do sinal:** 3/4' in result.response
+    assert 'v8.2' not in json.dumps(result.evidence) + result.response
+    assert set(result.structured_data['diagnose_terminal_issue'][0]['terminal']) == {'terminal_id', 'connection_type', 'signal_strength'}
 
 
 def test_minimizer_recomputes_coverage_from_projected_fields():

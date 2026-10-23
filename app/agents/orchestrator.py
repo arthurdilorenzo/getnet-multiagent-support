@@ -18,6 +18,8 @@ from app.schemas import ChatRequest, ChatResponse, Citation, PlanStep, Specialis
 from app.security.auth import SecurityContext
 from app.security.pii import PIIRedactor
 from app.security.request_units import RequestCoverageLedger, request_units
+from app.security.request_constraints import declared_foreign_terminal
+from app.security.public_projection import project_public_response
 from app.security.operational_intent import classify_operational_intent
 from app.security.documentary_intent import asks_explicit_external_evidence, documentary_clause_span
 from app.security.fulfillment import canonical_terminal_read_text
@@ -286,7 +288,10 @@ class MultiAgentOrchestrator:
                                      else 'a consulta dependente')
             condition = conditional_dependency['condition']
             target = conditional_dependency['terminal_id']
-            if condition is None or target is None:
+            existing_read = condition is None and any(
+                step.target_agent == 'CUSTOMER_SUPPORT_AGENT' and target in step.sub_query
+                for step in routing_plan.plan_steps) if target else False
+            if target is None or declared_foreign_terminal(original_request, target) or existing_read:
                 conditional_notice = (
                     f"Não consegui validar com segurança a condição do terminal; não consultei {dependent_description}."
                 )
@@ -313,7 +318,8 @@ class MultiAgentOrchestrator:
                     result.tool_name == 'diagnose_terminal_issue' for result in results
                 ) and set(conditional_preflight.tools_called if conditional_preflight else []) <= {
                     'diagnose_terminal_issue'}
-                authorized = only_diagnostic_reads and evaluate_terminal_condition(condition, results)
+                authorized = only_diagnostic_reads and evaluate_terminal_condition(
+                    condition, results, authenticated_user_id=sec_ctx.authenticated_user_id)
                 tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='evaluate_conditional_dependency',
                     status='success' if authorized else 'skipped', details={
                         'terminal_id': target, 'predicate_authorized': authorized,
@@ -329,8 +335,24 @@ class MultiAgentOrchestrator:
                         request_unit_ids=list(dependent_ids),
                     ))
                 else:
+                    tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='conditional_lookup_blocked',
+                        status='skipped', details={'reason': 'predicate_false_or_unverified'})
+                    observed_values = []
+                    for result in results:
+                        data = result.data if isinstance(result.data, dict) else {}
+                        terminal = data.get('terminal')
+                        if (result.tool_name == 'diagnose_terminal_issue' and result.success is True
+                                and result.outcome_state == 'completed' and result.error_code is None
+                                and data.get('found') is True
+                                and data.get('user_id') == sec_ctx.authenticated_user_id
+                                and data.get('requested_terminal_id') == target
+                                and isinstance(terminal, dict) and terminal.get('terminal_id') == target):
+                            observed_values.extend(f"{name}: {terminal[name]}" for name in ('firmware_version', 'status')
+                                                   if isinstance(terminal.get(name), str))
+                    observed_notice = (f" Observado em {target}: " + '; '.join(observed_values) + ".") if observed_values else ''
                     conditional_notice = (
                         f"A condição de firmware/status do terminal não foi confirmada; não consultei {dependent_description}."
+                        + observed_notice
                     )
             for order, step in enumerate(routing_plan.plan_steps, start=1):
                 step.step_order = order
@@ -516,18 +538,6 @@ class MultiAgentOrchestrator:
             else (agents_executed[0] if agents_executed else routing_plan.primary_agent)
         )
 
-        # Persiste resposta do assistente na memória SQLite da sessão
-        state_store.append_message(
-            session_id=session_id,
-            user_id=sec_ctx.authenticated_user_id,
-            role="assistant",
-            content=final_response,
-            agent_used=final_agent_label,
-            tools_called=all_tools_called,
-            sources=all_sources,
-            active_topic=routing_plan.primary_agent,
-        )
-
         tracer.add_step(
             agent="SYSTEM_EGRESS",
             action="sanitize_and_persist_response",
@@ -559,7 +569,7 @@ class MultiAgentOrchestrator:
             abstained=abstained_final,semantic_mode=semantic_mode,answer_status=answer_status,
         )
 
-        return ChatResponse(
+        public_response = ChatResponse(
             response=final_response,
             user_id=sec_ctx.authenticated_user_id,
             session_id=session_id,
@@ -582,6 +592,26 @@ class MultiAgentOrchestrator:
             trace=tracer.get_steps(),
             execution_time_ms=total_ms,
         )
+        # The public envelope, including free-form trace/intent, is projected only
+        # after all specialist results have been aggregated. Persist that same
+        # response so later turns cannot recover unrequested diagnostic fields.
+        trusted_segments = [segment for segment in (
+            conditional_notice,
+            "Partes do pedido sem resposta verificada:\n" + "\n".join("- " + row["text"] for row in unresolved) if unresolved else None,
+            "O atendimento atingiu o limite de etapas. Parte do pedido ficou pendente; envie uma nova mensagem para continuar." if pending_steps else None,
+            "O replanejamento ficou indisponível. As consultas concluídas estão preservadas; parte do pedido pode estar pendente." if replan_failed else None,
+        ) if segment]
+        public_response = project_public_response(
+            public_response, original_request, executed_outputs,
+            sec_ctx.authenticated_user_id, trusted_segments=trusted_segments)
+        public_response.response = GuardrailManager.sanitize_output(public_response.response)
+        state_store.append_message(
+            session_id=session_id, user_id=sec_ctx.authenticated_user_id,
+            role="assistant", content=public_response.response,
+            agent_used=final_agent_label, tools_called=public_response.tools_called,
+            sources=public_response.sources, active_topic=routing_plan.primary_agent)
+        return public_response
+
 
     def _delegate_to_specialist(
         self,
@@ -888,7 +918,7 @@ class MultiAgentOrchestrator:
         if re.search(r"\b(?:código|codigo|code)\b", norm):
             code = RouterAgent.observed_decline_code(observations)
             if code:
-                return f"{sub_query}. Código observado no diagnóstico: {code}."
+                return f"Explique o código {code} identificado no diagnóstico. {sub_query}"
         return sub_query
 
 

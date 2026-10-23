@@ -1,0 +1,3 @@
+Python 3.11 AST syntax: 102 files; 0 errors
+check_no_print.py app: exit 0
+git diff --check: exit 0

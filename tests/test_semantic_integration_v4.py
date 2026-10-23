@@ -46,4 +46,5 @@ def test_delegation_keeps_original_request_separate_from_model_subquery(agent, m
     monkeypatch.setattr(orchestrator.knowledge_agent, 'run', run)
     orchestrator.process(ChatRequest(message=original, user_id='cliente1988'))
     assert captured['request_message'] == original
-    assert captured['message'] == 'Quais são as características?'
+    assert 'Minha empresa é estrangeira' in captured['message']
+    assert 'produto Getnet está disponível para ela?' in captured['message']
