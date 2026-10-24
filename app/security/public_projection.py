@@ -43,6 +43,12 @@ def project_specialist(output: SpecialistOutput, original_message: str,
     if not contract or output.agent_name != 'CUSTOMER_SUPPORT_AGENT':
         return output
     output = output.model_copy(deep=True)
+    from app.security.request_constraints import declared_foreign_terminal
+    if (output.abstention_reason == 'FOREIGN_TERMINAL_NOT_AUTHORIZED' and not output.tool_results
+            and all(declared_foreign_terminal(original_message, target) for target in contract)):
+        output.response = 'Acesso não autorizado: o terminal pertence a outra conta. Nenhuma consulta operacional foi realizada.'
+        output.evidence = [{'kind':'policy_decision','code':'FOREIGN_TERMINAL_NOT_AUTHORIZED'}]
+        return output
     broad_targets = {target for unit in request_units(original_message)
         if re.search(r'\b(?:diagnostique|diagnosticar|diagnose|diagnosis|diagnostico|troubleshoot)\b', _normalize(unit['text']))
         for target in extract_constraints(unit['text']).terminal_ids if target not in contract}
@@ -109,6 +115,18 @@ def project_specialist(output: SpecialistOutput, original_message: str,
     if profile_missing:
         other_text = 'A consulta de perfil solicitada não pôde ser concluída.'
     output.response = '\n\n'.join(part for part in (other_text, '**Campos solicitados por terminal**\n\n'+'\n'.join(rendered) if rendered else '') if part)
+    from app.security.documentary_intent import is_terminal_cell_format
+    strict_cells = any(is_terminal_cell_format(sentence) for sentence in re.split(r'(?<=[.!?])\s+', original_message))
+    if strict_cells and not other_results:
+        cells = []
+        for target, fields in contract.items():
+            if target not in active_targets:
+                continue
+            observed = next(((r.data or {}).get('terminal') or {} for r in safe_results
+                             if r.success and ((r.data or {}).get('terminal') or {}).get('terminal_id') == target), {})
+            values = [str(observed.get(field) or 'não informado') for field in FIELDS if field in fields]
+            cells.append(target + '\t' + ' / '.join(values))
+        output.response = '\n'.join(cells)
     output.evidence = renderer._result_evidence(public_results)
     if not broad_targets and not re.search(r'\b(?:hardware|defeito|leitor|broken|replacement|substituicao)\b', _normalize(original_message)):
         output.requires_escalation = False

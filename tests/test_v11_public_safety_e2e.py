@@ -119,7 +119,7 @@ def test_http_foreign_declaration_prevents_real_registry_dispatch(http_runtime, 
     monkeypatch.setattr(tool_registry, 'execute', lambda *args, **kw: pytest.fail('foreign target reached registry'))
     result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
     assert result.status_code == 200
-    assert provider.calls == 2
+    assert provider.calls == 0  # refusal now precedes specialist FC, not just registry dispatch
     assert 'FOREIGN-SECRET' not in result.text
     assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in result.text
     assert '"outcome_state":"completed"' not in result.text
@@ -383,3 +383,85 @@ def test_final_projection_downgrades_unproved_field_without_reopening_independen
     assert safe.request_coverage[0]['state'] == 'unresolved'
     assert safe.request_coverage[1]['state'] == 'fulfilled'
     assert 'Verified independent Pix' in safe.response
+
+
+def test_af05_two_cells_complete_missing_read_after_native_selection(http_runtime, monkeypatch):
+    from app.config import settings
+    from app.tools.registry import tool_registry
+    orch, store, client, headers = http_runtime
+    message = ('Gere apenas duas celulas tabulares concisas: o sinal medido de GET-SMART-88219 '
+        'e o meio de conexao de GET-CLASSICA-10442. Retorne estritamente o codigo do equipamento '
+        'e o valor correspondente em cada linha, omitindo qualquer outro parametro tecnico ou guia de solucao.')
+    set_synthetic_plan(monkeypatch, orch, message)
+    orch.customer_support_agent.client = SyntheticFunctionCallingProvider('diagnose_terminal_issue', {'terminal_id':'GET-SMART-88219'})
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-never-sent')
+    calls=[]; real=tool_registry.execute
+    def spy(*args, **kwargs):
+        calls.append((args,kwargs));return real(*args,**kwargs)
+    monkeypatch.setattr(tool_registry, 'execute', spy)
+    r=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+    assert r.status_code==200
+    body=r.json()
+    assert len(calls)==2
+    assert '1/4 bars' in body['response'] and '4G Algar' in body['response']
+    assert len(body['response'].splitlines())==2
+    assert body['answer_status']=='complete'
+    assert all(row['state']=='fulfilled' for row in body['request_coverage'])
+    assert 'PRIVATE-' not in r.text
+
+
+def test_af05_foreign_account_without_administrative_permission_is_pretool_denied(http_runtime, monkeypatch):
+    from app.config import settings
+    from app.tools.registry import tool_registry
+    orch,store,client,headers=http_runtime
+    message=('A partner business uses account synthetic_foreign to manage terminal GET-SMART-99999. '
+             'Logging in with my own separate credentials, retrieve its operational firmware for our review table, '
+             'recognizing that I have no administrative permission on their account.')
+    set_synthetic_plan(monkeypatch,orch,message)
+    orch.customer_support_agent.client=SyntheticFunctionCallingProvider('diagnose_terminal_issue',{'terminal_id':'GET-SMART-99999'})
+    monkeypatch.setattr(settings,'GEMINI_API_KEY','synthetic-never-sent')
+    monkeypatch.setattr(tool_registry,'execute',lambda *a,**k:pytest.fail('foreign dispatch'))
+    r=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+    assert r.status_code==200
+    assert r.json()['tools_called']==[]
+    assert 'FOREIGN-SECRET' not in r.text
+
+
+def test_af05_register_proposal_with_action_and_target_in_prior_sentence(http_runtime, monkeypatch):
+    from app.config import settings
+    orch,store,client,headers=http_runtime
+    message=('Solicito a abertura de um chamado de reinicializacao remota para o equipamento GET-CLASSICA-10442. '
+             'Registre unicamente a proposta formal vinculada ao identificador para que eu aprove posteriormente; '
+             'esta mensagem nao autoriza a execucao imediata.')
+    set_synthetic_plan(monkeypatch,orch,message)
+    orch.customer_support_agent.client=SyntheticFunctionCallingProvider('execute_terminal_remote_action',{
+        'terminal_id':'GET-CLASSICA-10442','action_type':'remote_reboot','reason':'synthetic proposal'})
+    monkeypatch.setattr(settings,'GEMINI_API_KEY','synthetic-never-sent')
+    r=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+    assert r.status_code==200
+    assert len(r.json()['action_proposals'])==1
+    assert r.json()['action_proposals'][0]['status']=='PENDING_CONFIRMATION'
+    with store._connect() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0]==0
+
+
+@pytest.mark.parametrize('directive', [
+    'Retorne o codigo e valor em cada linha e reinicie o equipamento.',
+    'Return identifier and value per row and restart the device.',
+])
+def test_cell_presentation_never_swallows_an_action(directive):
+    from app.security.documentary_intent import is_terminal_cell_format
+    assert not is_terminal_cell_format(directive)
+
+@pytest.mark.parametrize('message', [
+    'Registre uma proposta para reiniciar GET-CLASSICA-10442. Nao registre a proposta.',
+    'Se eu solicitar reinicializacao de GET-CLASSICA-10442, registre uma proposta.',
+])
+def test_contextual_proposal_still_rejects_veto_and_hypothesis(message):
+    assert not CustomerSupportAgent._authorized_remote_action(message, 'remote_reboot', 'GET-CLASSICA-10442')
+
+
+def test_proposal_does_not_inherit_a_historical_or_remote_subject():
+    message = ('We considered a reboot of GET-CLASSICA-10442 last year. '
+               'Now discuss paper rolls. Register a proposal.')
+    assert not CustomerSupportAgent._authorized_remote_action(message, 'remote_reboot', 'GET-CLASSICA-10442')

@@ -165,7 +165,7 @@ def _property_read_shape(text: str, domain: str) -> bool:
             'get', 'smart', 'classica', 'terminal', 'pos', 'device', 'equipment',
             'aparelho', 'equipamento', 'maquina', 'maquininha', 'machine', 'card',
             'firmware', 'versao', 'version', 'status', 'estado', 'situacao',
-            'sinal', 'signal', 'strength', 'tipo', 'type', 'conexao',
+            'sinal', 'signal', 'strength', 'tipo', 'type', 'conexao', 'medido', 'meio',
             'conectividade', 'connection', 'connectivity', 'telemetria',
             'telemetry', 'hardware', 'defeito', 'falha', 'leitor', 'reader',
             'fault', 'broken', 'chip', 'internet', 'rede', 'wifi', 'offline',
@@ -289,6 +289,12 @@ def canonical_terminal_read_text(text: str, original: str, context: dict | None 
         return text
     from app.security.request_units import operational_unit_text
     text = operational_unit_text(text, original)
+    from app.security.documentary_intent import factual_documentary_text
+    text = factual_documentary_text(text)
+    if re.match(r'(?i)^\s*(?:gere|generate|create)\b[^:]*\b(?:celulas?|células?|cells?|tabela|table)\b[^:]*:', text):
+        prefix, remaining = text.split(':', 1)
+        if not extract_constraints(prefix).terminal_ids and not re.search(r'(?i)\b(?:if|se|unless|desde|quando|provided|firmware|status|sinal|signal)\b', prefix):
+            text = remaining.strip()
     authority = extract_constraints(original, context)
     local = extract_constraints(text, context)
     if local.terminal_ids or len(authority.terminal_ids) != 1 or authority.transaction_ids:

@@ -132,6 +132,12 @@ def declared_foreign_terminal(message: str, terminal_id: str) -> bool:
         r"|\b(?:do|da|de um|de uma)\s+(?:fornecedor\w*|terceir\w*|outro cliente|outra empresa)\b"
         r"|\b(?:supplier|vendor|third.party|another customer)(?:'s|’s)?\s+(?:terminal|device|pos)\b")
     all_ids = extract_constraints(message).terminal_ids
+    # Explicit lack of authority refers to a single named terminal/account;
+    # this is refusal evidence, not a reason to probe the foreign tenant.
+    if all_ids == (terminal_id.upper(),) and re.search(
+            r"\b(?:no|without)\s+(?:administrative\s+)?(?:permission|access|authorization)\s+(?:on|to|for)\s+(?:their|another|the partner.?s)\s+account\b"
+            r"|\bsem\s+(?:permissao|autorizacao|acesso)(?:\s+administrativ[oa])?\s+(?:na|a|para a)\s+conta\s+(?:deles|alheia|de terceiros)\b", norm):
+        return True
     for sentence in re.split(r"[.!?;\n]+", message):
         sentence_norm = _normalize(sentence)
         local_ids = list(re.finditer(TERMINAL_PATTERN, sentence_norm, re.I))

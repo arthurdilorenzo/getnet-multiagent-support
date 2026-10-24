@@ -13,7 +13,7 @@ from app.security.operational_intent import classify_operational_intent
 from app.security.request_units import request_units, validate_scope
 from app.security.fulfillment import evaluate_operational_unit, _independent_action_veto
 from app.security.request_constraints import (
-    TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints,
+    TERMINAL_PATTERN, TRANSACTION_PATTERN, RequestConstraintError, constrain_call, extract_constraints, declared_foreign_terminal,
 )
 import app.tools.customer_tools  # noqa: F401 - garante registro das customer tools
 from app.tools.registry import tool_registry
@@ -70,6 +70,14 @@ class CustomerSupportAgent:
         except ValueError:
             return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT",response="Escopo de delegação inválido; consulta não executada.",
                 confidence=0.0,abstained=True,abstention_reason="INVALID_DELEGATION_SCOPE",answer_status="abstained")
+        named_targets = extract_constraints(original_message).terminal_ids
+        if named_targets and all(declared_foreign_terminal(original_message, target) for target in named_targets):
+            return SpecialistOutput(agent_name="CUSTOMER_SUPPORT_AGENT",
+                response="Acesso não autorizado: o terminal pertence a outra conta. Nenhuma consulta operacional foi realizada.",
+                abstained=True, confidence=0.0, answer_status="abstained",
+                abstention_reason="FOREIGN_TERMINAL_NOT_AUTHORIZED", request_unit_ids=scope['assigned_unit_ids'],
+                unresolved_unit_ids=scope['assigned_unit_ids'],
+                evidence=[{'kind':'policy_decision','code':'FOREIGN_TERMINAL_NOT_AUTHORIZED'}])
         if settings.GEMINI_API_KEY:
             output = self._run_with_gemini(
                 message, security_context, session_id, conversation_context, tracer, original_message, scope["assigned_unit_ids"]
@@ -147,7 +155,7 @@ class CustomerSupportAgent:
         # Proposal authority is distinct from execution consent. This method
         # gates only the proposal tool; confirmation still belongs to JWT API.
         proposal_actions = {
-            'remote_reboot': r"\b(?:reinicio|reiniciar|restart|reboot)\b",
+            'remote_reboot': r"\b(?:reinicio|reiniciar|reinicializacao|restart|reboot)\b",
             'sim_carrier_switch': r"\b(?:troca|trocar|switch)\b.{0,35}\b(?:operadora|carrier)\b",
             'parameter_table_update': r"\b(?:atualizacao|atualizar|update)\b.{0,35}\b(?:tabela|table)\b",
         }
@@ -155,18 +163,34 @@ class CustomerSupportAgent:
         proposal_veto = re.search(
             r"\b(?:nao|nunca|not|never)\s+(?:(?:crie|criar|prepare|preparar|create|make|quero|want|a|uma|any|the)\s+){0,5}"
             r"(?:proposta|proposal)\b", norm) or re.search(
-            r"\b(?:nao|nunca|not|never)\b[^.!?;\n]{0,35}\b(?:crie|criar|prepare|preparar|create|make|quero|want)\b"
+            r"\b(?:nao|nunca|not|never)\b[^.!?;\n]{0,35}\b(?:crie|criar|prepare|preparar|registre|registrar|record|register|create|make|quero|want)\b"
             r"[^.!?;\n]{0,80}\b(?:proposta|proposal)\b", norm)
         if re.search(proposal, norm):
             if proposal_veto or '?' in message or re.search(r"\b(?:se|if|suponha|suppose|hypothetical|hipotetic\w*)\b", norm):
                 return False
-            for raw_clause in re.split(r"[.!?;\n]+", message):
+            proposal_clauses = re.split(r"[.!?;\n]+", message)
+            for clause_index, raw_clause in enumerate(proposal_clauses):
                 clause = BilingualDenseEmbedder.normalize(raw_clause).strip()
-                if not re.match(r"^(?:(?:por favor|please|can you|could you)\s+)?(?:crie|criar|prepare|preparar|create|make|quero que (?:crie|prepare))\b", clause):
+                if not re.match(r"^(?:(?:por favor|please|can you|could you)\s+)?(?:crie|criar|prepare|preparar|registre|registrar|record|register|create|make|quero que (?:crie|prepare))\b", clause):
                     continue
-                if not re.search(proposal, clause) or not re.search(proposal_actions.get(action_type, r'(?!)'), clause):
+                if not re.search(proposal, clause):
                     continue
                 local_ids = extract_constraints(raw_clause).terminal_ids
+                # A proposal can refer to one unambiguous action/target stated
+                # in the preceding sentence, never a different or ambiguous one.
+                action_context = clause
+                if not local_ids and len(requested_terminals) == 1:
+                    if clause_index == 0:
+                        continue
+                    previous = BilingualDenseEmbedder.normalize(proposal_clauses[clause_index-1]).strip()
+                    if (set(extract_constraints(proposal_clauses[clause_index-1]).terminal_ids) != requested_terminals
+                            or not re.match(r'^(?:(?:por favor|please)\s+)?(?:solicito|quero|i request|request|reinicie|restart|reboot|troque|switch|atualize|update)\b', previous)):
+                        continue
+                    action_context = previous + ' ' + clause
+                    local_ids = tuple(requested_terminals)
+                action_kinds = [kind for kind, expression in proposal_actions.items() if re.search(expression, action_context)]
+                if action_kinds != [action_type]:
+                    continue
                 if terminal_id and requested_terminals and (terminal_id.upper() not in local_ids):
                     continue
                 return True
@@ -230,6 +254,36 @@ class CustomerSupportAgent:
                 content = generate_turn(self.client, contents, config, tracer, phase="support")
                 calls = [part.function_call for part in content.parts if part.function_call]
                 if not calls:
+                    if 'diagnose_terminal_issue' in tools_called:
+                        from app.security.public_projection import terminal_field_contract
+                        assigned_text = ' '.join(unit['text'] for unit in request_units(authorization_message)
+                            if assigned_unit_ids is None or unit['unit_id'] in assigned_unit_ids)
+                        targets = terminal_field_contract(assigned_text)
+                        attempted = {(r.data or {}).get('requested_terminal_id') or ((r.data or {}).get('terminal') or {}).get('terminal_id')
+                                     for r in results if r.tool_name == 'diagnose_terminal_issue'}
+                        # No recovery after a denial/error, no repeat of a
+                        # missing-field observation, and no budget expansion.
+                        if len(targets) > 1 and all(r.success for r in results):
+                            for target in targets:
+                                if target in attempted:
+                                    continue
+                                if len(results) >= limit:
+                                    break
+                                try:
+                                    arguments = constrain_call('diagnose_terminal_issue', {'terminal_id': target}, constraints,
+                                                               assigned_unit_ids=assigned_unit_ids)
+                                except RequestConstraintError:
+                                    continue
+                                result = tool_registry.execute('diagnose_terminal_issue', arguments,
+                                    security_context=security_context, session_id=session_id, trace_id=trace_id)
+                                results.append(result)
+                                tools_called.append('diagnose_terminal_issue')
+                                if result.success and result.data:
+                                    data['diagnose_terminal_issue'] = result.data
+                                if tracer:
+                                    tracer.add_step(agent='CUSTOMER_SUPPORT_TOOL', action='call:diagnose_terminal_issue',
+                                        status='success' if result.success else 'error',
+                                        details={'success':result.success,'origin':'bounded_read_contract','terminal_id':target})
                     if not data:
                         return output(
                             "Não foi possível concluir a consulta com dados operacionais verificados.",
@@ -356,7 +410,7 @@ class CustomerSupportAgent:
         # Modo offline explícito: seleção determinística, sem chamada de LLM.
         pending_calls = self._plan_initial_tools(contextual_msg, tracer=tracer)
         # Offline selection can fan out literal explicit read targets. The native
-        # path still requires the model to select every tool call itself.
+        # path selects the family natively and completes explicit bounded reads at stop.
         action_units = [unit for unit in request_units(authorization_message or message)
                         if 'action' in classify_operational_intent(unit['text']).intents]
         read_fanout_safe = not action_units or all(_independent_action_veto(unit['text']) for unit in action_units)

@@ -70,7 +70,19 @@ _SOURCE_DIRECTIVE = re.compile(
 )
 
 
+def is_terminal_cell_format(text: str) -> bool:
+    """Recognize presentation-only ID/value output constraints, never telemetry."""
+    value = text.strip()
+    return bool(re.match(r'(?i)^(?:retorne|return|output)\b', value)
+        and re.search(r'(?i)\b(?:codigo|código|identificador|identifier|id)\b', value)
+        and re.search(r'(?i)\b(?:valor|value)\b', value)
+        and re.search(r'(?i)\b(?:linha|row|line|cell|celula|célula)\b', value)
+        and not re.search(r'(?i)\b(?:firmware|status|sinal|signal|conex[aã]o|connection|saldo|balance|tarifa|fee)\b|GET-[A-Z0-9-]+|[?]|\b(?:reinic\w*|restart|reboot|troque|switch|atualiz\w*|update|execute|crie|prepare|registre|consult\w*|verifiq\w*)\b', value))
+
+
 def is_documentary_qualifier(text: str) -> bool:
+    if is_terminal_cell_format(text):
+        return True
     if re.fullmatch(r'(?i)\s*(?:answer|respond|responda)\s+(?:in\s+(?:bullet\s+points|a\s+table|short\s+paragraphs)|em\s+(?:t[oó]picos|uma?\s+tabela|par[aá]grafos\s+curtos))[.!]?\s*', text):
         return True
     substantive = re.sub(r'(?i)\be\s+informe\s+se\s+n[aã]o\s+houver\s+confirma[cç][aã]o', '', text)

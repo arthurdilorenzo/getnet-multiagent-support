@@ -1,0 +1,16 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_proposal_does_not_inherit_a_historical_or_remote_subject _________
+
+    def test_proposal_does_not_inherit_a_historical_or_remote_subject():
+        message = ('We considered a reboot of GET-CLASSICA-10442 last year. '
+                   'Now discuss paper rolls. Register a proposal.')
+>       assert not CustomerSupportAgent._authorized_remote_action(message, 'remote_reboot', 'GET-CLASSICA-10442')
+E       AssertionError: assert not True
+E        +  where True = <function CustomerSupportAgent._authorized_remote_action at 0x10cea60c0>('We considered a reboot of GET-CLASSICA-10442 last year. Now discuss paper rolls. Register a proposal.', 'remote_reboot', 'GET-CLASSICA-10442')
+E        +    where <function CustomerSupportAgent._authorized_remote_action at 0x10cea60c0> = CustomerSupportAgent._authorized_remote_action
+
+tests/test_v11_public_safety_e2e.py:467: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_v11_public_safety_e2e.py::test_proposal_does_not_inherit_a_historical_or_remote_subject
+1 failed in 0.44s

@@ -1,0 +1,183 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 13%]
+........................................................................ [ 18%]
+........................................................................ [ 23%]
+........................................................................ [ 27%]
+........................................................................ [ 32%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 46%]
+........................................................................ [ 51%]
+........................................................................ [ 55%]
+........................................................................ [ 60%]
+........................................................................ [ 64%]
+........................................................................ [ 69%]
+........................................................................ [ 74%]
+........................................................................ [ 78%]
+........................................................................ [ 83%]
+........................................................................ [ 88%]
+........................................................................ [ 92%]
+........................................................................ [ 97%]
+.......FF.....................FF.......                                  [100%]
+=================================== FAILURES ===================================
+_ test_http_foreign_declaration_prevents_real_registry_dispatch[Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.] _
+
+http_runtime = (<app.agents.orchestrator.MultiAgentOrchestrator object at 0x10e08c2d0>, <app.memory.store.StateStore object at 0x10e0...MDEzNTIsImV4cCI6MTc5MjgwNDk1MiwiaXNzIjoiZ2V0bmV0LW11bHRpYWdlbnQtYXV0aCJ9.njwr57AVSYDhwWoOL20-i1YZoMNK-_ccVBOa3GUIWJ4'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1097c0440>
+message = 'Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.'
+
+    @pytest.mark.parametrize('message', [
+        'Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.',
+        'Check signal of GET-SMART-99999, which belongs to my supplier.',
+    ])
+    def test_http_foreign_declaration_prevents_real_registry_dispatch(http_runtime, monkeypatch, message):
+        from app.config import settings
+        from app.tools.registry import tool_registry
+        orch, store, client, headers = http_runtime
+        set_synthetic_plan(monkeypatch, orch, message)
+        provider = SyntheticFunctionCallingProvider('diagnose_terminal_issue', {'terminal_id':'GET-SMART-99999'})
+        orch.customer_support_agent.client = provider
+        monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-not-a-secret-never-sent')
+        monkeypatch.setattr(tool_registry, 'execute', lambda *args, **kw: pytest.fail('foreign target reached registry'))
+        result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
+        assert result.status_code == 200
+>       assert provider.calls == 2
+E       assert 0 == 2
+E        +  where 0 = <test_v11_public_safety_e2e.SyntheticFunctionCallingProvider object at 0x1099182f0>.calls
+
+tests/test_v11_public_safety_e2e.py:122: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-24T00:22:33.000079+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2822b190bf5b4fa1", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.54, "cumulative_ms": 0.54, "details": {"user_id": "synthetic_owner", "session_id": "sess_synthetic_owner", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-24T00:22:33.001103+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2822b190bf5b4fa1", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.04, "cumulative_ms": 1.58, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-24T00:22:33.001483+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2822b190bf5b4fa1", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 3, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.4, "cumulative_ms": 1.98, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.0}}
+{"timestamp": "2026-10-24T00:22:33.001617+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2822b190bf5b4fa1", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 4, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 2.1, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-24T00:22:33.001744+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_2822b190bf5b4fa1", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 5, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 2.23, "details": {"response_char_count": 212, "session_id": "sess_synthetic_owner", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_http_foreign_declaration_prevents_real_registry_dispatch[Check signal of GET-SMART-99999, which belongs to my supplier.] _
+
+http_runtime = (<app.agents.orchestrator.MultiAgentOrchestrator object at 0x10e0c2bd0>, <app.memory.store.StateStore object at 0x10e0...MDEzNTMsImV4cCI6MTc5MjgwNDk1MywiaXNzIjoiZ2V0bmV0LW11bHRpYWdlbnQtYXV0aCJ9.gaKvg5M3TfiwrlpjmHprOQvbRzsai6zqcXNavZywmQE'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1095c4050>
+message = 'Check signal of GET-SMART-99999, which belongs to my supplier.'
+
+    @pytest.mark.parametrize('message', [
+        'Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.',
+        'Check signal of GET-SMART-99999, which belongs to my supplier.',
+    ])
+    def test_http_foreign_declaration_prevents_real_registry_dispatch(http_runtime, monkeypatch, message):
+        from app.config import settings
+        from app.tools.registry import tool_registry
+        orch, store, client, headers = http_runtime
+        set_synthetic_plan(monkeypatch, orch, message)
+        provider = SyntheticFunctionCallingProvider('diagnose_terminal_issue', {'terminal_id':'GET-SMART-99999'})
+        orch.customer_support_agent.client = provider
+        monkeypatch.setattr(settings, 'GEMINI_API_KEY', 'synthetic-not-a-secret-never-sent')
+        monkeypatch.setattr(tool_registry, 'execute', lambda *args, **kw: pytest.fail('foreign target reached registry'))
+        result = client.post('/api/chat', json={'message':message, 'user_id':'synthetic_owner'}, headers=headers)
+        assert result.status_code == 200
+>       assert provider.calls == 2
+E       assert 0 == 2
+E        +  where 0 = <test_v11_public_safety_e2e.SyntheticFunctionCallingProvider object at 0x109df6990>.calls
+
+tests/test_v11_public_safety_e2e.py:122: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-24T00:22:33.049069+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_97799f9e2e164dc0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.52, "cumulative_ms": 0.52, "details": {"user_id": "synthetic_owner", "session_id": "sess_synthetic_owner", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-24T00:22:33.050090+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_97799f9e2e164dc0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.04, "cumulative_ms": 1.57, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-24T00:22:33.050476+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_97799f9e2e164dc0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 3, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.4, "cumulative_ms": 1.97, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.0}}
+{"timestamp": "2026-10-24T00:22:33.050614+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_97799f9e2e164dc0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 4, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 2.1, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-24T00:22:33.050742+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_97799f9e2e164dc0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 5, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 2.23, "details": {"response_char_count": 209, "session_id": "sess_synthetic_owner", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_http_plural_foreign_ownership_prevents_both_registry_calls[Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals belong to my supplier.] _
+
+http_runtime = (<app.agents.orchestrator.MultiAgentOrchestrator object at 0x109e1cfd0>, <app.memory.store.StateStore object at 0x109d...MDEzNTMsImV4cCI6MTc5MjgwNDk1MywiaXNzIjoiZ2V0bmV0LW11bHRpYWdlbnQtYXV0aCJ9.gaKvg5M3TfiwrlpjmHprOQvbRzsai6zqcXNavZywmQE'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10970bc40>
+message = 'Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals belong to my supplier.'
+
+    @pytest.mark.parametrize('message', [
+        'Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals belong to my supplier.',
+        'Verifique o sinal de GET-SMART-88219 e a conexão de GET-CLASSICA-10442; ambos os terminais pertencem ao fornecedor.',
+    ])
+    def test_http_plural_foreign_ownership_prevents_both_registry_calls(http_runtime, monkeypatch, message):
+        from app.tools.registry import tool_registry
+        orch, store, client, headers = http_runtime
+        set_synthetic_plan(monkeypatch, orch, message, separate=True)
+        monkeypatch.setattr(tool_registry,'execute',lambda *args,**kw:pytest.fail('plural foreign owner reached registry'))
+        result = client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+        assert result.status_code == 200
+>       assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in result.text
+E       assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in '{"response":"Partes do pedido sem resposta verificada:\\n- Check signal of GET-SMART-88219 \\n- and connection of GET...,"answer_status":"abstained","semantic_mode":""},"latency_ms":3.43,"step_duration_ms":0.16}],"execution_time_ms":3.52}'
+E        +  where '{"response":"Partes do pedido sem resposta verificada:\\n- Check signal of GET-SMART-88219 \\n- and connection of GET...,"answer_status":"abstained","semantic_mode":""},"latency_ms":3.43,"step_duration_ms":0.16}],"execution_time_ms":3.52}' = <Response [200 OK]>.text
+
+tests/test_v11_public_safety_e2e.py:350: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-24T00:22:33.345938+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3fb0c278a1034ac0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.54, "cumulative_ms": 0.54, "details": {"user_id": "synthetic_owner", "session_id": "sess_synthetic_owner", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-24T00:22:33.347107+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3fb0c278a1034ac0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.18, "cumulative_ms": 1.72, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": true, "planned_steps": ["CUSTOMER_SUPPORT_AGENT", "CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-24T00:22:33.347882+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3fb0c278a1034ac0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 3, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.8, "cumulative_ms": 2.51, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.0}}
+{"timestamp": "2026-10-24T00:22:33.348516+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3fb0c278a1034ac0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.64, "cumulative_ms": 3.15, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.0}}
+{"timestamp": "2026-10-24T00:22:33.348652+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3fb0c278a1034ac0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.12, "cumulative_ms": 3.27, "details": {"iterations_used": 2, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-24T00:22:33.348802+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3fb0c278a1034ac0", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 6, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.16, "cumulative_ms": 3.43, "details": {"response_char_count": 368, "session_id": "sess_synthetic_owner", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+_ test_http_plural_foreign_ownership_prevents_both_registry_calls[Verifique o sinal de GET-SMART-88219 e a conex\xe3o de GET-CLASSICA-10442; ambos os terminais pertencem ao fornecedor.] _
+
+http_runtime = (<app.agents.orchestrator.MultiAgentOrchestrator object at 0x109eb4fd0>, <app.memory.store.StateStore object at 0x109b...MDEzNTMsImV4cCI6MTc5MjgwNDk1MywiaXNzIjoiZ2V0bmV0LW11bHRpYWdlbnQtYXV0aCJ9.gaKvg5M3TfiwrlpjmHprOQvbRzsai6zqcXNavZywmQE'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1096bb700>
+message = 'Verifique o sinal de GET-SMART-88219 e a conexão de GET-CLASSICA-10442; ambos os terminais pertencem ao fornecedor.'
+
+    @pytest.mark.parametrize('message', [
+        'Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals belong to my supplier.',
+        'Verifique o sinal de GET-SMART-88219 e a conexão de GET-CLASSICA-10442; ambos os terminais pertencem ao fornecedor.',
+    ])
+    def test_http_plural_foreign_ownership_prevents_both_registry_calls(http_runtime, monkeypatch, message):
+        from app.tools.registry import tool_registry
+        orch, store, client, headers = http_runtime
+        set_synthetic_plan(monkeypatch, orch, message, separate=True)
+        monkeypatch.setattr(tool_registry,'execute',lambda *args,**kw:pytest.fail('plural foreign owner reached registry'))
+        result = client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+        assert result.status_code == 200
+>       assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in result.text
+E       assert 'FOREIGN_TERMINAL_NOT_AUTHORIZED' in '{"response":"Partes do pedido sem resposta verificada:\\n- Verifique o sinal de GET-SMART-88219 \\n- e a conexão de G...,"answer_status":"abstained","semantic_mode":""},"latency_ms":5.51,"step_duration_ms":0.16}],"execution_time_ms":5.61}'
+E        +  where '{"response":"Partes do pedido sem resposta verificada:\\n- Verifique o sinal de GET-SMART-88219 \\n- e a conexão de G...,"answer_status":"abstained","semantic_mode":""},"latency_ms":5.51,"step_duration_ms":0.16}],"execution_time_ms":5.61}' = <Response [200 OK]>.text
+
+tests/test_v11_public_safety_e2e.py:350: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-24T00:22:33.369945+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3b08aff81b654121", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 2.4, "cumulative_ms": 2.4, "details": {"user_id": "synthetic_owner", "session_id": "sess_synthetic_owner", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-24T00:22:33.371203+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3b08aff81b654121", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.28, "cumulative_ms": 3.68, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": true, "planned_steps": ["CUSTOMER_SUPPORT_AGENT", "CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-24T00:22:33.371959+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3b08aff81b654121", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 3, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.77, "cumulative_ms": 4.45, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.0}}
+{"timestamp": "2026-10-24T00:22:33.372722+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3b08aff81b654121", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 4, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 0.77, "cumulative_ms": 5.22, "details": {"tools_invoked": [], "requires_escalation": false, "confidence": 0.0}}
+{"timestamp": "2026-10-24T00:22:33.372864+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3b08aff81b654121", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 5, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.13, "cumulative_ms": 5.35, "details": {"iterations_used": 2, "agents_executed": ["CUSTOMER_SUPPORT_AGENT", "CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-24T00:22:33.373019+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_3b08aff81b654121", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 6, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.16, "cumulative_ms": 5.51, "details": {"response_char_count": 376, "session_id": "sess_synthetic_owner", "abstained": true, "semantic_mode": "", "answer_status": "abstained", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=============================== warnings summary ===============================
+../../../Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1
+  /Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_v11_public_safety_e2e.py::test_http_foreign_declaration_prevents_real_registry_dispatch[Verifique o sinal de GET-SMART-99999, que pertence ao fornecedor.]
+FAILED tests/test_v11_public_safety_e2e.py::test_http_foreign_declaration_prevents_real_registry_dispatch[Check signal of GET-SMART-99999, which belongs to my supplier.]
+FAILED tests/test_v11_public_safety_e2e.py::test_http_plural_foreign_ownership_prevents_both_registry_calls[Check signal of GET-SMART-88219 and connection of GET-CLASSICA-10442; both terminals belong to my supplier.]
+FAILED tests/test_v11_public_safety_e2e.py::test_http_plural_foreign_ownership_prevents_both_registry_calls[Verifique o sinal de GET-SMART-88219 e a conex\xe3o de GET-CLASSICA-10442; ambos os terminais pertencem ao fornecedor.]
+4 failed, 1547 passed, 1 warning in 12.92s
