@@ -1,0 +1,63 @@
+......F..                                                                [100%]
+=================================== FAILURES ===================================
+____ test_bcc2_a8_generate_proposal_persists_and_serializes_public_contract ____
+
+http_runtime = (<app.agents.orchestrator.MultiAgentOrchestrator object at 0x10d27b100>, <app.memory.store.StateStore object at 0x10d2...MDI1ODUsImV4cCI6MTc5MjgwNjE4NSwiaXNzIjoiZ2V0bmV0LW11bHRpYWdlbnQtYXV0aCJ9.0FCrO4XT5RIMQq3M2lkK1Nw7CyIwSR5JZdPMPVYVCQI'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d2ddf20>
+
+    def test_bcc2_a8_generate_proposal_persists_and_serializes_public_contract(http_runtime, monkeypatch):
+        from app.config import settings
+        from app.tools import customer_tools
+        orch,store,client,headers=http_runtime
+        fixture=customer_tools._load_customers_db()
+        fixture['synthetic_owner']['terminals'].append({**fixture['synthetic_owner']['terminals'][1],
+            'terminal_id':'GET-CLASSICA-QA-83025'})
+        monkeypatch.setattr(customer_tools,'_load_customers_db',lambda:fixture)
+        message=('Solicito o procedimento de reinicializacao remota para a maquina GET-CLASSICA-QA-83025. '
+            'Gere somente a proposta formal correspondente para analise e posterior validacao; '
+            'este envio nao autoriza a execucao imediata do comando.')
+        set_synthetic_plan(monkeypatch,orch,message)
+        orch.customer_support_agent.client=SyntheticFunctionCallingProvider('execute_terminal_remote_action',{
+            'terminal_id':'GET-CLASSICA-QA-83025','action_type':'remote_reboot','reason':'synthetic pending proposal'})
+        monkeypatch.setattr(settings,'GEMINI_API_KEY','synthetic-never-sent')
+        response=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+        assert response.status_code==200
+        body=response.json()
+        assert len(body['action_proposals'])==1
+        proposal=body['action_proposals'][0]
+        assert proposal['proposal_id'] and proposal['terminal_id']=='GET-CLASSICA-QA-83025'
+        assert proposal['status']=='pending_confirmation' and proposal['action']=='remote_restart'
+        assert 'confirmação' in body['response'].lower()
+        with store._connect() as conn:
+>           row=conn.execute('SELECT status, terminal_id FROM terminal_action_proposals').fetchone()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           sqlite3.OperationalError: no such column: terminal_id
+
+tests/test_v11_public_safety_e2e.py:526: OperationalError
+----------------------------- Captured stdout call -----------------------------
+{"timestamp": "2026-10-24T00:43:05.074885+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 1, "agent": "SYSTEM_INGRESS", "action": "receive_and_load_session", "status": "success", "step_duration_ms": 0.56, "cumulative_ms": 0.56, "details": {"user_id": "synthetic_owner", "session_id": "sess_synthetic_owner", "auth_method": "jwt_bearer", "previous_turns": 0, "hitl_operator_reply_present": false}}
+{"timestamp": "2026-10-24T00:43:05.076360+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 2, "agent": "ROUTER_AGENT", "action": "plan_and_route", "status": "success", "step_duration_ms": 1.49, "cumulative_ms": 2.05, "details": {"primary_agent": "CUSTOMER_SUPPORT_AGENT", "confidence": 0.9, "is_multi_step": false, "planned_steps": ["CUSTOMER_SUPPORT_AGENT"], "reasoning": "Synthetic provider plan"}}
+{"timestamp": "2026-10-24T00:43:05.094321+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 3, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 17.92, "cumulative_ms": 19.98, "details": {"phase": "support", "model": "gemini-3.5-flash-lite", "request_bytes": 5175, "response_schema_bytes": 2, "estimated_prompt_tokens": 1341, "tokens_consumed_before_call": 0, "duration_ms": 4.73, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-24T00:43:05.098848+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 4, "agent": "CUSTOMER_SUPPORT_TOOL", "action": "call:execute_terminal_remote_action", "status": "success", "step_duration_ms": 4.57, "cumulative_ms": 24.55, "details": {"turn": 1, "success": true, "error_code": null, "execution_ms": 2.11}}
+{"timestamp": "2026-10-24T00:43:05.100431+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 5, "agent": "GEMINI_PROVIDER", "action": "provider_generation", "status": "success", "step_duration_ms": 1.56, "cumulative_ms": 26.11, "details": {"phase": "support", "model": "gemini-3.5-flash-lite", "request_bytes": 6288, "response_schema_bytes": 2, "estimated_prompt_tokens": 1634, "tokens_consumed_before_call": 1341, "duration_ms": 0.25, "timeout_ms": 30000, "finish_reason": "STOP", "thoughts_token_count": null, "error_type": null, "turn_error_code": null, "call_started": true, "failure_stage": null, "provider_error_type": null, "provider_error_code": null}}
+{"timestamp": "2026-10-24T00:43:05.102502+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 6, "agent": "CUSTOMER_SUPPORT_AGENT", "action": "complete_support_cycle", "status": "success", "step_duration_ms": 2.09, "cumulative_ms": 28.2, "details": {"tools_invoked": ["execute_terminal_remote_action"], "requires_escalation": false, "confidence": 0.9}}
+{"timestamp": "2026-10-24T00:43:05.103143+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 7, "agent": "SUPERVISOR_ORCHESTRATOR", "action": "evaluate_stopping_condition", "status": "success", "step_duration_ms": 0.64, "cumulative_ms": 28.84, "details": {"iterations_used": 1, "agents_executed": ["CUSTOMER_SUPPORT_AGENT"], "stopping_reason": "all_planned_and_replanned_steps_completed", "pending_steps": 0}}
+{"timestamp": "2026-10-24T00:43:05.103339+00:00", "level": "INFO", "logger": "getnet.multiagent", "message": "trace_span_completed", "event": "trace_span_completed", "trace_id": "trc_a2d90b712afe4088", "session_id": "sess_synthetic_owner", "user_id": "synthetic_owner", "step_id": 8, "agent": "SYSTEM_EGRESS", "action": "sanitize_and_persist_response", "status": "success", "step_duration_ms": 0.2, "cumulative_ms": 29.04, "details": {"response_char_count": 699, "session_id": "sess_synthetic_owner", "abstained": true, "semantic_mode": "native_semantic", "answer_status": "partial", "escalated": false}}
+------------------------------ Captured log call -------------------------------
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+INFO     getnet.multiagent:logger.py:41 trace_span_completed
+=============================== warnings summary ===============================
+tests/test_v11_public_safety_e2e.py::test_bcc2_a5_foreign_relation_refused_before_native_dispatch[Our logistics partner, account audit_tamandare_bcc2, maintains terminal GET-SMART-QA-94136. Authenticated under my own distinct tenant, look up its operating firmware version for our comparative report, recognizing that I possess no administrative rights over the partner profile.]
+  /Users/arthurdilorenzo/Documents/Vagas-Antigravity/pipeline/getnet_challenge/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_v11_public_safety_e2e.py::test_bcc2_a8_generate_proposal_persists_and_serializes_public_contract
+1 failed, 8 passed, 43 deselected, 1 warning in 0.80s

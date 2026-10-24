@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, field_serializer
 
 
 AgentTypeLiteral = Literal[
@@ -141,6 +141,21 @@ class ChatResponse(BaseModel):
     action_proposals: List[Dict[str, Any]] = Field(default_factory=list)
     trace: List[TraceStep] = Field(default_factory=list)
     execution_time_ms: float = 0.0
+
+    @field_serializer('action_proposals')
+    def serialize_action_proposals(self, proposals):
+        # Public vocabulary is independent of the persisted state machine and
+        # payload hash. Keep action_type and confirmation fields compatible.
+        result = []
+        for proposal in proposals:
+            public = dict(proposal)
+            if public.get('status') == 'PENDING_CONFIRMATION':
+                public['status'] = 'pending_confirmation'
+            action_type = public.get('action_type')
+            if action_type:
+                public['action'] = 'remote_restart' if action_type == 'remote_reboot' else action_type
+            result.append(public)
+        return result
 
 
 class HealthResponse(BaseModel):

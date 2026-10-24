@@ -127,20 +127,28 @@ def declared_foreign_terminal(message: str, terminal_id: str) -> bool:
     """Explicit ownership is a denial before dispatch, not a tenant lookup hint."""
     norm = _normalize(message)
     ownership = re.compile(
-        r"\b(?:pertenc\w*|belongs?\s+to|owned\s+by)\s+(?:(?:a|ao|aos|o|um|uma|meu|minha|our|my|the|a|an)\s+){0,3}"
-        r"(?:fornecedor\w*|terceir\w*|outr[oa]\s+(?:cliente|empresa|conta)|supplier\w*|vendor\w*|third.party|another\s+(?:customer|company|account))\b"
+        r"\b(?:pertenc\w*|belongs?\s+to|owned\s+by|maintained\s+by|managed\s+by|operated\s+by)\s+(?:(?:a|ao|aos|o|um|uma|meu|minha|our|my|the|a|an)\s+){0,3}"
+        r"(?:fornecedor\w*|terceir\w*|outr[oa]\s+(?:cliente|empresa|conta)|(?:logistics\s+)?partner(?:\s+business)?|supplier\w*|vendor\w*|third.party|(?:another|other)\s+(?:customer|company|account))\b"
         r"|\b(?:do|da|de um|de uma)\s+(?:fornecedor\w*|terceir\w*|outro cliente|outra empresa)\b"
         r"|\b(?:supplier|vendor|third.party|another customer)(?:'s|’s)?\s+(?:terminal|device|pos)\b")
     all_ids = extract_constraints(message).terminal_ids
     # Explicit lack of authority refers to a single named terminal/account;
     # this is refusal evidence, not a reason to probe the foreign tenant.
     if all_ids == (terminal_id.upper(),) and re.search(
-            r"\b(?:no|without)\s+(?:administrative\s+)?(?:permission|access|authorization)\s+(?:on|to|for)\s+(?:their|another|the partner.?s)\s+account\b"
+            r"\b(?:no|without)\s+(?:administrative\s+)?(?:permission|access|authorization|rights|privileges)\s+(?:on|to|for|over)\s+(?:their|another|the partner(?:.?s)?)\s+(?:account|profile)\b"
             r"|\bsem\s+(?:permissao|autorizacao|acesso)(?:\s+administrativ[oa])?\s+(?:na|a|para a)\s+conta\s+(?:deles|alheia|de terceiros)\b", norm):
         return True
     for sentence in re.split(r"[.!?;\n]+", message):
         sentence_norm = _normalize(sentence)
         local_ids = list(re.finditer(TERMINAL_PATTERN, sentence_norm, re.I))
+        # Bind a foreign business acting as grammatical owner/maintainer to
+        # its explicit terminal, rather than treating any partner mention as
+        # ownership. Negated relations are not affirmative declarations.
+        foreign_subject = r"(?:logistics\s+partner|partner(?:\s+business)?|supplier|vendor|other\s+account)"
+        relation = re.search(r"\b" + foreign_subject + r"\b[^.!?;]{0,160}?\b(?:maintains?|manages?|operates?|owns?)\s+(?:the\s+)?(?:terminal|device|pos)\s+(" + TERMINAL_PATTERN + r")", sentence, re.I)
+        if relation and relation.group(1).upper() == terminal_id.upper():
+            if not re.search(r"\b(?:not|never|nao)\s+(?:maintain|manage|operate|own)", _normalize(relation.group())):
+                return True
         for declaration in ownership.finditer(sentence_norm):
             prefix = sentence_norm[max(0, declaration.start()-35):declaration.start()]
             if re.search(r"\b(?:nao|not|never)\s+(?:(?:does|do|actually|really)\s+)?$", prefix):

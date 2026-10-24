@@ -1,0 +1,1 @@
+python scripts/check_no_print.py app tests && git diff --check: exit 0

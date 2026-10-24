@@ -161,9 +161,9 @@ class CustomerSupportAgent:
         }
         proposal = r"\b(?:proposta|proposal)\b"
         proposal_veto = re.search(
-            r"\b(?:nao|nunca|not|never)\s+(?:(?:crie|criar|prepare|preparar|create|make|quero|want|a|uma|any|the)\s+){0,5}"
+            r"\b(?:nao|nunca|not|never)\s+(?:(?:crie|criar|prepare|preparar|gere|gerar|generate|create|make|quero|want|a|uma|any|the)\s+){0,5}"
             r"(?:proposta|proposal)\b", norm) or re.search(
-            r"\b(?:nao|nunca|not|never)\b[^.!?;\n]{0,35}\b(?:crie|criar|prepare|preparar|registre|registrar|record|register|create|make|quero|want)\b"
+            r"\b(?:nao|nunca|not|never)\b[^.!?;\n]{0,35}\b(?:crie|criar|prepare|preparar|registre|registrar|gere|gerar|generate|record|register|create|make|quero|want)\b"
             r"[^.!?;\n]{0,80}\b(?:proposta|proposal)\b", norm)
         if re.search(proposal, norm):
             if proposal_veto or '?' in message or re.search(r"\b(?:se|if|suponha|suppose|hypothetical|hipotetic\w*)\b", norm):
@@ -171,7 +171,7 @@ class CustomerSupportAgent:
             proposal_clauses = re.split(r"[.!?;\n]+", message)
             for clause_index, raw_clause in enumerate(proposal_clauses):
                 clause = BilingualDenseEmbedder.normalize(raw_clause).strip()
-                if not re.match(r"^(?:(?:por favor|please|can you|could you)\s+)?(?:crie|criar|prepare|preparar|registre|registrar|record|register|create|make|quero que (?:crie|prepare))\b", clause):
+                if not re.match(r"^(?:(?:por favor|please|can you|could you)\s+)?(?:crie|criar|prepare|preparar|registre|registrar|gere|gerar|generate|record|register|create|make|quero que (?:crie|prepare))\b", clause):
                     continue
                 if not re.search(proposal, clause):
                     continue

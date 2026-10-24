@@ -154,7 +154,7 @@ def test_http_proposal_persisted_then_confirmed_by_owner_hash_once(http_runtime,
     payload = result.json()
     assert len(payload['action_proposals']) == 1
     proposal = payload['action_proposals'][0]
-    assert proposal['status'] == 'PENDING_CONFIRMATION'
+    assert proposal['status'] == 'pending_confirmation'
     with store._connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0] == 0
         assert conn.execute('SELECT COUNT(*) FROM terminal_action_proposals').fetchone()[0] == 1
@@ -440,7 +440,7 @@ def test_af05_register_proposal_with_action_and_target_in_prior_sentence(http_ru
     r=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
     assert r.status_code==200
     assert len(r.json()['action_proposals'])==1
-    assert r.json()['action_proposals'][0]['status']=='PENDING_CONFIRMATION'
+    assert r.json()['action_proposals'][0]['status']=='pending_confirmation'
     with store._connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0]==0
 
@@ -465,3 +465,72 @@ def test_proposal_does_not_inherit_a_historical_or_remote_subject():
     message = ('We considered a reboot of GET-CLASSICA-10442 last year. '
                'Now discuss paper rolls. Register a proposal.')
     assert not CustomerSupportAgent._authorized_remote_action(message, 'remote_reboot', 'GET-CLASSICA-10442')
+
+
+@pytest.mark.parametrize('message', [
+    'Our logistics partner, account audit_tamandare_bcc2, maintains terminal GET-SMART-QA-94136. Authenticated under my own distinct tenant, look up its operating firmware version for our comparative report, recognizing that I possess no administrative rights over the partner profile.',
+    'Our supplier manages terminal GET-SMART-QA-94136. Check its firmware.',
+    'The terminal GET-SMART-QA-94136 is maintained by our partner business. Check its firmware.',
+])
+def test_bcc2_a5_foreign_relation_refused_before_native_dispatch(http_runtime, monkeypatch, message):
+    from app.config import settings
+    from app.tools.registry import tool_registry
+    orch,store,client,headers=http_runtime
+    set_synthetic_plan(monkeypatch,orch,message)
+    provider=SyntheticFunctionCallingProvider('diagnose_terminal_issue',{'terminal_id':'GET-SMART-QA-94136'})
+    orch.customer_support_agent.client=provider
+    monkeypatch.setattr(settings,'GEMINI_API_KEY','synthetic-never-sent')
+    monkeypatch.setattr(tool_registry,'execute',lambda *a,**k:pytest.fail('must refuse before registry'))
+    response=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+    assert response.status_code==200
+    body=response.json()
+    assert provider.calls==0 and body['tools_called']==[]
+    assert 'Acesso não autorizado' in body['response']
+    assert not body['action_proposals']
+
+
+@pytest.mark.parametrize('message', [
+    'Our logistics partner recommended checking firmware of my terminal GET-SMART-88219.',
+    'Our partner does not maintain terminal GET-SMART-88219. It is mine.',
+    'The terminal GET-SMART-88219 is not maintained by our supplier.',
+])
+def test_bcc2_incidental_or_negated_partner_is_not_foreign_authority(message):
+    from app.security.request_constraints import declared_foreign_terminal
+    assert not declared_foreign_terminal(message, 'GET-SMART-88219')
+
+
+def test_bcc2_a8_generate_proposal_persists_and_serializes_public_contract(http_runtime, monkeypatch):
+    from app.config import settings
+    from app.tools import customer_tools
+    orch,store,client,headers=http_runtime
+    fixture=customer_tools._load_customers_db()
+    fixture['synthetic_owner']['terminals'].append({**fixture['synthetic_owner']['terminals'][1],
+        'terminal_id':'GET-CLASSICA-QA-83025'})
+    monkeypatch.setattr(customer_tools,'_load_customers_db',lambda:fixture)
+    message=('Solicito o procedimento de reinicializacao remota para a maquina GET-CLASSICA-QA-83025. '
+        'Gere somente a proposta formal correspondente para analise e posterior validacao; '
+        'este envio nao autoriza a execucao imediata do comando.')
+    set_synthetic_plan(monkeypatch,orch,message)
+    orch.customer_support_agent.client=SyntheticFunctionCallingProvider('execute_terminal_remote_action',{
+        'terminal_id':'GET-CLASSICA-QA-83025','action_type':'remote_reboot','reason':'synthetic pending proposal'})
+    monkeypatch.setattr(settings,'GEMINI_API_KEY','synthetic-never-sent')
+    response=client.post('/api/chat',json={'message':message,'user_id':'synthetic_owner'},headers=headers)
+    assert response.status_code==200
+    body=response.json()
+    assert len(body['action_proposals'])==1
+    proposal=body['action_proposals'][0]
+    assert proposal['proposal_id'] and proposal['terminal_id']=='GET-CLASSICA-QA-83025'
+    assert proposal['status']=='pending_confirmation' and proposal['action']=='remote_restart'
+    assert 'confirmação' in body['response'].lower()
+    with store._connect() as conn:
+        row=conn.execute('SELECT status, payload_json FROM terminal_action_proposals').fetchone()
+        assert row['status']=='PENDING_CONFIRMATION' and json.loads(row['payload_json'])['terminal_id']=='GET-CLASSICA-QA-83025'
+        assert conn.execute('SELECT COUNT(*) FROM terminal_actions').fetchone()[0]==0
+
+
+@pytest.mark.parametrize('message', [
+    'Solicito reinicializacao de GET-CLASSICA-10442. Nao gere proposta alguma.',
+    'Se eu pedir reinicializacao de GET-CLASSICA-10442, gere uma proposta.',
+])
+def test_bcc2_generate_does_not_override_veto_or_hypothesis(message):
+    assert not CustomerSupportAgent._authorized_remote_action(message,'remote_reboot','GET-CLASSICA-10442')
