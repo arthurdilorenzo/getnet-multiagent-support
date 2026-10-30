@@ -1,0 +1,336 @@
+[
+  {
+    "id": "blind_01",
+    "categoria": "consulta_documental",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Tenho uma loja de móveis e quero oferecer parcelamento longo sem comprometer meu fluxo de caixa. No Crediário da Getnet, em até quantas vezes o cliente consegue dividir no cartão, em quanto tempo o dinheiro cai para mim e onde eu vejo o valor das parcelas e a taxa antes de fechar a venda?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "lojista_moveis_01",
+      "modo_operacional": "somente_consulta_documental",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_02",
+    "categoria": "consulta_documental",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Estou avaliando trocar minha Get Clássica pela Get Smart porque preciso controlar estoque direto no balcão. O que a Get Smart tem de recursos de hardware, sistema e aplicativos que a diferenciam da Clássica?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "lojista_varejo_02",
+      "modo_operacional": "somente_consulta_documental",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_03",
+    "categoria": "consulta_documental",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Quero começar a vender por Pix na Getnet, mas não quero abrir conta em banco tradicional. Que tipos de conta são aceitos para receber Pix, como funciona a alternativa gratuita da própria Getnet e qual é o passo a passo no aplicativo para cadastrar minhas chaves?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "autonomo_03",
+      "modo_operacional": "somente_consulta_documental",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_04",
+    "categoria": "consulta_documental",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Em quais canais físicos e digitais posso aceitar Pix pela Getnet? E o dinheiro do Pix cai sempre na mesma hora para qualquer cliente ou existe alguma variação no prazo de recebimento?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "comercio_digital_04",
+      "modo_operacional": "somente_consulta_documental",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_05",
+    "categoria": "consulta_documental",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Vendo pelo Instagram e WhatsApp e quero cobrar meus clientes à distância com o Link de Pagamento Getnet. Quais meios de pagamento o meu cliente pode escolher ao abrir o link, que recursos visuais e de segurança o link oferece, e quando ocorre a cobrança se eu estiver no plano Inicial?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "social_seller_05",
+      "modo_operacional": "somente_consulta_documental",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_06",
+    "categoria": "consulta_documental",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Preciso adiantar o dinheiro das minhas vendas feitas no cartão de crédito, tanto à vista quanto parceladas. Como funciona a solicitação de antecipação e quais são os prazos e condições do Receba Já?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "lojista_fluxo_06",
+      "modo_operacional": "somente_consulta_documental",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_07",
+    "categoria": "misto_retomada",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Minha maquininha está sem sinal e recebi um chip Algar novo para colocar nela. Como faço a instalação correta do chip e o teste na máquina? Além disso, veja no meu cadastro se a linha do terminal POS-9941 já consta como ativa e qual erro apareceu na última tentativa de venda."
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_pos_07",
+      "modo_operacional": "consulta_documental_e_suporte_sintetico",
+      "premissa_sintetica": "Dados operacionais fornecidos no contexto para avaliação independente de ferramentas específicas. O contexto fornece o status do chip/terminal, mas NÃO contém o log de erro da última tentativa de venda (cobertura parcial).",
+      "dados_sinteticos": {
+        "terminal_id": "POS-9941",
+        "chip_algar_status": "ativo_em_rede_multioperadora",
+        "compartimento_detectado": "SIM1",
+        "ultimo_erro_transacao": null,
+        "observacao_sistema": "Histórico de erros de transação indisponível no momento; requer verificação por atendente humano se o problema persistir após o teste de comunicação."
+      }
+    }
+  },
+  {
+    "id": "blind_08",
+    "categoria": "misto_retomada",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Esqueci minha senha de acesso da Getnet, por onde consigo redefinir?"
+      },
+      {
+        "role": "assistant",
+        "content": "Para redefinir sua senha de acesso, utilize a opção 'Esqueci a senha' diretamente no Aplicativo Getnet Brasil ou no Portal Minha Conta."
+      },
+      {
+        "role": "user",
+        "content": "Tentei fazer isso agora, mas lembrei que o e-mail e o celular do meu cadastro são do antigo sócio e não tenho mais acesso a eles. Como envolve troca de titularidade e dados cadastrais críticos, preciso que consulte meu chamado pendente e encaminhe para atendimento humano liberar meu acesso."
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_acesso_08",
+      "modo_operacional": "retomada_com_pendencia_humana",
+      "premissa_sintetica": "O usuário possui bloqueio de recuperação autônoma por perda de acesso aos contatos cadastrados e solicita verificação do protocolo sintético e escalonamento humano. Nenhuma alteração cadastral automática é permitida.",
+      "dados_sinteticos": {
+        "protocolo_aberto": "CH-2026-8812",
+        "status_protocolo": "pendente_validacao_documental_humana",
+        "motivo": "Atualização de e-mail e celular associada a alteração societária",
+        "acao_automatica_permitida": false
+      }
+    }
+  },
+  {
+    "id": "blind_09",
+    "categoria": "misto_retomada",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Quero entender a regra do Receba Já para vendas no crédito e também checar no meu cadastro quanto tenho de saldo elegível para antecipação hoje. Só me informe os valores e apresente uma proposta do que pode ser feito, não execute nenhuma solicitação ainda."
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_recebiveis_09",
+      "modo_operacional": "consulta_e_proposta_sem_execucao",
+      "premissa_sintetica": "Distinção estrita entre consulta/proposta e execução: mesmo havendo saldo elegível nos dados sintéticos, o usuário pediu apenas consulta e proposta, vedando execução.",
+      "dados_sinteticos": {
+        "modalidade_contratada": "Receba Já (opção 2 dias)",
+        "agenda_recebiveis": {
+          "credito_a_vista_elegivel_brl": 4200.00,
+          "credito_parcelado_elegivel_brl": 10300.00,
+          "total_elegivel_brl": 14500.00,
+          "bloqueio_judicial_ou_agenda_brl": 2100.00
+        },
+        "autorizacao_execucao_usuario": false
+      }
+    }
+  },
+  {
+    "id": "blind_10",
+    "categoria": "misto_retomada",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Mandei um Link de Pagamento pelo WhatsApp, meu cliente pagou via Pix há 4 horas e o valor ainda não caiu na minha conta. Isso está dentro da regra de prazo do Pix Getnet?"
+      },
+      {
+        "role": "assistant",
+        "content": "Sim, pela documentação do Pix Getnet, o horário de recebimento pode variar em até um dia corrido, dependendo do modelo de Pix ao qual você é elegível e do horário de aprovação da venda, não havendo garantia universal de liquidação imediata."
+      },
+      {
+        "role": "user",
+        "content": "Entendi. Você pode conferir os dados dessa venda específica (ID LNK-7721) no meu painel e também me dizer qual é a tarifa percentual exata do meu plano de Link de Pagamento?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_link_10",
+      "modo_operacional": "retomada_com_cobertura_parcial",
+      "premissa_sintetica": "Cobertura parcial na retomada: os dados sintéticos trazem o status e a previsão de liquidação da venda LNK-7721, mas NÃO informam a tarifa percentual contratada (e a documentação afirma que condições e tarifas dependem do plano contratado).",
+      "dados_sinteticos": {
+        "venda_link_id": "LNK-7721",
+        "meio_pagamento": "Pix",
+        "valor_bruto_brl": 890.00,
+        "status_pagamento": "aprovado",
+        "previsao_liquidacao": "em até 1 dia corrido conforme elegibilidade do modelo Pix",
+        "plano_link": "Inicial",
+        "tarifa_percentual_contratada": null
+      }
+    }
+  },
+  {
+    "id": "blind_11",
+    "categoria": "negacao_ou_contexto_sessao",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Estava vendo aqui que tenho R$ 8.500,00 de vendas no crédito disponíveis para adiantar."
+      },
+      {
+        "role": "assistant",
+        "content": "Certo! Posso explicar as condições de antecipação ou verificar os detalhes da sua agenda. Como prefere prosseguir?"
+      },
+      {
+        "role": "user",
+        "content": "Não faça a antecipação desse valor de R$ 8.500,00 de jeito nenhum! Eu só quero confirmar por onde a solicitação seria feita caso eu mude de ideia na semana que vem, e se existe uma taxa universal tabelada na documentação para o Receba Já."
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_negacao_11",
+      "modo_operacional": "negacao_explicita_de_acao",
+      "premissa_sintetica": "O usuário mencionou valores em sessão, mas negou explicitamente qualquer execução de antecipação. Contexto humano e menção de saldo não autorizam ação.",
+      "dados_sinteticos": {
+        "saldo_disponivel_antecipacao_brl": 8500.00,
+        "acao_solicitada": "apenas_consulta_informativa",
+        "autorizacao_execucao": false
+      }
+    }
+  },
+  {
+    "id": "blind_12",
+    "categoria": "negacao_ou_contexto_sessao",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Quero saber como cadastrar o meu e-mail financeiro@minhaloja.com.br como chave Pix na minha Get Conta, mas NÃO cadastre essa chave agora porque ainda estou validando o acesso ao e-mail."
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_pix_neg_12",
+      "modo_operacional": "negacao_explicita_de_acao",
+      "premissa_sintetica": "O usuário forneceu o dado da chave (e-mail), mas proibiu o cadastro. Deve receber apenas a orientação documental do caminho no aplicativo e tipos de chave.",
+      "dados_sinteticos": {
+        "conta": "Get Conta ativa (parceria Dock IP)",
+        "chave_mencionada": "financeiro@minhaloja.com.br",
+        "chaves_cadastradas_atualmente": ["CNPJ"],
+        "autorizacao_cadastro_chave": false
+      }
+    }
+  },
+  {
+    "id": "blind_13",
+    "categoria": "negacao_ou_contexto_sessao",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Estou em dúvida entre a Get Clássica e a Get Smart para minha padaria."
+      },
+      {
+        "role": "assistant",
+        "content": "A Get Clássica conta com teclado físico, enquanto a Get Smart oferece recursos adicionais de gestão, como a Get Store (para baixar aplicativos de controle de estoque e gestão comercial), câmera, leitor de códigos, impressão fiscal e integração baseada em Android."
+      },
+      {
+        "role": "user",
+        "content": "Boa! Sobre essa segunda que você explicou, qual é o sistema operacional que ela usa para integração de apps e o que exatamente eu consigo baixar nessa loja de aplicativos dela? E aproveitando, qual das duas você acha que combina com a minha conta atual?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_padaria_13",
+      "modo_operacional": "referencia_contexto_sessao",
+      "premissa_sintetica": "Resolução de correferência na sessão ('essa segunda que você explicou' = Get Smart; 'nessa loja de aplicativos dela' = Get Store) combinada com o contexto da conta atual do usuário.",
+      "dados_sinteticos": {
+        "ramo_declarado_sessao": "padaria",
+        "equipamento_atual_conta": "1x Get Clássica",
+        "necessidade_registrada_em_perfil": "Busca solução com controle de estoque e impressão fiscal no balcão"
+      }
+    }
+  },
+  {
+    "id": "blind_14",
+    "categoria": "negacao_ou_contexto_sessao",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Quero cobrar R$ 350,00 de uma cliente pelo WhatsApp usando o Link de Pagamento."
+      },
+      {
+        "role": "assistant",
+        "content": "Com o Link de Pagamento Getnet você pode compartilhar a cobrança pelo WhatsApp ou redes sociais, incluir imagem do produto e contar com o antifraude Getnet."
+      },
+      {
+        "role": "user",
+        "content": "Na verdade, desconsidere o pagamento via boleto ou carteira digital, pois minha cliente acabou de avisar que não quer usar nenhum dos dois. Quais outras formas de pagamento sobram para ela escolher nesse mesmo link de R$ 350,00? E não gere o link ainda, estou apenas tirando a dúvida."
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "cliente_sessao_14",
+      "modo_operacional": "referencia_contexto_sessao_e_negacao",
+      "premissa_sintetica": "O usuário mantém o contexto da sessão (Link de Pagamento de R$ 350,00 via WhatsApp), aplica uma restrição negativa sobre as opções da documentação (excluindo boleto e Wallet/carteira digital) e proíbe a geração do link.",
+      "dados_sinteticos": {
+        "valor_mencionado_sessao_brl": 350.00,
+        "canal_mencionado_sessao": "WhatsApp",
+        "opcoes_descartadas_pelo_usuario": ["boleto", "Wallet"],
+        "autorizacao_gerar_link": false
+      }
+    }
+  },
+  {
+    "id": "blind_15",
+    "categoria": "nao_sustentado_pelo_corpus",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Qual é o valor exato da mensalidade ou aluguel da Get Smart hoje, qual a meta mínima de faturamento mensal para ter isenção total de aluguel nela e qual é a multa em reais se eu cancelar o contrato antes de 12 meses?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "prospect_15",
+      "modo_operacional": "consulta_documental_sem_cobertura_no_corpus",
+      "dados_sinteticos": null
+    }
+  },
+  {
+    "id": "blind_16",
+    "categoria": "nao_sustentado_pelo_corpus",
+    "mensagens": [
+      {
+        "role": "user",
+        "content": "Se um comprador estrangeiro passar um cartão emitido no exterior na minha maquininha Getnet usando a função de conversão dinâmica de moeda (DCC), qual é o spread cambial aplicado pela Getnet e qual o prazo exato em dias úteis para depósito após a contestação de um chargeback internacional?"
+      }
+    ],
+    "contexto_premissas": {
+      "user_id": "lojista_turismo_16",
+      "modo_operacional": "consulta_documental_sem_cobertura_no_corpus",
+      "dados_sinteticos": null
+    }
+  }
+]

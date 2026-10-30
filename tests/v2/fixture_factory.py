@@ -10,7 +10,11 @@ from pathlib import Path
 def get_pilot_cases() -> list[dict]:
     """Returns the 5 flows for the Núcleo 2.0 pilot."""
     repo_root = Path(__file__).resolve().parents[2]
-    inputs_file = repo_root.parent / "getnet_blind16_2026-10-28" / "inputs.json"
+    inputs_file = repo_root / "data" / "inputs.json"
+    if not inputs_file.exists():
+        inputs_file = repo_root / "archive_audits" / "getnet_blind16_2026-10-28" / "inputs.json"
+    if not inputs_file.exists():
+        inputs_file = repo_root.parent / "getnet_blind16_2026-10-28" / "inputs.json"
     
     blind_map = {}
     if inputs_file.exists():
