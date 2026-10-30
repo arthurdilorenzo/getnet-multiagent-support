@@ -16,12 +16,12 @@ SUBJECTS = {
     'classica': ('get classica', 'classic machine'),
     'smart': ('get smart', 'smart pos'),
     'tap': ('get tap',),
-    'link': ('link de pagamento', 'payment link', 'get pay'),
+    'link': ('link de pagamento', 'payment link', 'get pay', 'link'),
     'account': ('get conta', 'conta digital', 'digital account'),
     'advance': ('antecipacao', 'antecipacao de recebiveis', 'receba ja', 'receivables advance'),
     'crediario': ('crediario',),
     'pix': ('pix',),
-    'terminal': ('maquininha', 'maquina', 'terminal', 'chip algar'),
+    'terminal': ('maquininha', 'maquina', 'terminal', 'chip algar', 'algar sim', 'sim card'),
 }
 FEATURES = {
     'physical_keyboard': ('teclado fisico', 'physical keyboard'),
@@ -156,7 +156,7 @@ def extract_facts(chunk_id: str, content: str) -> List[EvidenceFact]:
                 for number, unit in re.findall(r'\b(?:ate|em|up to|within)\s+(\d+)\s+(dias? uteis|dias?|business days?|days?|hours?|horas?)\b',norm):
                     canonical = 'business_days' if unit in {'dia util','dias uteis','business day','business days'} else 'days' if unit in {'dia','dias','day','days'} else 'hours'
                     add('settlement_time',number,canonical)
-            if re.search(r'\b(?:taxa|tarifa|juros|encargos|fee|interest)\b',norm):
+            if re.search(r'\b(?:taxa|tarifa|juros|encargos|cobranc\w*|fee|interest)\b',norm):
                 add('fees')
                 for amount in re.findall(r'\b(\d+(?:[.,]\d+)?)\s*%',sentence): add('fee_value',amount.replace(',','.'),'percent')
             if subject == 'pix' and re.search(r'conta corrente|poupanca|conta de pagamento',norm): add('account_requirement')
@@ -164,6 +164,8 @@ def extract_facts(chunk_id: str, content: str) -> List[EvidenceFact]:
             if subject == 'pix' and 'cadastrar chave' in norm: add('key_creation')
             if subject == 'app_access' and ('redefinir' in norm or 'esqueci' in norm): add('password_reset')
             if subject == 'terminal' and re.search(r'chip|conect|comunicacao',norm): add('connectivity')
+            if subject == 'terminal' and re.search(r'\b(?:maquina|aparelho|terminal|device)?\s*desligad[ao]\b|\bswitched off\b', norm):
+                add('property', 'maquina desligada')
             if 'simulacao' in norm: add('simulation')
             if re.search(r'abertura|abrir|open|sign up',norm): add('signup')
             if re.search(r'frequencia|frequency',norm):

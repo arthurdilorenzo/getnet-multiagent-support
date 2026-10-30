@@ -17,11 +17,11 @@ CONCEPTS = {
     'classica': ('get classica', 'classic machine'),
     'smart': ('get smart', 'smart pos'),
     'tap': ('get tap',),
-    'link': ('link de pagamento', 'payment link', 'get pay', 'whatsapp', 'redes sociais', 'social media'),
+    'link': ('link de pagamento', 'payment link', 'get pay', 'link', 'whatsapp', 'redes sociais', 'social media'),
     'account': ('get conta', 'conta bancaria', 'conta digital', 'bank account', 'traditional bank'),
     'advance': ('antecip', 'recebiveis', 'adiant', 'receba ja', 'receivables', 'advance', 'unsettled', 'before maturity', 'before their due date', 'before the due date', 'nao vencidas', 'a vencer'),
     'remote_payment': ('a distancia', 'longe', 'remoto', 'remota', 'nao esta presente', 'nao esta na loja', 'not physically', 'not at my store', 'not present', 'without being', 'remotely', 'remote customer', 'distance', 'online', 'whatsapp', 'redes sociais'),
-    'connectivity': ('conect', 'internet', 'wi fi', 'wifi', 'chip', 'sinal', 'network', 'connection'),
+    'connectivity': ('conect', 'internet', 'wi fi', 'wifi', 'chip', 'sim', 'sinal', 'network', 'connection'),
     'installments': ('parcel', 'installment', 'split a sale', 'divide a sale', 'dividir'),
 }
 # Query wording and evidence wording may differ. Each requested operation must
@@ -33,8 +33,8 @@ FACETS = {
     'cancellation': (('cancel', 'estorn', 'refund', 'devolver'), ('cancel', 'estorn', 'refund', 'devol')),
     'dispute': (('chargeback', 'contesta', 'disput'), ('chargeback', 'contesta', 'disput')),
     'expiry': (('validade', 'expira', 'expiration', 'expiry', 'expire', 'expires', 'vencimento do link'), ('validade', 'expira', 'expiration', 'expiry', 'expire', 'vence')),
-    'fees': (('taxa', 'tarifa', 'juros', 'fee', 'interest', 'custo', 'cost'), ('taxa', 'tarifa', 'juros', 'fee', 'interest', 'custo', 'cost', 'cobranca')),
-    'settlement_time': (('prazo', 'quando recebo', 'quando cai', 'how long', 'when will', 'when do', 'settlement time'), ('dia', 'prazo', 'd+2', 'd+1', 'hours', 'days', 'recebimento')),
+    'fees': (('taxa', 'tarifa', 'juros', 'fee', 'interest', 'custo', 'cost', 'cobranc', 'cobrad'), ('taxa', 'tarifa', 'juros', 'fee', 'interest', 'custo', 'cost', 'cobranca', 'cobrado', 'charge')),
+    'settlement_time': (('prazo', 'quando recebo', 'quando cai', 'quanto tempo', 'how long', 'when will', 'when do', 'settlement time'), ('dia', 'prazo', 'd+2', 'd+1', 'hours', 'days', 'recebimento')),
     'enablement': (('habilit', 'contrat', 'ativar', 'enable', 'activate', 'sign up'), ('habilit', 'contrat', 'ativ', 'analise', 'cadastro', 'enable')),
     'creation': (('criar', 'gerar', 'create', 'generate'), ('criar', 'gerar', 'cadastro', 'cadastrar', 'compartilha', 'create', 'generate')),
     'limit': (('quantas', 'maxim', 'limite', 'how many', 'maximum'), ('ate', 'limite', 'maxim', 'emissor', 'up to')),
@@ -135,13 +135,13 @@ def parse_requirements(query: str) -> Dict[str, Any]:
             add(relation,targets=target)
     if re.search(r'cadastr\w* chave|criar\w* chave|register.*key|create.*key',q): add('key_creation')
     elif re.search(r'\b(?:criar|gerar|create|generate)\b',q): add('creation')
-    if re.search(r'\b(?:taxas?|tarifas?|juros|fees?|interest|custos?|cost)\b',q): add('fees')
+    if re.search(r'\b(?:taxas?|tarifas?|juros|fees?|interest|custos?|cost|cobranc\w*|cobrad\w*)\b',q): add('fees')
     installment = 'installments' in requested or ('crediario' in subjects and re.search(r'parcel|limit|maximum|maximo',q))
     if installment:
         if re.search(r'quem.*(?:defin|determin)|who.*(?:sets|determines|decides)|emissor|issuer',q): add('installment_authority')
         elif re.search(r'quantas|limite|maxim|how many|up to|ate \d|\d+\s*x',q): add('installment_limit')
         else: add('installments')
-    time_requested = bool(re.search(r'prazo|quando.*(?:receb|cai)|how long|when (?:will|do)|settlement time|settlement timing|\d+\s+(?:dias?|days?|horas?|hours?)',q))
+    time_requested = bool(re.search(r'prazo|(?:quando|quanto tempo).*(?:receb|cai)|how long|when (?:will|do)|settlement time|settlement timing|\d+\s+(?:dias?|days?|horas?|hours?)',q))
     if time_requested and not re.search(r'validade|expira|vencimento do link',q): add('settlement_time')
     # Values retain units and are checked on the same subject/relation fact.
     numbers = []
@@ -171,7 +171,10 @@ def parse_requirements(query: str) -> Dict[str, Any]:
             for method,aliases in PAYMENT_METHODS.items():
                 if any(_has(value,a) for a in aliases): add('payment_method',method)
         elif not any(any(_has(value,a) for a in aliases) for aliases in FEATURES.values()):
-            add('property',' '.join(Text.tokenize(value)))
+            if re.search(r'\b(?:device|aparelho|maquina)?\s*(?:switched off|turned off|desligad[ao])\b', value):
+                add('property', 'maquina desligada')
+            else:
+                add('property',' '.join(Text.tokenize(value)))
     feature_requested = False
     if any(subject in {'smart','classica','tap'} for subject in subjects):
         for feature, aliases in FEATURES.items():

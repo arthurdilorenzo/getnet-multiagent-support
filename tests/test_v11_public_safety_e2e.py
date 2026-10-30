@@ -1,4 +1,5 @@
 """V11 public contracts. All providers/operational data in this file are synthetic."""
+from tests.legacy_runtime_adapter import bind_legacy_runtime
 import json
 import pytest
 from app.agents.customer_support_agent import CustomerSupportAgent
@@ -63,6 +64,7 @@ def http_runtime(monkeypatch, tmp_path):
         'synthetic_foreign': {'terminals':[{'terminal_id':'GET-SMART-99999', 'firmware_version':'FOREIGN-SECRET'}]}})
     orch = MultiAgentOrchestrator()
     monkeypatch.setattr(main, 'orchestrator', orch)
+    bind_legacy_runtime(monkeypatch, main, orch, store=store)
     monkeypatch.setattr(orch, '_observe_and_replan', lambda **kw:False)
     token = AuthManager.create_jwt_token('synthetic_owner')
     headers = {'Authorization':f'Bearer {token}'}

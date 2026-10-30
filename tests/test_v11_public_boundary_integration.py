@@ -1,4 +1,5 @@
 """Final HTTP boundary contract; synthetic specialists deliberately return excess data."""
+from tests.legacy_runtime_adapter import bind_legacy_runtime
 import importlib
 
 from fastapi.testclient import TestClient
@@ -56,6 +57,7 @@ def test_final_projection_covers_full_http_envelope_and_persisted_assistant(monk
 
     monkeypatch.setattr(orch.customer_support_agent, 'run', specialist)
     monkeypatch.setattr(main, 'orchestrator', orch)
+    bind_legacy_runtime(monkeypatch, main, orch, store=store)
     token = AuthManager.create_jwt_token(user, role='merchant')
     with TestClient(main.app) as client:
         result = client.post('/api/chat', json={'message': message, 'user_id': user},

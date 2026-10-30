@@ -106,14 +106,16 @@ def main():
         assert code == 200
         headers = {"Authorization": "Bearer " + issued["access_token"]}
         code, response = request("/api/chat", "POST", body, headers)
-        assert code == 200
-        validate_historical_chat(response)
-        checks.append("authenticated_chat")
+        assert code == 503, "Without a provider the integrated chat must fail explicitly, never use lexical fallback"
+        checks.append("authenticated_provider_unavailable_explicit")
+        # This is a persistence fixture, not a simulated LLM response.
+        command("docker", "exec", container, "python", "-c",
+                "from app.memory.store import state_store; state_store.append_message('smoke-persist', 'cliente1988', 'user', 'synthetic persistence fixture')")
         assert request("/api/hitl/tickets", headers=headers)[0] == 403
         assert request("/api/sessions/smoke-persist?user_id=cliente2045", headers=headers)[0] == 403
         checks.append("tenant_and_role_isolation")
         code, before = request("/api/sessions/smoke-persist?user_id=cliente1988", headers=headers)
-        assert code == 200 and len(before["recent_messages"]) >= 2
+        assert code == 200 and len(before["recent_messages"]) >= 1
         command("docker", "restart", container, capture=True)
         port_map = json.loads(command("docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", container, capture=True))
         base = "http://127.0.0.1:" + port_map["8000/tcp"][0]["HostPort"]

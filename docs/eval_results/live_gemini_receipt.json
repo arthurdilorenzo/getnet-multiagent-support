@@ -1,0 +1,1865 @@
+{
+  "mode": "native_semantic_inprocess_http",
+  "synthetic_data": true,
+  "model": "gemini-3.5-flash-lite",
+  "code_sha": "fc55f349442831b8417ef1cdbfed0cb850aa5568",
+  "code_dirty": false,
+  "independent_evaluation": false,
+  "semantic_grade_assigned": false,
+  "retry_policy": "no replacement of failed cases",
+  "cases": [
+    {
+      "id": "eval_01_classica_vs_smart",
+      "message": "What's the difference between the Get Clássica and the Get Smart?",
+      "duration_seconds": 4.717,
+      "http_status": 200,
+      "observation": {
+        "response": "A Get Clássica possui teclado físico, conforme o manual de uso disponível no índice público da fonte primária. A Get Smart reúne recursos adicionais de gestão: Get Store com aplicativos de estoque e gestão, câmera, leitor de códigos e impressão fiscal. Sua integração de aplicativos utiliza Android, conforme a documentação do SDK Getnet.\n\n[Resumo documental revisado por agente em 2026-10-23; fonte: getnet_products.md (https://site.getnet.com.br/maquininha/get-smart/)]\n[Fonte complementar](https://site.getnet.com.br/maquininha/get-classica/)\n[Fonte complementar](https://getstore.getnet.com.br/docs/integracao-hardware/visao-geral/)",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_01_classica_vs_smart",
+        "trace_id": "trc_ca0e0a77d49641388c63a9951b2557b7",
+        "agent_used": "KNOWLEDGE_AGENT",
+        "intent": "Dúvida sobre a diferença entre os produtos Get Clássica e Get Smart, pertencente à documentação da Getnet.",
+        "confidence": 0.7694,
+        "abstained": false,
+        "semantic_mode": "native_semantic",
+        "answer_status": "complete",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 47,
+            "text": "What's the difference between the Get Clássica ",
+            "assigned_agents": [
+              "KNOWLEDGE_AGENT"
+            ],
+            "fulfilled_by": [
+              "KNOWLEDGE_AGENT"
+            ],
+            "evidence_reported": [
+              {
+                "agent": "KNOWLEDGE_AGENT",
+                "count": 1
+              }
+            ],
+            "state": "fulfilled",
+            "pertinent": true,
+            "exemption_by": {}
+          },
+          {
+            "unit_id": "u2",
+            "start": 47,
+            "end": 65,
+            "text": "and the Get Smart?",
+            "assigned_agents": [
+              "KNOWLEDGE_AGENT"
+            ],
+            "fulfilled_by": [
+              "KNOWLEDGE_AGENT"
+            ],
+            "evidence_reported": [
+              {
+                "agent": "KNOWLEDGE_AGENT",
+                "count": 1
+              }
+            ],
+            "state": "fulfilled",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [
+          "search_getnet_knowledge"
+        ],
+        "sources": [
+          "getnet_products.md",
+          "https://site.getnet.com.br/maquininha/get-smart/"
+        ],
+        "citations": [
+          {
+            "chunk_id": "getnet_products_s1_9be63a",
+            "title": "Diferenças entre Get Clássica e Get Smart",
+            "source": "getnet_products.md",
+            "source_url": "https://site.getnet.com.br/maquininha/get-smart/",
+            "relevance_score": 0.7694,
+            "excerpt": "A Get Clássica possui teclado físico, conforme o manual de uso disponível no índice público da fonte primária. A Get Smart reúne recursos adicionais de gestão: Get Store com aplicativos de estoque e gestão, câmera, leitor de códigos e impressão fiscal. Sua integração de aplicativos utiliza Android, conforme a documentação do SDK Getnet."
+          }
+        ],
+        "token_usage": {
+          "prompt_tokens": 12757,
+          "completion_tokens": 759,
+          "total_tokens": 13516,
+          "estimated_cost_usd": 0.002369
+        },
+        "evidence": [
+          {
+            "kind": "source_excerpt",
+            "source": "getnet_products.md",
+            "source_url": "https://site.getnet.com.br/maquininha/get-smart/",
+            "excerpt": "A Get Clássica possui teclado físico, conforme o manual de uso disponível no índice público da fonte primária. A Get Smart reúne recursos adicionais de gestão: Get Store com aplicativos de estoque e gestão, câmera, leitor de códigos e impressão fiscal. Sua integração de aplicativos utiliza Android, conforme a documentação do SDK Getnet.",
+            "chunk_id": "getnet_products_s1_9be63a",
+            "source_kind": "curated_local_summary",
+            "verification_status": "reviewed_primary_and_indexed_sources",
+            "verified_at": "2026-10-23",
+            "review_method": "agent_review_of_primary_source",
+            "source_location": "Get Smart atual: GetStore e 5 em 1; Get Clássica: manual primário indexado, funções dos botões",
+            "source_access_note": "Get Smart e SDK acessíveis; manual Clássica consultado no índice público primário, PDF direto retornou 404 em 2026-10-23",
+            "secondary_url": "https://site.getnet.com.br/maquininha/get-classica/",
+            "additional_url": "https://getstore.getnet.com.br/docs/integracao-hardware/visao-geral/"
+          }
+        ],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_01_classica_vs_smart",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.31,
+            "step_duration_ms": 1.31
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5269,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1355,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 962.01,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 977.92,
+            "step_duration_ms": 976.6
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "plan_and_route",
+            "status": "success",
+            "details": {
+              "primary_agent": "KNOWLEDGE_AGENT",
+              "confidence": 0.9,
+              "is_multi_step": false,
+              "planned_steps": [
+                "KNOWLEDGE_AGENT"
+              ],
+              "reasoning": "Dúvida sobre a diferença entre os produtos Get Clássica e Get Smart, pertencente à documentação da Getnet."
+            },
+            "latency_ms": 981.86,
+            "step_duration_ms": 3.94
+          },
+          {
+            "step_id": 4,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "generation",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 4111,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1067,
+              "tokens_consumed_before_call": 1294,
+              "duration_ms": 785.92,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1770.89,
+            "step_duration_ms": 789.03
+          },
+          {
+            "step_id": 5,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "semantic_analysis",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 21168,
+              "response_schema_bytes": 6090,
+              "estimated_prompt_tokens": 5515,
+              "tokens_consumed_before_call": 2246,
+              "duration_ms": 1687.06,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 3465.97,
+            "step_duration_ms": 1695.09
+          },
+          {
+            "step_id": 6,
+            "agent": "KNOWLEDGE_SEMANTIC",
+            "action": "semantic_analysis",
+            "status": "success",
+            "details": {
+              "semantic_mode": "native_semantic",
+              "phase": "semantic_analysis",
+              "request_bytes": 12963,
+              "response_schema_bytes": 6090,
+              "response_bytes": 907,
+              "duration_ms": 1688.85
+            },
+            "latency_ms": 3466.12,
+            "step_duration_ms": 0.14
+          },
+          {
+            "step_id": 7,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "semantic_verification",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 18640,
+              "response_schema_bytes": 1897,
+              "estimated_prompt_tokens": 4843,
+              "tokens_consumed_before_call": 7717,
+              "duration_ms": 1235.75,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 4704.14,
+            "step_duration_ms": 1238.02
+          },
+          {
+            "step_id": 8,
+            "agent": "KNOWLEDGE_SEMANTIC",
+            "action": "semantic_verification",
+            "status": "success",
+            "details": {
+              "semantic_mode": "native_semantic",
+              "phase": "semantic_verification",
+              "request_bytes": 13662,
+              "response_schema_bytes": 1897,
+              "response_bytes": 318,
+              "duration_ms": 1237.65
+            },
+            "latency_ms": 4704.23,
+            "step_duration_ms": 0.1
+          },
+          {
+            "step_id": 9,
+            "agent": "KNOWLEDGE_SEMANTIC",
+            "action": "semantic_authorization",
+            "status": "success",
+            "details": {
+              "semantic_mode": "native_semantic",
+              "answer_status": "complete",
+              "covered_units": 2,
+              "total_units": 2,
+              "stage": "",
+              "code": ""
+            },
+            "latency_ms": 4704.3,
+            "step_duration_ms": 0.07
+          },
+          {
+            "step_id": 10,
+            "agent": "KNOWLEDGE_AGENT_TOOL",
+            "action": "call:search_getnet_knowledge",
+            "status": "success",
+            "details": {
+              "arguments": {
+                "query": "What's the difference between the Get Clássica and the Get Smart?",
+                "top_k": 3
+              },
+              "success": true,
+              "error_code": null,
+              "execution_ms": 3.68
+            },
+            "latency_ms": 4704.36,
+            "step_duration_ms": 0.06
+          },
+          {
+            "step_id": 11,
+            "agent": "KNOWLEDGE_AGENT",
+            "action": "retrieve_and_synthesize_hybrid_rag",
+            "status": "success",
+            "details": {
+              "tools_invoked": [
+                "search_getnet_knowledge"
+              ],
+              "citations_count": 1,
+              "confidence": 0.7694,
+              "abstained": false
+            },
+            "latency_ms": 4704.49,
+            "step_duration_ms": 0.12
+          },
+          {
+            "step_id": 12,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "replan_not_needed",
+            "status": "skipped",
+            "details": {
+              "reason": "all_request_units_covered",
+              "unit_count": 2
+            },
+            "latency_ms": 4709.1,
+            "step_duration_ms": 4.62
+          },
+          {
+            "step_id": 13,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "evaluate_stopping_condition",
+            "status": "success",
+            "details": {
+              "iterations_used": 1,
+              "agents_executed": [
+                "KNOWLEDGE_AGENT"
+              ],
+              "stopping_reason": "all_planned_and_replanned_steps_completed",
+              "pending_steps": 0
+            },
+            "latency_ms": 4709.12,
+            "step_duration_ms": 0.02
+          },
+          {
+            "step_id": 14,
+            "agent": "SYSTEM_EGRESS",
+            "action": "sanitize_and_persist_response",
+            "status": "success",
+            "details": {
+              "response_char_count": 636,
+              "session_id": "native-eval-eval_01_classica_vs_smart",
+              "abstained": false,
+              "semantic_mode": "native_semantic",
+              "answer_status": "complete",
+              "escalated": false
+            },
+            "latency_ms": 4709.29,
+            "step_duration_ms": 0.17
+          }
+        ],
+        "execution_time_ms": 4709.32
+      }
+    },
+    {
+      "id": "eval_02_weather_poa",
+      "message": "What's the weather forecast in Porto Alegre tomorrow?",
+      "duration_seconds": 2.369,
+      "http_status": 200,
+      "observation": {
+        "response": "Previsão para **Porto Alegre, RS**, data informada pelo provedor: 2026-10-28.\n\n- Temperatura mínima: 14.4°C; máxima: 24.5°C.\n- Condição: Céu encoberto / nublado.\n- Probabilidade de precipitação: 4%.\n\n[Fonte: Open-Meteo Weather Forecast API (https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo)]",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_02_weather_poa",
+        "trace_id": "trc_4ecafaa318ba40488726782bd6f1983e",
+        "agent_used": "WEB_SEARCH_AGENT",
+        "intent": "O usuário solicita a previsão do tempo para Porto Alegre amanhã, o que constitui um dado público externo atual.",
+        "confidence": 0.92,
+        "abstained": false,
+        "semantic_mode": "native_semantic",
+        "answer_status": "complete",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 53,
+            "text": "What's the weather forecast in Porto Alegre tomorrow?",
+            "assigned_agents": [
+              "WEB_SEARCH_AGENT"
+            ],
+            "fulfilled_by": [
+              "WEB_SEARCH_AGENT"
+            ],
+            "evidence_reported": [
+              {
+                "agent": "WEB_SEARCH_AGENT",
+                "count": 13
+              }
+            ],
+            "state": "fulfilled",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [
+          "get_weather_forecast"
+        ],
+        "sources": [
+          "Open-Meteo Weather Forecast API",
+          "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo"
+        ],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 2050,
+          "completion_tokens": 97,
+          "total_tokens": 2147,
+          "estimated_cost_usd": 0.000366
+        },
+        "evidence": [
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "city",
+            "value": "Porto Alegre, RS",
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "target_date",
+            "value": "2026-10-28",
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "forecast_horizon",
+            "value": "Amanhã",
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "max_temp_celsius",
+            "value": 24.5,
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "min_temp_celsius",
+            "value": 14.4,
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "rain_probability_percent",
+            "value": 4.0,
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "wmo_weather_code",
+            "value": 3,
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "condition",
+            "value": "Céu encoberto / nublado",
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "live",
+            "value": true,
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "retrieved_at",
+            "value": "2026-10-27T23:40:49.603180+00:00",
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "request_unit_ids",
+            "value": [
+              "u1"
+            ],
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "covered_unit_ids",
+            "value": [
+              "u1"
+            ],
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_weather_forecast",
+            "fact_path": "unresolved_unit_ids",
+            "value": [],
+            "source": "Open-Meteo Weather Forecast API",
+            "source_url": "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo",
+            "observed_at": "2026-10-28"
+          }
+        ],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_02_weather_poa",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 0.77,
+            "step_duration_ms": 0.77
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5176,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1331,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 1037.38,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1039.92,
+            "step_duration_ms": 1039.15
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "plan_and_route",
+            "status": "success",
+            "details": {
+              "primary_agent": "WEB_SEARCH_AGENT",
+              "confidence": 0.9,
+              "is_multi_step": false,
+              "planned_steps": [
+                "WEB_SEARCH_AGENT"
+              ],
+              "reasoning": "O usuário solicita a previsão do tempo para Porto Alegre amanhã, o que constitui um dado público externo atual."
+            },
+            "latency_ms": 1041.63,
+            "step_duration_ms": 1.71
+          },
+          {
+            "step_id": 4,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "generation",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 3997,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1038,
+              "tokens_consumed_before_call": 1244,
+              "duration_ms": 720.93,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1764.3,
+            "step_duration_ms": 722.67
+          },
+          {
+            "step_id": 5,
+            "agent": "KNOWLEDGE_AGENT_TOOL",
+            "action": "call:get_weather_forecast",
+            "status": "success",
+            "details": {
+              "arguments": {
+                "city": "Porto Alegre",
+                "days_ahead": 1
+              },
+              "success": true,
+              "error_code": null,
+              "execution_ms": 596.37
+            },
+            "latency_ms": 2362.2,
+            "step_duration_ms": 597.9
+          },
+          {
+            "step_id": 6,
+            "agent": "WEB_SEARCH_AGENT",
+            "action": "complete_external_search",
+            "status": "success",
+            "details": {
+              "tools_invoked": [
+                "get_weather_forecast"
+              ],
+              "sources_consulted": [
+                "Open-Meteo Weather Forecast API",
+                "https://api.open-meteo.com/v1/forecast?latitude=-30.0346&longitude=-51.2177&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode&timezone=America%2FSao_Paulo"
+              ],
+              "abstained": false
+            },
+            "latency_ms": 2362.29,
+            "step_duration_ms": 0.09
+          },
+          {
+            "step_id": 7,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "replan_not_needed",
+            "status": "skipped",
+            "details": {
+              "reason": "all_request_units_covered",
+              "unit_count": 1
+            },
+            "latency_ms": 2363.97,
+            "step_duration_ms": 1.69
+          },
+          {
+            "step_id": 8,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "evaluate_stopping_condition",
+            "status": "success",
+            "details": {
+              "iterations_used": 1,
+              "agents_executed": [
+                "WEB_SEARCH_AGENT"
+              ],
+              "stopping_reason": "all_planned_and_replanned_steps_completed",
+              "pending_steps": 0
+            },
+            "latency_ms": 2363.99,
+            "step_duration_ms": 0.02
+          },
+          {
+            "step_id": 9,
+            "agent": "SYSTEM_EGRESS",
+            "action": "sanitize_and_persist_response",
+            "status": "success",
+            "details": {
+              "response_char_count": 433,
+              "session_id": "native-eval-eval_02_weather_poa",
+              "abstained": false,
+              "semantic_mode": "native_semantic",
+              "answer_status": "complete",
+              "escalated": false
+            },
+            "latency_ms": 2364.09,
+            "step_duration_ms": 0.1
+          }
+        ],
+        "execution_time_ms": 2364.12
+      }
+    },
+    {
+      "id": "eval_03_sales_settlement",
+      "message": "When will the money from yesterday's sales be deposited?",
+      "duration_seconds": 4.257,
+      "http_status": 200,
+      "observation": {
+        "response": "**Snapshot de liquidação — Di Lorenzo Café & Conveniência ME (`cliente1988`)**\n\nBase histórica simulada: não confirma depósito ou liquidação atual. A data de referência dos termos relativos do arquivo não foi informada.\n\n- **Data das vendas:** 2026-10-21 | **Lote:** LOTE-STL-20261022-881\n- **Volume Bruto Total:** R$ 1,840.50 (Débito: R$ 620.00 | Crédito: R$ 850.50 | Pix: R$ 370.00)\n- **Valor Líquido Programado no Snapshot:** R$ 1,415.80\n- **Status Histórico Registrado:** Programado para liquidação na referência histórica do snapshot (D+1) até as 18:00h via CIP/SILOC\n- **Domicílio Bancário de Destino:** Banco Santander (033) Agência **34 Conta *****5-4\n- **Registro Pix no Snapshot:** As vendas via Pix (R$ 370,00) já foram liquidadas integralmente em tempo real (D+0) no momento de cada transação.\n\nPartes do pedido sem resposta verificada:\n- When will the money from yesterday's sales be deposited?",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_03_sales_settlement",
+        "trace_id": "trc_82e396b7b9094316be8d71e2c0ba3c20",
+        "agent_used": "CUSTOMER_SUPPORT_AGENT",
+        "intent": "O usuário pergunta sobre a data/previsão de depósito do dinheiro de vendas de ontem, o que envolve consulta de conta privada, liquidação e dados financeiros do lojista.",
+        "confidence": 0.9,
+        "abstained": true,
+        "semantic_mode": "native_semantic",
+        "answer_status": "partial",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 56,
+            "text": "When will the money from yesterday's sales be deposited?",
+            "assigned_agents": [
+              "CUSTOMER_SUPPORT_AGENT"
+            ],
+            "fulfilled_by": [],
+            "evidence_reported": [],
+            "state": "unresolved",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [
+          "get_sales_settlement"
+        ],
+        "sources": [
+          "Base operacional simulada Getnet"
+        ],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 7234,
+          "completion_tokens": 447,
+          "total_tokens": 7681,
+          "estimated_cost_usd": 0.001353
+        },
+        "evidence": [
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "user_id",
+            "value": "cliente1988"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "company_name",
+            "value": "Di Lorenzo Café & Conveniência ME"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.date",
+            "value": "2026-10-21"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.settlement_batch_id",
+            "value": "LOTE-STL-20261022-881"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.total_gross_brl",
+            "value": 1840.5
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.debit_brl",
+            "value": 620.0
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.credit_brl",
+            "value": 850.5
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.pix_brl",
+            "value": 370.0
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.net_payout_scheduled_today_brl",
+            "value": 1415.8
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.payout_status",
+            "value": "Programado para liquidação na referência histórica do snapshot (D+1) até as 18:00h via CIP/SILOC"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.target_bank",
+            "value": "Banco Santander (033) Agência **34 Conta *****5-4"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "sales_data.pix_note",
+            "value": "As vendas via Pix (R$ 370,00) já foram liquidadas integralmente em tempo real (D+0) no momento de cada transação."
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "data_scope",
+            "value": "synthetic_historical_snapshot"
+          },
+          {
+            "kind": "tool_fact",
+            "tool_name": "get_sales_settlement",
+            "fact_path": "temporal_notice",
+            "value": "Snapshot histórico simulado; a consulta não confirma depósito ou liquidação atual."
+          }
+        ],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_03_sales_settlement",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.07,
+            "step_duration_ms": 1.07
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5182,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1333,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 901.31,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 906.46,
+            "step_duration_ms": 905.39
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "plan_and_route",
+            "status": "success",
+            "details": {
+              "primary_agent": "CUSTOMER_SUPPORT_AGENT",
+              "confidence": 0.9,
+              "is_multi_step": false,
+              "planned_steps": [
+                "CUSTOMER_SUPPORT_AGENT"
+              ],
+              "reasoning": "O usuário pergunta sobre a data/previsão de depósito do dinheiro de vendas de ontem, o que envolve consulta de conta privada, liquidação e dados financeiros do lojista."
+            },
+            "latency_ms": 908.2,
+            "step_duration_ms": 1.73
+          },
+          {
+            "step_id": 4,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "support",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5003,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1296,
+              "tokens_consumed_before_call": 1260,
+              "duration_ms": 663.09,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1572.96,
+            "step_duration_ms": 664.76
+          },
+          {
+            "step_id": 5,
+            "agent": "CUSTOMER_SUPPORT_TOOL",
+            "action": "call:get_sales_settlement",
+            "status": "success",
+            "details": {
+              "turn": 1,
+              "success": true,
+              "error_code": null,
+              "execution_ms": 2.4
+            },
+            "latency_ms": 1577.34,
+            "step_duration_ms": 4.38
+          },
+          {
+            "step_id": 6,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "support",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 6504,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1686,
+              "tokens_consumed_before_call": 2468,
+              "duration_ms": 1396.18,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 2974.35,
+            "step_duration_ms": 1397.01
+          },
+          {
+            "step_id": 7,
+            "agent": "CUSTOMER_SUPPORT_AGENT",
+            "action": "complete_support_cycle",
+            "status": "success",
+            "details": {
+              "tools_invoked": [
+                "get_sales_settlement"
+              ],
+              "requires_escalation": false,
+              "confidence": 0.9
+            },
+            "latency_ms": 2975.9,
+            "step_duration_ms": 1.55
+          },
+          {
+            "step_id": 8,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "replanning",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 11619,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 3003,
+              "tokens_consumed_before_call": 4372,
+              "duration_ms": 1267.39,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 4247.25,
+            "step_duration_ms": 1271.35
+          },
+          {
+            "step_id": 9,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "evaluate_stopping_condition",
+            "status": "success",
+            "details": {
+              "iterations_used": 1,
+              "agents_executed": [
+                "CUSTOMER_SUPPORT_AGENT"
+              ],
+              "stopping_reason": "all_planned_and_replanned_steps_completed",
+              "pending_steps": 0
+            },
+            "latency_ms": 4247.41,
+            "step_duration_ms": 0.16
+          },
+          {
+            "step_id": 10,
+            "agent": "SYSTEM_EGRESS",
+            "action": "sanitize_and_persist_response",
+            "status": "success",
+            "details": {
+              "response_char_count": 907,
+              "session_id": "native-eval-eval_03_sales_settlement",
+              "abstained": true,
+              "semantic_mode": "native_semantic",
+              "answer_status": "partial",
+              "escalated": false
+            },
+            "latency_ms": 4247.63,
+            "step_duration_ms": 0.22
+          }
+        ],
+        "execution_time_ms": 4247.67
+      }
+    },
+    {
+      "id": "eval_04_pix_bank_account",
+      "message": "Do I need a bank account to receive my sales via Pix?",
+      "duration_seconds": 2.263,
+      "http_status": 200,
+      "observation": {
+        "response": "Não encontrei informações suficientes sobre esse tema na documentação oficial da Getnet para responder com segurança e precisão.\n\nPartes do pedido sem resposta verificada:\n- Do I need a bank account to receive my sales via Pix?",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_04_pix_bank_account",
+        "trace_id": "trc_56cf8e6484f7410598d19616227b6392",
+        "agent_used": "KNOWLEDGE_AGENT",
+        "intent": "Consulta sobre a necessidade de conta bancária para receber vendas via Pix na Getnet.",
+        "confidence": 0.8268,
+        "abstained": true,
+        "semantic_mode": "native_semantic",
+        "answer_status": "abstained",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 53,
+            "text": "Do I need a bank account to receive my sales via Pix?",
+            "assigned_agents": [
+              "KNOWLEDGE_AGENT"
+            ],
+            "fulfilled_by": [],
+            "evidence_reported": [],
+            "state": "unresolved",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [
+          "search_getnet_knowledge"
+        ],
+        "sources": [],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 2060,
+          "completion_tokens": 89,
+          "total_tokens": 2149,
+          "estimated_cost_usd": 0.000362
+        },
+        "evidence": [],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_04_pix_bank_account",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.48,
+            "step_duration_ms": 1.48
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5176,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1331,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 1083.64,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1087.05,
+            "step_duration_ms": 1085.57
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "plan_and_route",
+            "status": "success",
+            "details": {
+              "primary_agent": "KNOWLEDGE_AGENT",
+              "confidence": 0.9,
+              "is_multi_step": false,
+              "planned_steps": [
+                "KNOWLEDGE_AGENT"
+              ],
+              "reasoning": "Consulta sobre a necessidade de conta bancária para receber vendas via Pix na Getnet."
+            },
+            "latency_ms": 1088.2,
+            "step_duration_ms": 1.15
+          },
+          {
+            "step_id": 4,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "generation",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 3997,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1038,
+              "tokens_consumed_before_call": 1242,
+              "duration_ms": 846.77,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1937.6,
+            "step_duration_ms": 849.4
+          },
+          {
+            "step_id": 5,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "error",
+            "details": {
+              "phase": "semantic_analysis",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 18426,
+              "response_schema_bytes": 3199,
+              "estimated_prompt_tokens": 4793,
+              "tokens_consumed_before_call": 2149,
+              "duration_ms": 288.1,
+              "timeout_ms": 30000,
+              "finish_reason": null,
+              "thoughts_token_count": null,
+              "error_type": "ExternalServiceUnavailableError",
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": "provider",
+              "provider_error_type": "ClientError",
+              "provider_error_code": 429
+            },
+            "latency_ms": 2247.54,
+            "step_duration_ms": 309.94
+          },
+          {
+            "step_id": 6,
+            "agent": "KNOWLEDGE_SEMANTIC",
+            "action": "semantic_analysis",
+            "status": "error",
+            "details": {
+              "semantic_mode": "native_semantic",
+              "phase": "semantic_analysis",
+              "request_bytes": 12876,
+              "response_schema_bytes": 3199,
+              "duration_ms": 291.85,
+              "stage": "semantic_analysis",
+              "code": "PROVIDER_ERROR",
+              "provider_status": 429
+            },
+            "latency_ms": 2247.74,
+            "step_duration_ms": 0.2
+          },
+          {
+            "step_id": 7,
+            "agent": "KNOWLEDGE_SEMANTIC",
+            "action": "semantic_authorization",
+            "status": "warning",
+            "details": {
+              "semantic_mode": "native_semantic",
+              "answer_status": "abstained",
+              "covered_units": 0,
+              "total_units": 1,
+              "stage": "semantic_analysis",
+              "code": "PROVIDER_ERROR",
+              "provider_status": 429
+            },
+            "latency_ms": 2247.84,
+            "step_duration_ms": 0.1
+          },
+          {
+            "step_id": 8,
+            "agent": "KNOWLEDGE_AGENT_TOOL",
+            "action": "call:search_getnet_knowledge",
+            "status": "success",
+            "details": {
+              "arguments": {
+                "query": "Do I need a bank account to receive my sales via Pix?",
+                "top_k": 3
+              },
+              "success": true,
+              "error_code": null,
+              "execution_ms": 12.81
+            },
+            "latency_ms": 2247.93,
+            "step_duration_ms": 0.1
+          },
+          {
+            "step_id": 9,
+            "agent": "KNOWLEDGE_AGENT",
+            "action": "retrieve_and_synthesize_hybrid_rag",
+            "status": "abstained",
+            "details": {
+              "tools_invoked": [
+                "search_getnet_knowledge"
+              ],
+              "citations_count": 0,
+              "confidence": 0.8268,
+              "abstained": true
+            },
+            "latency_ms": 2248.05,
+            "step_duration_ms": 0.12
+          },
+          {
+            "step_id": 10,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "replan_not_needed",
+            "status": "skipped",
+            "details": {
+              "reason": "no_actionable_observation"
+            },
+            "latency_ms": 2256.68,
+            "step_duration_ms": 8.63
+          },
+          {
+            "step_id": 11,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "evaluate_stopping_condition",
+            "status": "success",
+            "details": {
+              "iterations_used": 1,
+              "agents_executed": [
+                "KNOWLEDGE_AGENT"
+              ],
+              "stopping_reason": "all_planned_and_replanned_steps_completed",
+              "pending_steps": 0
+            },
+            "latency_ms": 2256.73,
+            "step_duration_ms": 0.05
+          },
+          {
+            "step_id": 12,
+            "agent": "SYSTEM_EGRESS",
+            "action": "sanitize_and_persist_response",
+            "status": "success",
+            "details": {
+              "response_char_count": 227,
+              "session_id": "native-eval-eval_04_pix_bank_account",
+              "abstained": true,
+              "semantic_mode": "native_semantic",
+              "answer_status": "abstained",
+              "escalated": false
+            },
+            "latency_ms": 2256.87,
+            "step_duration_ms": 0.14
+          }
+        ],
+        "execution_time_ms": 2256.93
+      }
+    },
+    {
+      "id": "eval_05_terminal_connectivity",
+      "message": "My card machine won't connect to the internet, what should I do?",
+      "duration_seconds": 2.316,
+      "http_status": 200,
+      "observation": {
+        "response": "Não foi possível planejar uma consulta pública com segurança. Tente novamente com os dados necessários.\n\n---\n\nO replanejamento ficou indisponível. As consultas concluídas estão preservadas; parte do pedido pode estar pendente.\n\nPartes do pedido sem resposta verificada:\n- My card machine won't connect to the internet, what should I do?",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_05_terminal_connectivity",
+        "trace_id": "trc_894a9f89d99b49059491ae1b8b616c59",
+        "agent_used": "KNOWLEDGE_AGENT",
+        "intent": "O usuário relata um problema de conexão com a internet na maquininha de cartão. Instruções de conectividade, testes de comunicação e orientações sobre chip/SIM em terminais Getnet pertencem à documentação de produtos (KNOWLEDGE_AGENT).",
+        "confidence": 0.0,
+        "abstained": true,
+        "semantic_mode": "native_semantic",
+        "answer_status": "abstained",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 64,
+            "text": "My card machine won't connect to the internet, what should I do?",
+            "assigned_agents": [
+              "KNOWLEDGE_AGENT"
+            ],
+            "fulfilled_by": [],
+            "evidence_reported": [],
+            "state": "unresolved",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [],
+        "sources": [],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 1183,
+          "completion_tokens": 103,
+          "total_tokens": 1286,
+          "estimated_cost_usd": 0.000239
+        },
+        "evidence": [],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_05_terminal_connectivity",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.08,
+            "step_duration_ms": 1.08
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "success",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5198,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1337,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 1381.18,
+              "timeout_ms": 30000,
+              "finish_reason": "STOP",
+              "thoughts_token_count": null,
+              "error_type": null,
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": null,
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 1384.97,
+            "step_duration_ms": 1383.89
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "plan_and_route",
+            "status": "success",
+            "details": {
+              "primary_agent": "KNOWLEDGE_AGENT",
+              "confidence": 0.9,
+              "is_multi_step": false,
+              "planned_steps": [
+                "KNOWLEDGE_AGENT"
+              ],
+              "reasoning": "O usuário relata um problema de conexão com a internet na maquininha de cartão. Instruções de conectividade, testes de comunicação e orientações sobre chip/SIM em terminais Getnet pertencem à documentação de produtos (KNOWLEDGE_AGENT)."
+            },
+            "latency_ms": 1386.6,
+            "step_duration_ms": 1.63
+          },
+          {
+            "step_id": 4,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "error",
+            "details": {
+              "phase": "generation",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 3966,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1030,
+              "tokens_consumed_before_call": 1286,
+              "duration_ms": 262.83,
+              "timeout_ms": 30000,
+              "finish_reason": null,
+              "thoughts_token_count": null,
+              "error_type": "ExternalServiceUnavailableError",
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": "provider",
+              "provider_error_type": "ClientError",
+              "provider_error_code": 429
+            },
+            "latency_ms": 1653.91,
+            "step_duration_ms": 267.31
+          },
+          {
+            "step_id": 5,
+            "agent": "KNOWLEDGE_AGENT",
+            "action": "native_planning_rejected",
+            "status": "error",
+            "details": {
+              "error_type": "ExternalServiceUnavailableError"
+            },
+            "latency_ms": 1654.1,
+            "step_duration_ms": 0.19
+          },
+          {
+            "step_id": 6,
+            "agent": "KNOWLEDGE_AGENT",
+            "action": "retrieve_and_synthesize_hybrid_rag",
+            "status": "abstained",
+            "details": {
+              "tools_invoked": [],
+              "citations_count": 0,
+              "confidence": 0.0,
+              "abstained": true
+            },
+            "latency_ms": 1654.19,
+            "step_duration_ms": 0.09
+          },
+          {
+            "step_id": 7,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "error",
+            "details": {
+              "phase": "replanning",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 6335,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1631,
+              "tokens_consumed_before_call": 1286,
+              "duration_ms": 646.04,
+              "timeout_ms": 30000,
+              "finish_reason": null,
+              "thoughts_token_count": null,
+              "error_type": "ExternalServiceUnavailableError",
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": "provider",
+              "provider_error_type": "ClientError",
+              "provider_error_code": 429
+            },
+            "latency_ms": 2303.54,
+            "step_duration_ms": 649.36
+          },
+          {
+            "step_id": 8,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "replanning_failed",
+            "status": "abstained",
+            "details": {
+              "reason": "configured_provider_unavailable_or_invalid"
+            },
+            "latency_ms": 2303.77,
+            "step_duration_ms": 0.23
+          },
+          {
+            "step_id": 9,
+            "agent": "SUPERVISOR_ORCHESTRATOR",
+            "action": "evaluate_stopping_condition",
+            "status": "success",
+            "details": {
+              "iterations_used": 1,
+              "agents_executed": [
+                "KNOWLEDGE_AGENT"
+              ],
+              "stopping_reason": "all_planned_and_replanned_steps_completed",
+              "pending_steps": 0
+            },
+            "latency_ms": 2303.82,
+            "step_duration_ms": 0.04
+          },
+          {
+            "step_id": 10,
+            "agent": "SYSTEM_EGRESS",
+            "action": "sanitize_and_persist_response",
+            "status": "success",
+            "details": {
+              "response_char_count": 336,
+              "session_id": "native-eval-eval_05_terminal_connectivity",
+              "abstained": true,
+              "semantic_mode": "native_semantic",
+              "answer_status": "abstained",
+              "escalated": false
+            },
+            "latency_ms": 2304.11,
+            "step_duration_ms": 0.29
+          }
+        ],
+        "execution_time_ms": 2304.25
+      }
+    },
+    {
+      "id": "eval_06_antecipacao",
+      "message": "How does receivables advance (antecipação) work with Getnet?",
+      "duration_seconds": 0.272,
+      "http_status": 200,
+      "observation": {
+        "response": "Não foi possível planejar o atendimento pelo provedor de IA. Tente novamente em instantes.",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_06_antecipacao",
+        "trace_id": "trc_9c5d7ff4c4f94de2b2c4573b6d374bf2",
+        "agent_used": "ROUTER_AGENT",
+        "intent": null,
+        "confidence": 0.0,
+        "abstained": true,
+        "semantic_mode": "",
+        "answer_status": "abstained",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 60,
+            "text": "How does receivables advance (antecipação) work with Getnet?",
+            "assigned_agents": [],
+            "fulfilled_by": [],
+            "evidence_reported": [],
+            "state": "unresolved",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [],
+        "sources": [],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "estimated_cost_usd": 0.0
+        },
+        "evidence": [],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_06_antecipacao",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.01,
+            "step_duration_ms": 1.01
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "error",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5194,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1335,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 260.65,
+              "timeout_ms": 30000,
+              "finish_reason": null,
+              "thoughts_token_count": null,
+              "error_type": "ExternalServiceUnavailableError",
+              "turn_error_code": null,
+              "call_started": true,
+              "failure_stage": "provider",
+              "provider_error_type": "ClientError",
+              "provider_error_code": 429
+            },
+            "latency_ms": 265.4,
+            "step_duration_ms": 264.39
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "planning_failed",
+            "status": "abstained",
+            "details": {
+              "reason": "configured_provider_unavailable_or_invalid"
+            },
+            "latency_ms": 265.55,
+            "step_duration_ms": 0.15
+          }
+        ],
+        "execution_time_ms": 267.54
+      }
+    },
+    {
+      "id": "eval_07_euro_rate",
+      "message": "What's the euro exchange rate today?",
+      "duration_seconds": 0.009,
+      "http_status": 200,
+      "observation": {
+        "response": "Não foi possível planejar o atendimento pelo provedor de IA. Tente novamente em instantes.",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_07_euro_rate",
+        "trace_id": "trc_807eb30696b948139adcdcaa75973d21",
+        "agent_used": "ROUTER_AGENT",
+        "intent": null,
+        "confidence": 0.0,
+        "abstained": true,
+        "semantic_mode": "",
+        "answer_status": "abstained",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 36,
+            "text": "What's the euro exchange rate today?",
+            "assigned_agents": [],
+            "fulfilled_by": [],
+            "evidence_reported": [],
+            "state": "unresolved",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [],
+        "sources": [],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "estimated_cost_usd": 0.0
+        },
+        "evidence": [],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_07_euro_rate",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.29,
+            "step_duration_ms": 1.29
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "error",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5142,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1322,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 0.29,
+              "timeout_ms": 30000,
+              "finish_reason": null,
+              "thoughts_token_count": null,
+              "error_type": "CircuitBreakerOpenError",
+              "turn_error_code": null,
+              "call_started": false,
+              "failure_stage": "local_breaker",
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 3.99,
+            "step_duration_ms": 2.7
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "planning_failed",
+            "status": "abstained",
+            "details": {
+              "reason": "configured_provider_unavailable_or_invalid"
+            },
+            "latency_ms": 4.06,
+            "step_duration_ms": 0.07
+          }
+        ],
+        "execution_time_ms": 4.88
+      }
+    },
+    {
+      "id": "eval_08_decline_error",
+      "message": "My card machine is showing a transaction decline error.",
+      "duration_seconds": 0.008,
+      "http_status": 200,
+      "observation": {
+        "response": "Não foi possível planejar o atendimento pelo provedor de IA. Tente novamente em instantes.",
+        "user_id": "cliente1988",
+        "session_id": "native-eval-eval_08_decline_error",
+        "trace_id": "trc_34408dc80f1943b4bef7c75701c9044f",
+        "agent_used": "ROUTER_AGENT",
+        "intent": null,
+        "confidence": 0.0,
+        "abstained": true,
+        "semantic_mode": "",
+        "answer_status": "abstained",
+        "request_coverage": [
+          {
+            "unit_id": "u1",
+            "start": 0,
+            "end": 55,
+            "text": "My card machine is showing a transaction decline error.",
+            "assigned_agents": [],
+            "fulfilled_by": [],
+            "evidence_reported": [],
+            "state": "unresolved",
+            "pertinent": true,
+            "exemption_by": {}
+          }
+        ],
+        "escalated": false,
+        "ticket_id": null,
+        "tools_called": [],
+        "sources": [],
+        "citations": [],
+        "token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "estimated_cost_usd": 0.0
+        },
+        "evidence": [],
+        "action_proposals": [],
+        "trace": [
+          {
+            "step_id": 1,
+            "agent": "SYSTEM_INGRESS",
+            "action": "receive_and_load_session",
+            "status": "success",
+            "details": {
+              "user_id": "cliente1988",
+              "session_id": "native-eval-eval_08_decline_error",
+              "auth_method": "jwt_bearer",
+              "previous_turns": 0,
+              "hitl_operator_reply_present": false
+            },
+            "latency_ms": 1.05,
+            "step_duration_ms": 1.05
+          },
+          {
+            "step_id": 2,
+            "agent": "GEMINI_PROVIDER",
+            "action": "provider_generation",
+            "status": "error",
+            "details": {
+              "phase": "routing",
+              "model": "gemini-3.5-flash-lite",
+              "request_bytes": 5180,
+              "response_schema_bytes": 2,
+              "estimated_prompt_tokens": 1332,
+              "tokens_consumed_before_call": 0,
+              "duration_ms": 0.29,
+              "timeout_ms": 30000,
+              "finish_reason": null,
+              "thoughts_token_count": null,
+              "error_type": "CircuitBreakerOpenError",
+              "turn_error_code": null,
+              "call_started": false,
+              "failure_stage": "local_breaker",
+              "provider_error_type": null,
+              "provider_error_code": null
+            },
+            "latency_ms": 3.44,
+            "step_duration_ms": 2.39
+          },
+          {
+            "step_id": 3,
+            "agent": "ROUTER_AGENT",
+            "action": "planning_failed",
+            "status": "abstained",
+            "details": {
+              "reason": "configured_provider_unavailable_or_invalid"
+            },
+            "latency_ms": 3.5,
+            "step_duration_ms": 0.06
+          }
+        ],
+        "execution_time_ms": 4.2
+      }
+    }
+  ]
+}

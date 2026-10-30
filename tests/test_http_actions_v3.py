@@ -77,7 +77,11 @@ async def test_slow_synchronous_chat_does_not_block_health(runtime, monkeypatch)
         started.set()
         release.wait(1)
         return ChatResponse(response="done", user_id="cliente1988", agent_used="support")
+    class SlowRuntime:
+        def process(self, message, security_context, session_id=None):
+            return slow(message=message, security_context=security_context, session_id=session_id)
     monkeypatch.setattr(main.orchestrator, "process", slow)
+    monkeypatch.setattr(main, "get_integrated_runtime", lambda: SlowRuntime())
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as client:
         pending = asyncio.create_task(client.post("/api/chat", json={"user_id": "cliente1988", "message": "perfil"}))
         for _ in range(100):

@@ -4,8 +4,9 @@ import hmac
 import json
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Set
 from fastapi import Header, HTTPException, status
 from app.config import settings
 
@@ -39,8 +40,10 @@ class SecurityContext:
 
 class AuthManager:
     """
-    Gerenciador de autenticação e tokens JWT (HMAC-SHA256) e API Keys.
+    Gerenciador de autenticação e tokens JWT (HMAC-SHA256) com suporte a JTI e revogação.
     """
+
+    REVOKED_JTIS: Set[str] = set()
 
     @staticmethod
     def _b64url_encode(data: bytes) -> str:
@@ -60,6 +63,7 @@ class AuthManager:
         role: str = "merchant",
         scopes: Optional[List[str]] = None,
         ttl_seconds: int = 3600,
+        jti: Optional[str] = None,
     ) -> str:
         if not isinstance(user_id, str) or not user_id.strip() or user_id != user_id.strip() or len(user_id) > 128:
             raise ValueError("Identificador do principal inválido.")
@@ -67,6 +71,7 @@ class AuthManager:
             raise ValueError("Role ou validade JWT inválida.")
         header = {"alg": "HS256", "typ": "JWT"}
         now = int(time.time())
+        token_jti = jti or uuid.uuid4().hex
         payload = {
             "sub": user_id,
             "role": role,
@@ -75,6 +80,7 @@ class AuthManager:
                 ["chat:write", "customer:read_own", "terminal:action_own"]),
             "iat": now,
             "exp": now + ttl_seconds,
+            "jti": token_jti,
             "iss": "getnet-multiagent-auth",
         }
         header_b64 = cls._b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
@@ -89,7 +95,20 @@ class AuthManager:
         return f"{header_b64}.{payload_b64}.{sig_b64}"
 
     @classmethod
-    def verify_jwt_token(cls, token: str) -> dict:
+    def revoke_token(cls, token: str) -> bool:
+        """Adiciona o JTI do token à denylist de revogação."""
+        try:
+            payload = cls.verify_jwt_token(token, check_revocation=False)
+            token_jti = payload.get("jti")
+            if token_jti:
+                cls.REVOKED_JTIS.add(token_jti)
+                return True
+        except Exception:
+            pass
+        return False
+
+    @classmethod
+    def verify_jwt_token(cls, token: str, check_revocation: bool = True) -> dict:
         try:
             if not isinstance(token, str) or len(token) > 8192:
                 raise ValueError("Invalid token length")
@@ -122,6 +141,9 @@ class AuthManager:
                 raise ValueError("Invalid JWT lifetime")
             if "nbf" in payload and (type(payload["nbf"]) is not int or payload["nbf"] > now):
                 raise ValueError("JWT is not active")
+            token_jti = payload.get("jti")
+            if check_revocation and token_jti and token_jti in cls.REVOKED_JTIS:
+                raise ValueError("Token JTI has been revoked")
         except (ValueError, TypeError, UnicodeError) as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token JWT inválido ou expirado.") from exc
         settings.AUTH_ENFORCE_STRICT = True

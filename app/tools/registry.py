@@ -37,9 +37,10 @@ class ToolRegistry:
     reported as unknown/non-retryable and its operation can be reconciled later.
     """
 
-    def __init__(self, max_workers: int = 8, max_pending: int = 8) -> None:
+    def __init__(self, max_workers: int = 8, max_pending: int = 8, *, store: Optional[Any] = None) -> None:
         if max_workers < 1 or max_pending < 0:
             raise ValueError('Invalid tool worker capacity')
+        self._store = store or state_store
         self._tools: Dict[str, RegisteredTool] = {}
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._capacity = threading.BoundedSemaphore(max_workers + max_pending)
@@ -101,7 +102,7 @@ class ToolRegistry:
         return 'admin:all' in scopes or set(required).issubset(set(scopes))
 
     def get_operation(self, operation_id: str, security_context: SecurityContext) -> dict:
-        with state_store._lock, state_store._connect() as conn:
+        with self._store._lock, self._store._connect() as conn:
             self._schema(conn)
             row = conn.execute('SELECT * FROM tool_operations WHERE operation_id=?', (operation_id,)).fetchone()
             if not row or row['user_id'] != security_context.authenticated_user_id:
@@ -116,7 +117,7 @@ class ToolRegistry:
     def _existing(self, namespace_key: Optional[str], payload_hash: str) -> Optional[ToolExecutionResult]:
         if not namespace_key:
             return None
-        with state_store._lock, state_store._connect() as conn:
+        with self._store._lock, self._store._connect() as conn:
             self._schema(conn)
             row = conn.execute('SELECT * FROM tool_operations WHERE namespace_key=?', (namespace_key,)).fetchone()
             if not row:
@@ -132,9 +133,8 @@ class ToolRegistry:
                 error_code='TOOL_OPERATION_PENDING', error_message='A operação ainda está pendente ou tem resultado incerto; consulte seu operation_id antes de uma nova tentativa.',
                 retryable=False, operation_id=row['operation_id'], outcome_state=row['outcome_state'])
 
-    @staticmethod
-    def _save_result(result: ToolExecutionResult) -> None:
-        with state_store._lock, state_store._connect() as conn:
+    def _save_result(self, result: ToolExecutionResult) -> None:
+        with self._store._lock, self._store._connect() as conn:
             conn.execute('UPDATE tool_operations SET outcome_state=?,result_json=?,updated_at=? WHERE operation_id=?',
                 (result.outcome_state, result.model_dump_json(), ToolRegistry._now(), result.operation_id))
             conn.commit()
@@ -190,7 +190,7 @@ class ToolRegistry:
             return reject('TOOL_QUEUE_FULL', 'A fila de ferramentas está cheia; nenhuma execução foi iniciada.', retryable=True)
         operation_id = f'OP-{uuid.uuid4().hex.upper()}'
         try:
-            with state_store._lock, state_store._connect() as conn:
+            with self._store._lock, self._store._connect() as conn:
                 self._schema(conn)
                 conn.execute('BEGIN IMMEDIATE')
                 # Serialize competing identical requests before dispatching either worker.
@@ -254,7 +254,7 @@ class ToolRegistry:
             # A finished worker may have crossed the deadline concurrently. Never
             # overwrite its terminal result with a stale unknown/pending marker.
             state = 'unknown' if tool.is_write_action else 'pending'
-            with state_store._lock, state_store._connect() as conn:
+            with self._store._lock, self._store._connect() as conn:
                 conn.execute('UPDATE tool_operations SET outcome_state=?,updated_at=? WHERE operation_id=? AND result_json IS NULL',
                              (state, self._now(), operation_id))
                 conn.commit()

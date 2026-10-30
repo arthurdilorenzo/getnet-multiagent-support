@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 from typing import Any, Dict, List, Optional
@@ -49,7 +49,10 @@ class HITLQueueManager:
         masked_snapshot = PIIRedactor.mask_structure(diagnostic_snapshot or {})
         masked_reason = PIIRedactor.mask_text(reason)
 
-        now = self._now_iso()
+        now_dt = datetime.now(timezone.utc)
+        now = now_dt.isoformat()
+        sla_mins = {"critical": 15, "high": 60, "medium": 120, "low": 240}.get(priority, 60)
+        sla_deadline = (now_dt + timedelta(minutes=sla_mins)).isoformat()
         seed = scoped_key or json.dumps([user_id, session_id, now, reason[:40]], ensure_ascii=False)
         short_hash = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24].upper()
         ticket_id = f"GET-ESC-{short_hash}"
@@ -101,6 +104,9 @@ class HITLQueueManager:
             conversation_history=history,
             created_at=now,
             updated_at=now,
+            sla_minutes=sla_mins,
+            sla_deadline_at=sla_deadline,
+            is_overdue=False,
         )
 
         self._notify_external_channels(ticket)
@@ -160,7 +166,7 @@ class HITLQueueManager:
             ).fetchone()
             if not row:
                 return None
-            return self._row_to_model(row)
+            return self._row_to_model(row, store=self.store)
 
     def list_tickets(
         self, status_filter: Optional[str] = None, user_id: Optional[str] = None
@@ -177,7 +183,7 @@ class HITLQueueManager:
 
         with self.store._lock, self.store._connect() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
-            return [self._row_to_model(r) for r in rows]
+            return [self._row_to_model(r, store=self.store) for r in rows]
 
     def claim_ticket(self, ticket_id: str, operator_id: str) -> Optional[HitlTicketModel]:
         now = self._now_iso()
@@ -192,7 +198,7 @@ class HITLQueueManager:
             self.store._assert_owner(owner, row["user_id"])
             self._validate_operator_transition(row, operator_id, claiming=True)
             if row["status"] == "CLAIMED":
-                return self._row_to_model(row)
+                return self._row_to_model(row, store=self.store)
             conn.execute(
                 """
                 UPDATE escalation_tickets
@@ -210,11 +216,14 @@ class HITLQueueManager:
         operator_id: str,
         reply_message: str,
         resolve_ticket: bool = True,
+        resume_agent: bool = False,
+        orchestrator: Optional[Any] = None,
     ) -> Optional[HitlTicketModel]:
         """
         Registra a resposta de um especialista humano no ticket,
         injeta a resposta no histórico e libera a sessão somente quando todos
-        os tickets estiverem resolvidos. Validação e escrita são atômicas.
+        os tickets estiverem resolvidos. Quando resume_agent=True, aciona a
+        retomada ativa da sessão pelo orquestrador multi-agente.
         """
         now = self._now_iso()
         new_status = "RESOLVED" if resolve_ticket else "RESPONDED"
@@ -227,7 +236,7 @@ class HITLQueueManager:
             if not row:
                 return None
             self._validate_operator_transition(row, operator_id)
-            ticket = self._row_to_model(row)
+            ticket = self._row_to_model(row, store=self.store)
             owner = conn.execute("SELECT user_id FROM sessions WHERE session_id = ?", (ticket.session_id,)).fetchone()
             self.store._assert_owner(owner, ticket.user_id)
             conn.execute(
@@ -238,7 +247,16 @@ class HITLQueueManager:
                 """,
                 (new_status, operator_id, masked_reply, now, ticket_id),
             )
-            # Ticket, message and session status commit together after owner validation.
+            # Ticket, message, structured resumption facts and session status commit together after owner validation.
+            resumption_summary = self._synthesize_agent_resumption(
+                ticket_id=ticket_id,
+                category=ticket.category,
+                reason=ticket.reason,
+                operator_id=operator_id,
+                masked_reply=masked_reply,
+                diagnostic_snapshot=ticket.diagnostic_snapshot,
+                resolved=resolve_ticket,
+            )
             self.store.append_message(
                 session_id=ticket.session_id,
                 user_id=ticket.user_id,
@@ -249,6 +267,17 @@ class HITLQueueManager:
                 sources=[f"HITL Ticket {ticket_id}"],
                 connection=conn,
             )
+            sess_row = conn.execute(
+                "SELECT session_facts_json FROM sessions WHERE session_id = ?",
+                (ticket.session_id,),
+            ).fetchone()
+            facts = json.loads((sess_row["session_facts_json"] if sess_row else "{}") or "{}")
+            facts[f"hitl_resolution_{ticket_id}"] = resumption_summary
+            facts["latest_hitl_resumption"] = resumption_summary
+            conn.execute(
+                "UPDATE sessions SET session_facts_json = ?, updated_at = ? WHERE session_id = ?",
+                (json.dumps(facts, ensure_ascii=False), now, ticket.session_id),
+            )
             pending = conn.execute(
                 "SELECT 1 FROM escalation_tickets WHERE session_id = ? AND user_id = ? "
                 "AND status IN ('OPEN', 'CLAIMED', 'RESPONDED') LIMIT 1", (ticket.session_id, ticket.user_id),
@@ -257,12 +286,30 @@ class HITLQueueManager:
                                           user_id=ticket.user_id, connection=conn)
             conn.commit()
 
+        if resume_agent and resolve_ticket and not pending:
+            try:
+                orch = orchestrator
+                if orch is None:
+                    from app.agents.orchestrator import orchestrator as global_orch
+                    orch = global_orch
+                orch.resume_session_from_hitl(
+                    session_id=ticket.session_id,
+                    user_id=ticket.user_id,
+                    ticket_id=ticket_id,
+                    operator_reply=masked_reply,
+                    operator_id=operator_id,
+                    store=self.store,
+                )
+            except Exception as exc:
+                logger.warning("hitl_active_resumption_failed", ticket_id=ticket_id, error_type=type(exc).__name__)
+
         logger.info(
             "hitl_operator_replied_and_session_resumed",
             ticket_id=ticket_id,
             session_id=ticket.session_id,
             operator_id=operator_id,
             new_status=new_status,
+            active_resumption_triggered=bool(resume_agent and resolve_ticket and not pending),
         )
         return self.get_ticket(ticket_id)
 
@@ -279,21 +326,88 @@ class HITLQueueManager:
             raise HITLTransitionError("Transição de estado inválida para este ticket.")
 
     @staticmethod
-    def _row_to_model(row: Any) -> HitlTicketModel:
+    def _synthesize_agent_resumption(
+        ticket_id: str,
+        category: str,
+        reason: str,
+        operator_id: str,
+        masked_reply: str,
+        diagnostic_snapshot: Dict[str, Any],
+        resolved: bool,
+    ) -> str:
+        terminal = (
+            diagnostic_snapshot.get("terminal_id")
+            or diagnostic_snapshot.get("terminal_model")
+            or "terminal do lojista"
+        )
+        state_label = "orientação do especialista registrada; ticket resolvido" if resolved else "orientação intermediária registrada"
+        return (
+            f"[Resumo de Orientação Humana HITL {ticket_id} | {category} | {terminal}]: "
+            f"O especialista {operator_id} analisou o motivo '{reason}' e registrou a diretriz: "
+            f"{masked_reply} ({state_label})."
+        )
+
+    @staticmethod
+    def _row_to_model(row: Any, store: Optional[StateStore] = None) -> HitlTicketModel:
+        created_at_str = row["created_at"]
+        priority = row["priority"]
+        sla_mins = {"critical": 15, "high": 60, "medium": 120, "low": 240}.get(priority, 60)
+        is_overdue = False
+        sla_deadline_str = None
+        try:
+            created_dt = datetime.fromisoformat(created_at_str)
+            deadline_dt = created_dt + timedelta(minutes=sla_mins)
+            sla_deadline_str = deadline_dt.isoformat()
+            # SLA de Resolução: permanece overdue enquanto não estiver RESOLVED
+            if row["status"] != "RESOLVED":
+                is_overdue = datetime.now(timezone.utc) > deadline_dt
+        except Exception:
+            pass
+
+        diag_snapshot = json.loads(row["diagnostic_snapshot_json"] or "{}")
+        op_response = row["operator_response"]
+        resumption = None
+        if op_response:
+            resumption = HITLQueueManager._synthesize_agent_resumption(
+                ticket_id=row["ticket_id"],
+                category=row["category"],
+                reason=row["reason"],
+                operator_id=row["assigned_operator"] or "operador",
+                masked_reply=op_response,
+                diagnostic_snapshot=diag_snapshot,
+                resolved=(row["status"] == "RESOLVED"),
+            )
+
+        resumed_turn = None
+        if store is not None:
+            try:
+                with store._lock, store._connect() as conn:
+                    s_row = conn.execute("SELECT session_facts_json FROM sessions WHERE session_id = ?", (row["session_id"],)).fetchone()
+                    if s_row and s_row["session_facts_json"]:
+                        s_facts = json.loads(s_row["session_facts_json"])
+                        resumed_turn = s_facts.get(f"hitl_resumed_{row['ticket_id']}")
+            except Exception:
+                resumed_turn = None
+
         return HitlTicketModel(
             ticket_id=row["ticket_id"],
             session_id=row["session_id"],
             user_id=row["user_id"],
-            priority=row["priority"],
+            priority=priority,
             category=row["category"],
             reason=row["reason"],
             status=row["status"],
             assigned_operator=row["assigned_operator"],
-            operator_response=row["operator_response"],
-            diagnostic_snapshot=json.loads(row["diagnostic_snapshot_json"] or "{}"),
+            operator_response=op_response,
+            diagnostic_snapshot=diag_snapshot,
             conversation_history=json.loads(row["conversation_history_json"] or "[]"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            sla_minutes=sla_mins,
+            sla_deadline_at=sla_deadline_str,
+            is_overdue=is_overdue,
+            agent_resumption_response=resumption,
+            resumed_turn=resumed_turn,
         )
 
 

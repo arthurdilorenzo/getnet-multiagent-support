@@ -24,12 +24,20 @@ def main():
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--limit', type=int, default=4)
+    parser.add_argument('--pause-seconds', type=float, default=1.0,
+                        help='Explicit pause between cases, outside measured request latency (0..60).')
     args = parser.parse_args()
     if os.environ.get('GETNET_LIVE_TESTS') != '1':
         raise SystemExit('Explicit GETNET_LIVE_TESTS=1 is required')
     if not 1 <= args.limit <= 12:
         raise SystemExit('Choose 1..12 requests explicitly')
-    cases = json.loads(args.input.read_text())['cases'][:args.limit]
+    if not 0 <= args.pause_seconds <= 60:
+        raise SystemExit('Choose a finite pause between 0 and 60 seconds')
+    raw_cases = json.loads(args.input.read_text())['cases'][:args.limit]
+    cases = []
+    for c in raw_cases:
+        cid = str(c.get('id') or c.get('case_id', ''))
+        cases.append({'id': cid, 'message': c['message']})
     if not cases or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', str(c['id'])) for c in cases):
         raise SystemExit('Nonempty cases and safe unique identifiers are required')
     if len({c['id'] for c in cases}) != len(cases):
@@ -55,7 +63,7 @@ def main():
         logging.getLogger('getnet.multiagent').disabled = True
         records = []
         with TestClient(app) as client:
-            for case in cases:
+            for index, case in enumerate(cases):
                 if revision() != initial_revision:
                     raise SystemExit('Candidate revision changed during execution')
                 user = 'cliente1988'  # Known synthetic fixture, never a real account.
@@ -73,12 +81,15 @@ def main():
                 report = {'mode': 'native_semantic_inprocess_http', 'synthetic_data': True,
                           'model': settings.GEMINI_MODEL, **initial_revision,
                           'independent_evaluation': False, 'semantic_grade_assigned': False,
+                          'pause_seconds_between_cases': args.pause_seconds,
                           'retry_policy': 'no replacement of failed cases', 'cases': records}
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
                 sys.stdout.write(json.dumps({'id': case['id'], 'http_status': record.get('http_status'),
                                             'error_type': record.get('error_type')}) + '\n')
                 sys.stdout.flush()
+                if index < len(cases) - 1:
+                    time.sleep(args.pause_seconds)
     return 0 if all(c.get('http_status') == 200 for c in records) else 1
 
 

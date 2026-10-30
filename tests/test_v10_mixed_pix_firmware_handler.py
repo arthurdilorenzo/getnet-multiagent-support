@@ -1,4 +1,5 @@
 """Handler integration: preserve a verified Pix fact beside an absent POS field."""
+from tests.legacy_runtime_adapter import bind_legacy_runtime
 import importlib
 import json
 
@@ -39,6 +40,7 @@ def test_chat_keeps_pix_fact_when_requested_firmware_is_absent(tmp_path, monkeyp
     message = f"O que é o Pix Getnet; consulte o firmware de {target}."
     orchestrator = MultiAgentOrchestrator()
     monkeypatch.setattr(main_module, "orchestrator", orchestrator)
+    bind_legacy_runtime(monkeypatch, main_module, orchestrator, store=state)
 
     response = TestClient(main_module.app).post("/api/chat", json={"message": message, "user_id": "synthetic"})
     assert response.status_code == 200

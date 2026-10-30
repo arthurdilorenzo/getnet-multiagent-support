@@ -114,6 +114,24 @@ class MetricsCollector:
                     "completion_tokens": self.total_completion_tokens,
                     "total_tokens": self.total_prompt_tokens + self.total_completion_tokens,
                     "estimated_total_cost_usd": round(self.total_cost_usd, 6),
+                    "estimated_cost_per_nonfailed_request_usd": (
+                        round(self.total_cost_usd / self.successful_requests, 6)
+                        if self.successful_requests > 0
+                        else None
+                    ),
+                    # Alias legado descontinuado explicitamente: denominador é request sem erro, não resolução
+                    "estimated_cost_per_successful_resolution_usd": (
+                        round(self.total_cost_usd / self.successful_requests, 6)
+                        if self.successful_requests > 0
+                        else None
+                    ),
+                    "deprecations": {
+                        "estimated_cost_per_successful_resolution_usd": {
+                            "status": "deprecated",
+                            "replacement": "estimated_cost_per_nonfailed_request_usd",
+                            "note": "Denominador é requisições HTTP sem erro (nonfailed requests), não resolução efetiva de tíquetes de suporte.",
+                        }
+                    },
                 },
                 "agent_distribution": dict(self.agent_counts),
                 "tool_invocations": dict(self.tool_counts),

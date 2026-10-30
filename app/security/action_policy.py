@@ -11,9 +11,10 @@ import json
 import re
 import time
 import uuid
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-from app.memory.store import state_store
+from app.memory.store import state_store, StateStore
 from app.security.auth import CrossTenantAccessError
 from app.security.pii import PIIRedactor
 
@@ -74,9 +75,14 @@ def _human_pause(conn, session_id: str, user_id: str) -> None:
                                 'Ação pausada enquanto houver atendimento humano pendente nesta sessão.')
 
 
-def _terminal(user_id: str, terminal_id: str) -> Dict[str, Any]:
-    from app.tools.customer_tools import _load_customers_db
-    customer = _load_customers_db().get(user_id)
+def _terminal(user_id: str, terminal_id: str, customers_path: Optional[Any] = None) -> Dict[str, Any]:
+    if customers_path is not None:
+        p = Path(customers_path)
+        data = json.loads(p.read_text(encoding="utf-8")).get("customers", {}) if p.exists() else {}
+        customer = data.get(user_id)
+    else:
+        from app.tools.customer_tools import _load_customers_db
+        customer = _load_customers_db().get(user_id)
     target = next((t for t in (customer or {}).get('terminals', [])
                    if t.get('terminal_id', '').casefold() == terminal_id.casefold()), None)
     if not target:
@@ -93,7 +99,8 @@ def _view(row, replay: bool = False) -> Dict[str, Any]:
 
 
 def propose_action(user_id: str, session_id: str, terminal_id: str, action_type: str,
-                   reason: str = '', idempotency_key: str = '') -> dict:
+                   reason: str = '', idempotency_key: str = '',
+                   store: Optional[Any] = None, customers_path: Optional[Any] = None) -> dict:
     """Create one immutable intent; never dispatch an action from a chat turn."""
     if not all(isinstance(value, str) for value in (user_id, session_id, terminal_id, action_type, reason, idempotency_key)):
         raise ActionPolicyError('INVALID_ACTION_ARGUMENTS', 'Parâmetros da proposta inválidos.')
@@ -103,8 +110,9 @@ def propose_action(user_id: str, session_id: str, terminal_id: str, action_type:
         raise ActionPolicyError('INVALID_ACTION_ARGUMENTS', 'Cliente, sessão e terminal são obrigatórios.')
     if max(len(user_id), len(session_id), len(terminal_id), len(idempotency_key)) > 256 or len(reason) > 2000:
         raise ActionPolicyError('INVALID_ACTION_ARGUMENTS', 'Parâmetros da proposta excedem o limite permitido.')
-    terminal = _terminal(user_id, terminal_id.strip())
-    state_store.ensure_session(session_id, user_id)
+    terminal = _terminal(user_id, terminal_id.strip(), customers_path=customers_path)
+    effective_store = store or state_store
+    effective_store.ensure_session(session_id, user_id)
     payload = {'user_id': user_id, 'session_id': session_id,
                'terminal_id': terminal['terminal_id'], 'action_type': action_type,
                'reason': PIIRedactor.mask_text(reason)}
@@ -112,7 +120,7 @@ def propose_action(user_id: str, session_id: str, terminal_id: str, action_type:
     payload_hash = hashlib.sha256(payload_json.encode()).hexdigest()
     key = idempotency_key.strip() or uuid.uuid4().hex
     now = time.time()
-    with state_store._lock, state_store._connect() as conn:
+    with effective_store._lock, effective_store._connect() as conn:
         _schema(conn)
         conn.execute('BEGIN IMMEDIATE')
         _session_authorized(conn, session_id, user_id)
@@ -133,7 +141,8 @@ def propose_action(user_id: str, session_id: str, terminal_id: str, action_type:
         return _view(row)
 
 
-def confirm_action(proposal_id: str, user_id: str, expected_payload_hash: str) -> dict:
+def confirm_action(proposal_id: str, user_id: str, expected_payload_hash: str,
+                   store: Optional[Any] = None, customers_path: Optional[Any] = None) -> dict:
     """Validate authenticated consent, then record one simulated POS receipt atomically.
 
     This function is deliberately absent from all model function declarations.
@@ -143,7 +152,8 @@ def confirm_action(proposal_id: str, user_id: str, expected_payload_hash: str) -
         raise ActionPolicyError('INVALID_CONFIRMATION', 'Confirmação inválida.')
     if not re.fullmatch(r'[0-9a-f]{64}', expected_payload_hash):
         raise ActionPolicyError('PROPOSAL_HASH_MISMATCH', 'Hash da proposta inválido.')
-    with state_store._lock, state_store._connect() as conn:
+    effective_store = store or state_store
+    with effective_store._lock, effective_store._connect() as conn:
         _schema(conn)
         conn.execute('BEGIN IMMEDIATE')
         row = conn.execute('SELECT * FROM terminal_action_proposals WHERE proposal_id=?', (proposal_id,)).fetchone()
@@ -164,7 +174,7 @@ def confirm_action(proposal_id: str, user_id: str, expected_payload_hash: str) -
         if row['status'] != 'PENDING_CONFIRMATION':
             raise ActionPolicyError('INVALID_PROPOSAL_STATE', 'A proposta não aceita confirmação neste estado.')
         payload = json.loads(row['payload_json'])
-        terminal = _terminal(user_id, payload['terminal_id'])
+        terminal = _terminal(user_id, payload['terminal_id'], customers_path=customers_path)
         action_id = f'ACT-{uuid.uuid4().hex.upper()}'
         now = _iso(time.time())
         details = {'proposal_id': proposal_id, 'payload_hash': row['payload_hash'],

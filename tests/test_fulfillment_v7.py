@@ -498,3 +498,62 @@ def test_incident_run_diagnoses_and_recommends_without_mutation(monkeypatch, tmp
     assert not out.abstained
     assert 'Issuer limit was insufficient.' in out.response
     assert 'Ask buyer to use another card.' in out.response
+
+
+@pytest.mark.parametrize('message', [
+    f'Check the battery of {TARGET}.',
+    f'Check battery of {TARGET}.',
+    f'Check battery level of {TARGET}.',
+    f'Verifique a bateria de {TARGET}.',
+    f'Verifique a bateria do meu terminal {TARGET}.',
+    f'Verifique a carga da bateria de {TARGET}.',
+    f'Verifique a carga do terminal {TARGET}.',
+])
+def test_battery_reading_pt_en_covers_unit_when_observed(message):
+    out = cover(message, diagnosis(battery_percent=92))
+    assert out.covered_unit_ids == ['u1']
+    assert not out.unresolved_unit_ids
+    assert out.answer_status == 'complete'
+
+
+def test_battery_zero_percent_is_legitimate_and_covered():
+    out = cover(f'Check the battery of {TARGET}.', diagnosis(battery_percent=0))
+    assert out.covered_unit_ids == ['u1']
+    assert not out.unresolved_unit_ids
+    assert out.answer_status == 'complete'
+
+
+@pytest.mark.parametrize('missing', ['absent', None, '', '   '])
+def test_battery_absent_never_covered_and_never_becomes_zero(missing):
+    data = diagnosis()
+    if missing != 'absent':
+        data['terminal']['battery_percent'] = missing
+    out = cover(f'Check the battery of {TARGET}.', data)
+    assert not out.covered_unit_ids
+    assert out.unresolved_unit_ids == ['u1']
+    assert out.abstained and out.answer_status != 'complete'
+
+
+@pytest.mark.parametrize('message', [
+    f'Check the battery capacity of {TARGET}.',
+    f'Qual é a capacidade nominal da bateria de {TARGET}?',
+    f'Qual a capacidade da bateria de {TARGET}?',
+])
+def test_battery_nominal_capacity_unknown_relation_never_covered(message):
+    out = cover(message, diagnosis(battery_percent=92))
+    assert not out.covered_unit_ids
+    assert out.unresolved_unit_ids == ['u1']
+    assert out.abstained
+
+
+def test_customer_support_battery_live_fixture_covered_and_complete(monkeypatch):
+    from app.config import settings
+    from app.security.auth import SecurityContext
+    monkeypatch.setattr(settings, 'GEMINI_API_KEY', '')
+    agent = CustomerSupportAgent()
+    out = agent.run('Verifique a bateria do meu terminal GET-CLASSICA-10442.',
+                    SecurityContext(authenticated_user_id='cliente1988'))
+    assert '92%' in out.response
+    assert out.covered_unit_ids == ['u1']
+    assert not out.unresolved_unit_ids
+    assert out.answer_status == 'complete'

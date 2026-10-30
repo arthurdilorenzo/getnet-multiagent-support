@@ -309,6 +309,88 @@ class SystemEvaluator:
             return expected_parts==actual_parts
         return len(expected_parts)==1 and expected_parts[0] in actual_parts
 
+    @classmethod
+    def run_retrieval_benchmark(cls, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
+        from app.rag.retriever import HybridKnowledgeRetriever
+        retriever_instance = HybridKnowledgeRetriever()
+        hits_at_1: List[float] = []
+        hits_at_3: List[float] = []
+        hits_at_5: List[float] = []
+        reciprocal_ranks: List[float] = []
+
+        rag_cases = [
+            c for c in cases
+            if ("search_getnet_knowledge" in c.get("expected_tools", []) or str(c.get("category", "")).startswith("rag_"))
+            and not c.get("expect_abstained", False)
+            and (c.get("expected_url_substring") or c.get("expected_chunk_ids"))
+        ]
+        if not rag_cases:
+            return {
+                "hit_at_1": None,
+                "hit_at_3": None,
+                "hit_at_5": None,
+                "mrr_at_5": None,
+                "cases_evaluated": 0,
+                # Aliases legados descontinuados mantidos apenas para compatibilidade de schema com metadados
+                "recall_at_1": None,
+                "recall_at_3": None,
+                "recall_at_5": None,
+                "mrr": None,
+                "deprecations": {
+                    "recall_at_1": {"status": "deprecated", "replacement": "hit_at_1", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                    "recall_at_3": {"status": "deprecated", "replacement": "hit_at_3", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                    "recall_at_5": {"status": "deprecated", "replacement": "hit_at_5", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                    "mrr": {"status": "deprecated", "replacement": "mrr_at_5", "note": "MRR truncado em top-5."},
+                },
+            }
+
+        for c in rag_cases:
+            query = c["message"]
+            expected_url = c.get("expected_url_substring", "").lower()
+            expected_cids = set(c.get("expected_chunk_ids", []))
+
+            outcome = retriever_instance.retrieve_hybrid(query, top_k=5)
+            chunks = outcome.get("results", [])
+
+            rank_found = 0
+            for i, chunk in enumerate(chunks, start=1):
+                chunk_url = (chunk.get("source_url", "") if isinstance(chunk, dict) else getattr(chunk, "source_url", "")).lower()
+                chunk_cid = chunk.get("chunk_id", "") if isinstance(chunk, dict) else getattr(chunk, "chunk_id", "")
+                url_match = bool(expected_url and expected_url in chunk_url)
+                cid_match = bool(expected_cids and chunk_cid in expected_cids)
+                if url_match or cid_match:
+                    rank_found = i
+                    break
+
+            hits_at_1.append(1.0 if rank_found == 1 else 0.0)
+            hits_at_3.append(1.0 if (rank_found and rank_found <= 3) else 0.0)
+            hits_at_5.append(1.0 if (rank_found and rank_found <= 5) else 0.0)
+            reciprocal_ranks.append(1.0 / rank_found if rank_found > 0 else 0.0)
+
+        n_rag = len(rag_cases)
+        h1 = round(sum(hits_at_1) / n_rag, 4)
+        h3 = round(sum(hits_at_3) / n_rag, 4)
+        h5 = round(sum(hits_at_5) / n_rag, 4)
+        mrr = round(sum(reciprocal_ranks) / n_rag, 4)
+        return {
+            "hit_at_1": h1,
+            "hit_at_3": h3,
+            "hit_at_5": h5,
+            "mrr_at_5": mrr,
+            "cases_evaluated": n_rag,
+            # Aliases legados mantidos para clientes existentes com metadados de depreciação
+            "recall_at_1": h1,
+            "recall_at_3": h3,
+            "recall_at_5": h5,
+            "mrr": mrr,
+            "deprecations": {
+                "recall_at_1": {"status": "deprecated", "replacement": "hit_at_1", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                "recall_at_3": {"status": "deprecated", "replacement": "hit_at_3", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                "recall_at_5": {"status": "deprecated", "replacement": "hit_at_5", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                "mrr": {"status": "deprecated", "replacement": "mrr_at_5", "note": "MRR truncado em top-5."},
+            },
+        }
+
     def run_suite(self) -> Dict[str, Any]:
         raw = json.loads(self.dataset_path.read_text(encoding="utf-8"))
         cases: List[Dict[str, Any]] = raw.get("cases", [])
@@ -396,6 +478,8 @@ class SystemEvaluator:
                 'limited_consistency_pass_rate': round(sum(c['groundedness']['passed'] for c in group) / count, 4),
             }
 
+        retrieval_benchmark = self.run_retrieval_benchmark(cases)
+
         summary = {
             "evaluation_run_id": run_id,
             "dataset_version": raw.get("dataset_version", "2.0.0"),
@@ -406,12 +490,28 @@ class SystemEvaluator:
             "total_cases": len(cases),
             "metrics_by_mode": modes,
             "mode_metrics_limitations": "Metadados e checks limitados não medem utilidade, falsa suficiência ou entailment; exigem adjudicação independente por necessidade.",
+            "retrieval_benchmark": retrieval_benchmark,
             "metrics": {
                 "routing_accuracy": round(routing_hits / n, 4),
                 "mean_tool_recall": round(sum(tool_recall_scores) / n, 4),
                 "mean_tool_precision": round(sum(tool_precision_scores)/n,4),
                 "safe_tool_selection_rate": round(sum(c["tool_selection_safe"] for c in case_results)/n,4),
                 "mean_groundedness_score": round(sum(groundedness_scores) / n, 4),
+                "hit_at_3": retrieval_benchmark["hit_at_3"],
+                "hit_at_5": retrieval_benchmark["hit_at_5"],
+                "mrr_at_5": retrieval_benchmark["mrr_at_5"],
+                "retrieval_cases_evaluated": retrieval_benchmark["cases_evaluated"],
+                # Aliases legados descontinuados
+                "retrieval_recall_at_1": retrieval_benchmark["recall_at_1"],
+                "retrieval_recall_at_3": retrieval_benchmark["recall_at_3"],
+                "retrieval_recall_at_5": retrieval_benchmark["recall_at_5"],
+                "retrieval_mrr": retrieval_benchmark["mrr"],
+                "deprecations": {
+                    "retrieval_recall_at_1": {"status": "deprecated", "replacement": "hit_at_1", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                    "retrieval_recall_at_3": {"status": "deprecated", "replacement": "hit_at_3", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                    "retrieval_recall_at_5": {"status": "deprecated", "replacement": "hit_at_5", "note": "Hit@K mede presença de chunk esperado no top-K, não recall multi-documento."},
+                    "retrieval_mrr": {"status": "deprecated", "replacement": "mrr_at_5", "note": "MRR truncado em top-5."},
+                },
                 "overall_pass_rate": round(
                     sum(1 for c in case_results if c["routing_correct"] and c["tool_recall"] == 1.0 and c["tool_precision"] == 1.0 and c["tool_selection_safe"] and c["groundedness"]["passed"]) / n,
                     4,
@@ -427,36 +527,75 @@ class SystemEvaluator:
 evaluator = SystemEvaluator()
 
 
-def main() -> int:
-    """Emit metrics and fail CI when any SPEC acceptance threshold regresses."""
-    import sys
-    import math
-
-    mode = 'live_external_services' if settings.GEMINI_API_KEY else 'synthetic_external_api_fixtures'
-    with (nullcontext() if settings.GEMINI_API_KEY else synthetic_external_transport()):
-        report = evaluator.run_suite()
-    cli_metrics = {**report['metrics'], 'external_services_mode': mode, 'execution_mode': report.get('execution_mode'),
-                   'metrics_by_mode': report.get('metrics_by_mode', {}),
-                   'mode_metrics_limitations': report.get('mode_metrics_limitations', '')}
-    sys.stdout.write(json.dumps(cli_metrics, indent=2, ensure_ascii=False) + "\n")
+def validate_evaluation_report(report: Dict[str, Any]) -> List[str]:
+    """
+    Função pura de aceitação de gates do CI/harness de avaliação.
+    Retorna lista de erros encontrados. Lista vazia indica aprovação total.
+    """
     failures = []
-    if report.get("total_cases", 0) <= 0:
-        failures.append("total_cases must be greater than zero")
+    total_cases = report.get("total_cases", 0)
+    if isinstance(total_cases, bool) or not isinstance(total_cases, int) or total_cases <= 0:
+        failures.append("total_cases must be a positive integer")
+
+    metrics = report.get("metrics", {})
+    if not isinstance(metrics, dict):
+        return ["metrics dictionary missing from report"]
+
+    # F4: Gate estrito de retrieval (exige contagem positiva e pisos de regressão >= 0.90)
+    retrieval_cases = metrics.get("retrieval_cases_evaluated")
+    if isinstance(retrieval_cases, bool) or not isinstance(retrieval_cases, int) or retrieval_cases <= 0:
+        failures.append(f"retrieval_cases_evaluated: expected positive integer, got {retrieval_cases}")
+    else:
+        for metric, minimum in (
+            ("hit_at_3", 0.90),
+            ("hit_at_5", 0.90),
+            ("mrr_at_5", 0.90),
+        ):
+            actual = metrics.get(metric)
+            if isinstance(actual, bool) or not isinstance(actual, (float, int)) or not math.isfinite(actual) or not (minimum <= actual <= 1.0):
+                failures.append(f"{metric}: expected {minimum}..1.0, got {actual}")
+
     for metric, minimum in (
         ("routing_accuracy", 1.0),
         ("mean_tool_recall", 1.0),
         ("mean_groundedness_score", 0.90),
     ):
-        actual = report["metrics"].get(metric)
-        if not isinstance(actual, (float, int)) or not math.isfinite(actual) or not minimum <= actual <= 1.0:
+        actual = metrics.get(metric)
+        if isinstance(actual, bool) or not isinstance(actual, (float, int)) or not math.isfinite(actual) or not (minimum <= actual <= 1.0):
             failures.append(f"{metric}: expected {minimum}..1.0, got {actual}")
-    for metric in ('mean_tool_precision','safe_tool_selection_rate'):
-        if metric in report['metrics'] and report['metrics'][metric] != 1.0:
-            failures.append(f"{metric}: expected 1.0, got {report['metrics'][metric]}")
-    if 'overall_pass_rate' in report['metrics']:
-        actual=report['metrics']['overall_pass_rate']
-        if not isinstance(actual,(float,int)) or not math.isfinite(actual) or not 0.90<=actual<=1.0:
+
+    for metric in ("mean_tool_precision", "safe_tool_selection_rate"):
+        if metric in metrics:
+            actual = metrics[metric]
+            if isinstance(actual, bool) or not isinstance(actual, (float, int)) or actual != 1.0:
+                failures.append(f"{metric}: expected 1.0, got {actual}")
+
+    if "overall_pass_rate" in metrics:
+        actual = metrics["overall_pass_rate"]
+        if isinstance(actual, bool) or not isinstance(actual, (float, int)) or not math.isfinite(actual) or not (0.90 <= actual <= 1.0):
             failures.append(f"overall_pass_rate: expected 0.90..1.0, got {actual}")
+
+    return failures
+
+
+def main() -> int:
+    """Emit metrics and fail CI when any SPEC acceptance threshold regresses."""
+    import sys
+
+    mode = 'live_external_services' if settings.GEMINI_API_KEY else 'synthetic_external_api_fixtures'
+    with (nullcontext() if settings.GEMINI_API_KEY else synthetic_external_transport()):
+        report = evaluator.run_suite()
+    cli_metrics = {
+        'total_cases': report.get('total_cases', 0),
+        'retrieval_cases_evaluated': report.get('metrics', {}).get('retrieval_cases_evaluated'),
+        **report.get('metrics', {}),
+        'external_services_mode': mode,
+        'execution_mode': report.get('execution_mode'),
+        'metrics_by_mode': report.get('metrics_by_mode', {}),
+        'mode_metrics_limitations': report.get('mode_metrics_limitations', ''),
+    }
+    sys.stdout.write(json.dumps(cli_metrics, indent=2, ensure_ascii=False) + "\n")
+    failures = validate_evaluation_report(report)
     if failures:
         sys.stderr.write("Evaluation acceptance failed: " + "; ".join(failures) + "\n")
     return 1 if failures else 0

@@ -20,6 +20,7 @@ def test_remote_action_rejects_foreign_or_unknown_terminal_without_writing(tmp_p
     import importlib
     from app.security import action_policy
     monkeypatch.setattr(importlib.import_module("app.tools.registry"), "state_store", store)
+    monkeypatch.setattr(tool_registry, "_store", store)
     monkeypatch.setattr(action_policy, "state_store", store)
     result = tool_registry.execute(
         "execute_terminal_remote_action",

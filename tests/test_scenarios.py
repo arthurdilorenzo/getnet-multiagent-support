@@ -2,11 +2,25 @@
 
 import pytest
 from fastapi.testclient import TestClient
+import app.main as main_module
 from app.main import app
+from tests.legacy_runtime_adapter import bind_legacy_runtime
 from app.config import settings
 from app.evals.evaluator import SystemEvaluator
+from app.evals.offline_transport import synthetic_external_transport
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def historical_scenario_runtime(monkeypatch):
+    """These historical assertions name legacy agents and offline behavior.
+
+    Keep that component explicit; integrated V2 HTTP coverage lives in tests/v2.
+    """
+    bind_legacy_runtime(monkeypatch, main_module, main_module.orchestrator,
+                        store=main_module.state_store)
+
 
 
 def _post_chat(message: str, user_id: str = "cliente1988", session_id: str = "test_e2e_sess") -> dict:
@@ -161,7 +175,10 @@ def test_security_guardrail_prompt_injection_and_api_endpoints():
 def test_automated_evaluation_harness_suite():
     """Run the automated evaluation suite and assert >=95% routing accuracy, tool recall, and groundedness."""
     runner = SystemEvaluator()
-    report = runner.run_suite()
+    # The network-denied suite must use the existing explicit public fixtures,
+    # just like the holdout evaluator; this never changes production transport.
+    with synthetic_external_transport():
+        report = runner.run_suite()
     metrics = report["metrics"]
     assert metrics["routing_accuracy"] == 1.0, f"Routing accuracy below 1.0: {report}"
     assert metrics["mean_tool_recall"] == 1.0, f"Tool recall below 1.0: {report}"

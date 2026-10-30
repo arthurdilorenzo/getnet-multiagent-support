@@ -82,7 +82,7 @@ class RequestCoverageLedger:
     for proving their coverage using typed observations or verified source spans.
     """
     def __init__(self,message: str):
-        self._rows={unit['unit_id']:dict(unit,assigned_agents=[],fulfilled_by=[],evidence_reported=[],state='unresolved',pertinent=True,exemption_by={}) for unit in request_units(message)}
+        self._rows={unit['unit_id']:dict(unit,assigned_agents=[],fulfilled_by=[],unresolved_by=[],evidence_reported=[],state='unresolved',pertinent=True,exemption_by={}) for unit in request_units(message)}
 
     def assign(self,agent: str,ids: list[str]) -> None:
         if len(set(ids))!=len(ids) or not set(ids)<=self._rows.keys():
@@ -90,7 +90,8 @@ class RequestCoverageLedger:
         for unit_id in ids:
             row=self._rows[unit_id]
             if agent not in row['assigned_agents']: row['assigned_agents'].append(agent)
-            if not set(row['assigned_agents'])<=set(row['fulfilled_by']):
+            pending = set(row['assigned_agents']) - set(row['fulfilled_by']) - set(row['exemption_by']) - set(row['unresolved_by'])
+            if pending or not row['fulfilled_by']:
                 row['state']='exempt' if set(row['assigned_agents'])<=set(row['exemption_by']) else 'delegated'
                 row['pertinent']=row['state']!='exempt'
 
@@ -112,7 +113,11 @@ class RequestCoverageLedger:
             elif unit_id in covered and evidence_count>0:
                 if agent not in row['fulfilled_by']: row['fulfilled_by'].append(agent)
                 row['evidence_reported'].append({'agent':agent,'count':evidence_count})
-                row['state']='fulfilled' if set(row['assigned_agents'])<=set(row['fulfilled_by']) else 'delegated'
+                pending = set(row['assigned_agents']) - set(row['fulfilled_by']) - set(row['exemption_by']) - set(row['unresolved_by'])
+                row['state'] = 'delegated' if pending else 'fulfilled'
+            elif unit_id in unresolved:
+                if agent not in row['unresolved_by']: row['unresolved_by'].append(agent)
+                row['state'] = 'unresolved'
             elif not set(row['assigned_agents'])<=set(row['fulfilled_by']): row['state']='unresolved'
         return True
 

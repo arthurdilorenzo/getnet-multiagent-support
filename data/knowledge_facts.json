@@ -1,7 +1,4 @@
 {
-  "catalog_version": "1.0",
-  "method": "bounded_sentence_relation_extraction",
-  "review_provenance": "Source summaries retain agent review metadata; no human review is claimed.",
   "facts": [
     {
       "fact_id": "getnet_account_access_s1_6e1165:1",
@@ -356,6 +353,22 @@
       "source_kind": "curated_local_summary"
     },
     {
+      "fact_id": "getnet_payment_link_s2_0a27ae:2",
+      "subject": "link",
+      "relation": "fees",
+      "value": "",
+      "chunk_id": "getnet_payment_link_s2_0a27ae",
+      "content_hash": "0a27aeb54bc2436d744604f883375d482b8d496ad455b74c26068fb40028dfa8",
+      "start": 37,
+      "end": 173,
+      "excerpt": "No Link de Pagamento Inicial, a cobrança ocorre quando o pagamento do link é aprovado. Condições e tarifas dependem do plano contratado.",
+      "unit": null,
+      "polarity": true,
+      "conditions": "No Link de Pagamento Inicial, a cobrança ocorre quando o pagamento do link é aprovado. Condições e tarifas dependem do plano contratado.",
+      "geographic_scope": "",
+      "source_kind": "curated_local_summary"
+    },
+    {
       "fact_id": "getnet_pix_acceptance_s1_cec1ec:1",
       "subject": "pix",
       "relation": "overview",
@@ -584,6 +597,22 @@
       "subject": "terminal",
       "relation": "connectivity",
       "value": "",
+      "chunk_id": "getnet_troubleshooting_s1_1610f4",
+      "content_hash": "1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc",
+      "start": 38,
+      "end": 292,
+      "excerpt": "O chip Algar é multioperadora. Com a máquina desligada, coloque o chip no compartimento SIM1 ou SIM2, com a parte metálica para baixo. Feche, ligue e aguarde a conexão. Para verificar a conectividade, execute o teste de comunicação no menu de manutenção.",
+      "unit": null,
+      "polarity": true,
+      "conditions": "",
+      "geographic_scope": "",
+      "source_kind": "curated_local_summary"
+    },
+    {
+      "fact_id": "getnet_troubleshooting_s1_1610f4:3",
+      "subject": "terminal",
+      "relation": "property",
+      "value": "maquina desligada",
       "chunk_id": "getnet_troubleshooting_s1_1610f4",
       "content_hash": "1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc",
       "start": 38,

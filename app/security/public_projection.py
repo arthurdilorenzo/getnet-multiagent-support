@@ -82,8 +82,18 @@ def project_specialist(output: SpecialistOutput, original_message: str,
         valid = owned and data.get('found') is True and terminal.get('terminal_id') == target
         clean = {'found': bool(valid), 'requested_terminal_id':target}
         if valid:
-            selected = {field:terminal[field] for field in contract[target]
-                        if isinstance(terminal.get(field), str) and terminal[field].strip()}
+            selected = {}
+            for field in contract[target]:
+                if field == 'battery':
+                    val = terminal.get('battery') if terminal.get('battery') is not None else terminal.get('battery_percent')
+                    if val is not None:
+                        selected['battery'] = f"{val}%" if isinstance(val, (int, float)) and not str(val).endswith('%') else str(val)
+                else:
+                    val = terminal.get(field)
+                    if isinstance(val, str) and val.strip():
+                        selected[field] = val
+                    elif isinstance(val, (int, float)):
+                        selected[field] = str(val)
             clean = {'found':True, 'requested_terminal_id':target, 'user_id': data.get('user_id'),
                      'terminal':{'terminal_id':target, **selected}}
         else:

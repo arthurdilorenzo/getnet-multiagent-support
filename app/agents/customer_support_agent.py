@@ -91,6 +91,77 @@ class CustomerSupportAgent:
         return self._minimize_multi_terminal_fields(
             output, original_message, security_context.authenticated_user_id)
 
+    def resume_from_hitl(
+        self, original_request: str, operator_guidance: str,
+        security_context: SecurityContext, session_id: str,
+        conversation_context: Dict[str, Any], tracer: SystemTracer,
+    ) -> SpecialistOutput:
+        """Deterministic resumption using the same authority and evidence policies.
+
+        Guidance can request a bounded proposal, never grant tenant access or
+        confirm a command. The merchant request remains the coverage authority.
+        """
+        original = PIIRedactor.mask_text(original_request)
+        guidance = PIIRedactor.mask_text(operator_guidance)
+        context = PIIRedactor.mask_structure(conversation_context)
+        constraints = extract_constraints(original, context)
+        scope = validate_scope(original, None)
+        calls = self._plan_initial_tools(self._enrich_with_session_memory(original, context), tracer)
+        vetoed_targets = {target for unit in request_units(original)
+                          if _independent_action_veto(unit['text'])
+                          for target in extract_constraints(unit['text']).terminal_ids}
+        for target in constraints.terminal_ids:
+            if target in vetoed_targets:
+                continue
+            for action in ('remote_reboot', 'sim_carrier_switch', 'parameter_table_update'):
+                if self._authorized_remote_action(guidance, action, target):
+                    calls.append(ToolCallSpec(tool_name='execute_terminal_remote_action',
+                        arguments={'terminal_id': target, 'action_type': action,
+                                   'reason': guidance, 'session_id': session_id}))
+        results = []
+        for call in calls:
+            try:
+                arguments = constrain_call(call.tool_name, call.arguments, constraints,
+                                           assigned_unit_ids=scope['assigned_unit_ids'])
+            except RequestConstraintError as exc:
+                result = ToolExecutionResult(tool_name=call.tool_name, success=False,
+                    error_code=exc.code, error_message=exc.message)
+            else:
+                result = tool_registry.execute(tool_name=call.tool_name, raw_arguments=arguments,
+                    security_context=security_context, session_id=session_id, trace_id=tracer.trace_id)
+            results.append(result)
+            tracer.add_step(agent='CUSTOMER_SUPPORT_TOOL', action=f'call:{call.tool_name}',
+                status='success' if result.success else 'error',
+                details={'success': result.success, 'error_code': result.error_code})
+        failed = any(not result.success for result in results)
+        data = {r.tool_name: r.data for r in results if r.success and isinstance(r.data, dict)}
+        output = SpecialistOutput(agent_name='CUSTOMER_SUPPORT_AGENT',
+            response=self._render_verified_results(original, security_context.authenticated_user_id, results),
+            confidence=0.0 if failed or not data else 0.95, abstained=failed or not data,
+            tools_called=[r.tool_name for r in results], tool_results=results,
+            structured_data=data, evidence=self._result_evidence(results),
+            sources=['Base operacional simulada Getnet'] if data else [])
+        output = self._with_unit_coverage(output, original, scope, context,
+                                         security_context.authenticated_user_id)
+        output.semantic_mode = 'limited_offline'
+        output = self._minimize_multi_terminal_fields(output, original,
+                                                      security_context.authenticated_user_id)
+        failures = [r for r in results if not r.success]
+        if failures and any(r.tool_name == 'diagnose_terminal_issue' for r in failures):
+            output.response += '\n\n' + self._render_verified_results(
+                original, security_context.authenticated_user_id, failures)
+        if failures:
+            output.abstained = True
+            output.answer_status = 'partial' if output.covered_unit_ids else 'abstained'
+        if any(r.tool_name == 'execute_terminal_remote_action' for r in results):
+            output.abstained = True
+            output.answer_status = 'partial' if data else 'abstained'
+        if output.unresolved_unit_ids:
+            unresolved = [u['text'] for u in request_units(original)
+                          if u['unit_id'] in output.unresolved_unit_ids]
+            output.response += '\n\nPartes do pedido sem resposta verificada: ' + ' '.join(unresolved)
+        return output
+
     @staticmethod
     def _minimize_multi_terminal_fields(output: SpecialistOutput, original: str,
                                         authenticated_user_id: Optional[str] = None) -> SpecialistOutput:
@@ -699,7 +770,7 @@ class CustomerSupportAgent:
                 leaves(result.tool_name, data.get(field), field)
             if result.tool_name == "diagnose_terminal_issue" and data.get("found"):
                 terminal = data.get("terminal") or {}
-                for field in ("model", "terminal_id", "status", "connection_type", "signal_strength", "firmware_version"):
+                for field in ("model", "terminal_id", "status", "connection_type", "signal_strength", "firmware_version", "battery_percent", "battery"):
                     leaves(result.tool_name, terminal.get(field), f"terminal.{field}")
                 if data.get("symptom_classified") == "decline":
                     transaction = data.get("last_declined_transaction") or {}
@@ -755,9 +826,10 @@ class CustomerSupportAgent:
                 parts.append(f"Não localizamos registro de liquidação para `{user_id}`. {st.get('error', '')}")
             else:
                 sales = st.get("sales_data") or {}
+                notice = st.get("temporal_notice") or "Base histórica simulada: não confirma depósito ou liquidação atual."
                 parts.append(
                     f"**Snapshot de liquidação — {value(st.get('company_name'))} (`{user_id}`)**\n\n"
-                    "Base histórica simulada: não confirma depósito ou liquidação atual. A data de referência dos termos relativos do arquivo não foi informada.\n\n"
+                    f"{notice} A data de referência dos termos relativos do arquivo não foi informada.\n\n"
                     f"- **Data das vendas:** {value(sales.get('date'))} | **Lote:** {value(sales.get('settlement_batch_id'))}\n"
                     f"- **Volume Bruto Total:** {money(sales.get('total_gross_brl'))} "
                     f"(Débito: {money(sales.get('debit_brl'))} | Crédito: {money(sales.get('credit_brl'))} | Pix: {money(sales.get('pix_brl'))})\n"
@@ -783,6 +855,9 @@ class CustomerSupportAgent:
                     f"- **Conectividade:** {value(term.get('connection_type'))} — Sinal: {value(term.get('signal_strength'))}\n"
                     f"- **Firmware:** {value(term.get('firmware_version'))}"
                 )
+                battery = term.get('battery_percent') if term.get('battery_percent') is not None else term.get('battery')
+                if battery is not None:
+                    parts.append(f"- **Bateria:** {battery}%")
                 if diag.get("symptom_classified") == "decline":
                     transaction = diag.get("last_declined_transaction") or {}
                     if transaction:

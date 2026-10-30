@@ -1,10 +1,13 @@
 from collections import deque
+from datetime import datetime, timezone
+import json
 import re
 import hashlib
 from typing import Any, Deque, Dict, List, Optional
 from google import genai
 from app.agents.customer_support_agent import CustomerSupportAgent
-from app.agents.function_calling import RouterPlanningError
+import app.tools.customer_tools  # noqa: F401 - register customer and hitl tools
+from app.agents.function_calling import RouterPlanningError, MIN_PROVIDER_TIMEOUT_MS
 from app.agents.escalation_agent import EscalationAgent
 from app.agents.guardrails import GuardrailManager
 from app.agents.knowledge_agent import KnowledgeAgent
@@ -181,6 +184,7 @@ class MultiAgentOrchestrator:
         latest_operator_msg: Optional[str] = None
         if recent_msgs and recent_msgs[-1].get("role") == "human_operator":
             latest_operator_msg = recent_msgs[-1].get("content")
+            conversation_context["authoritative_human_guidance"] = latest_operator_msg
 
         tracer.add_step(
             agent="SYSTEM_INGRESS",
@@ -494,11 +498,11 @@ class MultiAgentOrchestrator:
             },
         )
 
-        # 4. Composição da Resposta Final + Retomada de Operador Humano (se aplicável)
+        # 4. Composição da Resposta Final + Orientação de Operador Humano (se aplicável)
         response_segments: List[str] = []
         if latest_operator_msg:
             response_segments.append(
-                f"**Atualização do Especialista Humano (Retomada de Sessão):**\n> {latest_operator_msg}"
+                f"**Atualização do Especialista Humano:**\n> {latest_operator_msg}"
             )
         if conditional_notice:
             response_segments.append(conditional_notice)
@@ -523,8 +527,16 @@ class MultiAgentOrchestrator:
         if unresolved:
             abstained_final=True
             answer_status='partial' if any(row['state']=='fulfilled' for row in request_coverage) or any(out.evidence and out.structured_data for out in executed_outputs) else 'abstained'
-        elif request_coverage and not pending_steps and not replan_failed and not abstained_final:
-            answer_status='complete'
+        elif request_coverage and not pending_steps and not replan_failed:
+            if executed_outputs and executed_outputs[-1].abstained:
+                abstained_final = True
+                answer_status = executed_outputs[-1].answer_status or 'partial'
+            elif any(o.answer_status == 'partial' for o in executed_outputs) and len(executed_outputs) == 1:
+                abstained_final = True
+                answer_status = 'partial'
+            elif not abstained_final or (len(executed_outputs) > 1 and not executed_outputs[-1].abstained):
+                abstained_final = False
+                answer_status = 'complete'
         raw_final_response = "\n\n---\n\n".join(segment for segment in response_segments if segment)
         if unresolved:
             raw_final_response+="\n\nPartes do pedido sem resposta verificada:\n"+"\n".join("- "+row['text'] for row in unresolved)
@@ -611,6 +623,179 @@ class MultiAgentOrchestrator:
             agent_used=final_agent_label, tools_called=public_response.tools_called,
             sources=public_response.sources, active_topic=routing_plan.primary_agent)
         return public_response
+
+
+    def resume_session_from_hitl(
+        self,
+        session_id: str,
+        user_id: str,
+        ticket_id: str,
+        operator_reply: str,
+        operator_id: str,
+        security_context: Optional[SecurityContext] = None,
+        store: Optional[Any] = None,
+    ) -> ChatResponse:
+        eff_store = store or state_store
+        sec_ctx = security_context or SecurityContext(
+            authenticated_user_id=user_id,
+            role="merchant",
+            scopes=["chat:write", "customer:read_own", "terminal:action_own"],
+        )
+        sec_ctx.assert_tenant_access(user_id)
+        claim = eff_store.reserve_hitl_resumption(session_id, user_id, ticket_id)
+        if not claim['acquired']:
+            if claim.get('result') is not None:
+                cached = dict(claim['result'])
+                # Pre-migration facts may be sparse. Missing coverage/trace cannot
+                # be reconstructed as a successful, fully completed execution.
+                defaults = dict(user_id=user_id, session_id=session_id, ticket_id=ticket_id,
+                    agent_used='MULTI_AGENT_SUPERVISOR:HITL_RESUMPTION', confidence=0.0,
+                    abstained=True, answer_status='partial', semantic_mode='limited_offline')
+                for key, value in defaults.items():
+                    cached.setdefault(key, value)
+                cached['intent'] = f"{cached.get('intent') or f'HITL Active Resumption for Ticket {ticket_id}'} (Cached)"
+                return ChatResponse.model_validate(cached)
+            messages = {
+                'pending': 'Atendimento aguardando resolução dos demais protocolos humanos; nenhuma ferramenta foi executada.',
+                'running': 'A retomada deste protocolo está em andamento; nenhuma nova execução foi iniciada.',
+                'unknown': 'A retomada tem resultado incerto e requer reconciliação; não será repetida automaticamente.',
+                'failed': 'A retomada anterior falhou; uma revisão é necessária antes de nova execução.',
+            }
+            return ChatResponse(response=messages[claim['status']], user_id=user_id,
+                session_id=session_id, ticket_id=ticket_id,
+                agent_used='MULTI_AGENT_SUPERVISOR:HITL_RESUMPTION', confidence=0.0,
+                abstained=True, escalated=claim['status'] == 'pending',
+                semantic_mode='limited_offline', answer_status='abstained')
+
+        effects_possible = False
+        try:
+            conv_ctx = eff_store.get_conversation_context(session_id=session_id, user_id=user_id,
+                                                        limit=settings.MEMORY_WINDOW_MESSAGES)
+            # From this point a tool may observe or prepare an effect. An exception
+            # without a durable final result is conservatively unknown, not retryable.
+            effects_possible = True
+            response, category, outcome = self._execute_hitl_resumption(
+                session_id, user_id, ticket_id, operator_reply, operator_id,
+                sec_ctx, conv_ctx, claim['ticket'])
+            result = response.model_dump(mode='json')
+            # Public serialization translates proposal vocabulary. Store the actual
+            # functional proposal too so internal and HTTP replays both round-trip.
+            result['action_proposals'] = response.action_proposals
+            eff_store.finish_hitl_resumption(session_id, user_id, ticket_id,
+                claim['reservation_id'], result, category, operator_id, status=outcome)
+        except BaseException:
+            try:
+                eff_store.fail_hitl_resumption(ticket_id, claim['reservation_id'],
+                                              'unknown' if effects_possible else 'failed')
+            except Exception as exc:
+                # A database outage can leave running durable; it is also never
+                # reclaimed automatically, even after another process starts.
+                logger.warning('hitl_resumption_interruption_record_failed', error_type=type(exc).__name__)
+            raise
+
+        metrics_collector.record_request(agent_used=response.agent_used,
+            tools_called=response.tools_called, latency_ms=response.execution_time_ms,
+            token_usage=response.token_usage, blocked=False, escalated=response.escalated,
+            abstained=response.abstained, semantic_mode=response.semantic_mode,
+            answer_status=response.answer_status)
+        return response
+
+    def _execute_hitl_resumption(
+        self, session_id: str, user_id: str, ticket_id: str, operator_reply: str,
+        operator_id: str, sec_ctx: SecurityContext, conv_ctx: Dict[str, Any],
+        ticket_row: Dict[str, Any],
+    ) -> tuple[ChatResponse, str, str]:
+        tracer = SystemTracer(session_id=session_id, user_id=user_id)
+        tracer.add_step(
+            agent="HITL_RESUMPTION_AGENT",
+            action="initiate_active_resumption",
+            details={
+                "ticket_id": ticket_id,
+                "operator_id": operator_id,
+                "operator_reply": operator_reply,
+            },
+        )
+
+        category = ticket_row['category'] if ticket_row else 'general_support'
+        reason = ticket_row['reason'] if ticket_row else ''
+        snapshot = json.loads(ticket_row['diagnostic_snapshot_json'] or '{}') if ticket_row else {}
+        original_request = next((m['content'] for m in reversed(conv_ctx.get('recent_messages', []))
+                                 if m['role'] == 'user'), '')
+        support_context = dict(conv_ctx)
+        support_context['entities'] = dict(conv_ctx.get('entities', {}))
+        if snapshot.get('terminal_id'):
+            support_context['entities'].setdefault('terminal_id', snapshot['terminal_id'])
+        # Legacy tickets may predate persisted merchant messages. Their bounded
+        # diagnostic purpose supplies read scope, never write/confirmation consent.
+        read_request = original_request
+        if not read_request:
+            terminal_id = support_context['entities'].get('terminal_id')
+            if terminal_id and category in {'terminal', 'terminal_hardware', 'connectivity', 'pos_diagnostic'}:
+                read_request = f'Diagnostique meu terminal {terminal_id}.'
+            elif category in {'sales_settlement', 'settlement', 'fee_renegotiation'}:
+                read_request = 'Consulte meu valor líquido de liquidação.'
+            else:
+                read_request = reason or ''
+        output = self.customer_support_agent.resume_from_hitl(
+            original_request=read_request, operator_guidance=operator_reply,
+            security_context=sec_ctx, session_id=session_id,
+            conversation_context=support_context, tracer=tracer)
+        tools_called = output.tools_called
+        action_proposals = [r.data for r in output.tool_results
+                            if r.success and r.tool_name == 'execute_terminal_remote_action'
+                            and isinstance(r.data, dict) and r.data.get('proposal_id')
+                            and r.data.get('status') == 'PENDING_CONFIRMATION']
+        sources = [f'HITL Protocol {ticket_id}'] + output.sources
+        resumption_text = (
+            f"**Atualização do Especialista Humano:**\n> {operator_reply}\n\n"
+            f"**Retomada Técnica do Atendimento (Protocolo `{ticket_id}`):**\n"
+            f"Orientação do especialista `{operator_id}` registrada.\n\n{output.response}"
+        )
+        for proposal in action_proposals:
+            resumption_text += f"\n\nProposta ID: `{proposal['proposal_id']}`. Aguardando confirmação segura do titular via POST `/api/actions/{proposal['proposal_id']}/confirm`; nenhum comando foi aplicado."
+        if output.answer_status != 'complete':
+            resumption_text += '\n\nO atendimento possui partes pendentes de verificação ou confirmação.'
+
+        sanitized_response = GuardrailManager.sanitize_output(resumption_text)
+        tracer.add_step(
+            agent="HITL_RESUMPTION_AGENT",
+            action="finalize_active_resumption",
+            details={
+                "ticket_id": ticket_id,
+                "tools_called": tools_called,
+                "proposals_count": len(action_proposals),
+                "resumption_completed": output.answer_status == "complete",
+            },
+        )
+
+        total_ms = tracer.get_total_execution_time_ms()
+        token_usage = tracer.get_token_usage()
+
+        response = ChatResponse(
+            response=sanitized_response,
+            user_id=user_id,
+            session_id=session_id,
+            trace_id=tracer.trace_id,
+            agent_used="MULTI_AGENT_SUPERVISOR:HITL_RESUMPTION",
+            intent=f"HITL Active Resumption for Ticket {ticket_id}",
+            confidence=output.confidence,
+            abstained=output.abstained,
+            escalated=False,
+            ticket_id=ticket_id,
+            tools_called=tools_called,
+            sources=sources,
+            token_usage=token_usage,
+            action_proposals=action_proposals,
+            evidence=output.evidence,
+            semantic_mode=output.semantic_mode,
+            answer_status=output.answer_status,
+            trace=tracer.get_steps(),
+            execution_time_ms=total_ms,
+        )
+
+        outcome = ('unknown' if any(r.outcome_state == 'unknown' for r in output.tool_results)
+                   else 'failed' if any(not r.success for r in output.tool_results) else 'completed')
+        return response, category, outcome
 
 
     def _delegate_to_specialist(
@@ -705,6 +890,7 @@ class MultiAgentOrchestrator:
             delegation_scope=delegation_scope,
             security_context=security_context,
             is_web_search=False,
+            documentary_dispatch=True,
             session_id=session_id,
             conversation_context=conversation_context,
             tracer=tracer,
@@ -801,6 +987,31 @@ class MultiAgentOrchestrator:
             if (asks_explicit_external_evidence(source_clause) or explicit_web_search
                     or explicit_current_search):
                 pending_external_ids.add(unit['unit_id'])
+        # A completed native documentary lookup supplies no new capability for
+        # the same units. Keep the verified gap pending instead of asking the
+        # model to relabel another local read as Web. This never grants coverage
+        # and does not discard scheduled work, private needs or human recovery.
+        verified_local_ids = set()
+        for result in spec_output.tool_results:
+            data = result.data or {}
+            answerability = data.get('answerability') or {}
+            error = data.get('semantic_error') or {}
+            if (result.success and result.tool_name == 'search_getnet_knowledge'
+                    and data.get('semantic_mode') == 'native_semantic'
+                    and isinstance(answerability, dict)
+                    and answerability.get('method') == 'native_two_pass_evidence_authorization'
+                    and answerability.get('coverage')
+                    and isinstance(error, dict) and not error.get('code') and not error.get('stage')):
+                verified_local_ids.update(data.get('request_unit_ids', []))
+        if (spec_output.agent_name == 'KNOWLEDGE_AGENT'
+                and spec_output.answer_status in {'partial', 'abstained'}
+                and available_ids and available_ids <= verified_local_ids
+                and not pending_external_ids and not (available_ids & private_ids)
+                and not (spec_output.requires_escalation or failed_tools)):
+            tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='replan_not_needed', status='skipped',
+                details={'reason': 'verified_local_documentation_exhausted',
+                         'unresolved_unit_count': len(available_ids)})
+            return False
         country_documentation_comparison = (
             bool(re.search(r'\bcredi[aá]rio\b', original_message, re.I))
             and bool(re.search(r'\bbrasil\b', original_message, re.I))
@@ -840,6 +1051,18 @@ class MultiAgentOrchestrator:
                 or (pending_external_ids and country_documentation_gap)
                 or spec_output.agent_name == "CUSTOMER_SUPPORT_AGENT"):
             return False
+        if (settings.GEMINI_API_KEY and spec_output.agent_name in {'KNOWLEDGE_AGENT', 'WEB_SEARCH_AGENT'}
+                and not spec_output.requires_escalation and not (available_ids & private_ids)):
+            remaining_ms = max(0.0, settings.REQUEST_TIMEOUT_SECONDS * 1000
+                               - tracer.get_total_execution_time_ms())
+            # A new public delegation needs a planning generation and at least
+            # one execution generation. Do not spend the last viable turn on a
+            # plan that cannot run. Already scheduled work and HITL are retained.
+            if remaining_ms < 2 * MIN_PROVIDER_TIMEOUT_MS:
+                tracer.add_step(agent='SUPERVISOR_ORCHESTRATOR', action='replan_not_needed', status='skipped',
+                    details={'reason': 'insufficient_budget_for_replan_and_execution',
+                             'remaining_ms': round(remaining_ms, 2)})
+                return False
         try:
             plan = self.router.replan(original_message=original_message, user_id=user_id,
                 observations=observations, conversation_context=conversation_context, tracer=tracer)

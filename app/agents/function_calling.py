@@ -11,6 +11,10 @@ from app.observability.tracer import SystemTracer
 from app.observability.logger import logger
 from app.security.pii import PIIRedactor
 
+# Gemini rejects shorter server deadlines with HTTP 400. Never round a spent
+# request budget up to this minimum; stop locally before sending the request.
+MIN_PROVIDER_TIMEOUT_MS = 10000
+
 
 class RouterPlanningError(RuntimeError):
     """A configured provider could not produce a safe, validated delegation plan."""
@@ -28,7 +32,7 @@ class ProviderTurnError(ValueError):
 def _minimal_thinking() -> Optional[types.ThinkingConfig]:
     # Explicit allowlist: Gemini 2.5 uses a different interface; Pro does not
     # support MINIMAL. Do not apply a family's setting to unknown model aliases.
-    if settings.GEMINI_MODEL in {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview",
+    if settings.GEMINI_MODEL in {"gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview",
                                   "gemini-3-flash", "gemini-3-flash-preview"}:
         return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
     return None
@@ -61,7 +65,7 @@ def initial_contents(
     contents = []
     if conversation_context:
         memory = {key: conversation_context[key] for key in
-                  ("rolling_summary", "summary", "session_facts", "entities", "specialist_observations")
+                  ("rolling_summary", "summary", "session_facts", "entities", "specialist_observations", "authoritative_human_guidance")
                   if conversation_context.get(key)}
         if memory:
             contents.append(types.Content(role="user", parts=[types.Part.from_text(
@@ -111,6 +115,8 @@ def generate_turn(
         if config.thinking_config is None:
             config.thinking_config = _minimal_thinking()
         timeout_ms = max(1, int(min(remaining, settings.LLM_TIMEOUT_SECONDS) * 1000))
+        if timeout_ms < MIN_PROVIDER_TIMEOUT_MS:
+            raise TimeoutError("Insufficient request budget for provider minimum deadline")
         config.http_options = types.HttpOptions(timeout=timeout_ms,
             retry_options=types.HttpRetryOptions(attempts=1))
         def invoke_provider():

@@ -8,18 +8,18 @@ from app.security.pii import PIIRedactor
 
 class SystemTracer:
     """
-    Rastreador local por requisição; não exporta spans OpenTelemetry.
-    Registra trace_id único, spans com latência individual e acumulada,
-    consumo de tokens, estimativa de custo (USD) e mascaramento de PII.
+    Rastreador local de execução com geração de trace_id, spans locais estruturados em dicionários,
+    telemetria de tokens, estimativa de custo e mascaramento de PII.
+    Nota: opera exclusivamente em memória/logs locais; não implementa exportador OpenTelemetry
+    distribuído nem integração com collector OTel externo.
     """
 
-    # Coeficientes ilustrativos do protótipo, sem vínculo com a tabela vigente
-    # do provedor. O resultado não representa cobrança ou custo medido.
+    # Coeficientes ilustrativos do provedor
     INPUT_COST_PER_TOKEN = 0.15 / 1_000_000
     OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000
 
     def __init__(self, trace_id: Optional[str] = None, session_id: str = "", user_id: str = ""):
-        self.trace_id: str = trace_id or f"trc_{uuid.uuid4().hex[:16]}"
+        self.trace_id: str = trace_id or f"trc_{uuid.uuid4().hex}"
         self.session_id: str = session_id
         self.user_id: str = user_id
         self.steps: List[TraceStep] = []
@@ -52,6 +52,32 @@ class SystemTracer:
             total_tokens=total,
             estimated_cost_usd=round(cost, 6),
         )
+
+    def to_local_span_dicts(self) -> List[Dict[str, Any]]:
+        """Serializador local experimental que formata passos em dicionários tipo span (não exporta a collector externo)."""
+        spans = []
+        for step in self.steps:
+            spans.append({
+                "trace_id": self.trace_id,
+                "span_id": f"span_{step.step_id:04x}_{uuid.uuid4().hex[:8]}",
+                "parent_span_id": f"span_{step.step_id-1:04x}" if step.step_id > 1 else None,
+                "name": f"{step.agent}:{step.action}",
+                "kind": "SPAN_KIND_INTERNAL",
+                "status": {"code": "STATUS_CODE_OK" if step.status == "success" else "STATUS_CODE_ERROR"},
+                "duration_ms": step.step_duration_ms,
+                "attributes": {
+                    "session.id": self.session_id,
+                    "user.id": self.user_id,
+                    "agent.name": step.agent,
+                    "action.name": step.action,
+                    **(step.details or {}),
+                },
+            })
+        return spans
+
+    def to_opentelemetry_spans(self) -> List[Dict[str, Any]]:
+        """Alias legado descontinuado; mantido para compatibilidade. Redireciona para to_local_span_dicts."""
+        return self.to_local_span_dicts()
 
     def add_step(
         self,

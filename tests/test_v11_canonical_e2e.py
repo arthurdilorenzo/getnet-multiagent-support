@@ -3,6 +3,7 @@
 Providers below are fixtures, never Gemini clients. Handlers use local corpus or
 synthetic tenant data; the Web failure is injected before any network access.
 """
+from tests.legacy_runtime_adapter import bind_legacy_runtime
 import importlib
 import json
 
@@ -51,6 +52,7 @@ def boundary(monkeypatch, tmp_path):
     orch = MultiAgentOrchestrator()
     main = importlib.import_module('app.main')
     monkeypatch.setattr(main, 'orchestrator', orch)
+    bind_legacy_runtime(monkeypatch, main, orch, store=state)
     observed = []
     real_execute = tool_registry.execute
 

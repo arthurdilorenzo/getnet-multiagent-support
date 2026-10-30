@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     # LLM & Embeddings Configuration
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
-    GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
+    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
+    GETNET_LIVE_EMBEDDINGS: bool = False
 
     # Server Configuration
     APP_ENV: str = "development"

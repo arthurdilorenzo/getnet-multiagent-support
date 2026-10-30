@@ -9,7 +9,14 @@ eval_module = importlib.import_module("app.evals.evaluator")
 
 @pytest.mark.parametrize(
     "metric,value",
-    [("routing_accuracy", 0.99), ("mean_tool_recall", 0.99), ("mean_groundedness_score", 0.8999)],
+    [
+        ("routing_accuracy", 0.99),
+        ("mean_tool_recall", 0.99),
+        ("mean_groundedness_score", 0.8999),
+        ("hit_at_3", 0.8999),
+        ("hit_at_5", 0.8999),
+        ("mrr_at_5", 0.8999),
+    ],
 )
 def test_cli_fails_when_an_acceptance_metric_is_below_spec(monkeypatch, capsys, metric, value):
     report = {
@@ -18,6 +25,10 @@ def test_cli_fails_when_an_acceptance_metric_is_below_spec(monkeypatch, capsys, 
             "routing_accuracy": 1.0,
             "mean_tool_recall": 1.0,
             "mean_groundedness_score": 0.90,
+            "hit_at_3": 0.90,
+            "hit_at_5": 0.90,
+            "mrr_at_5": 0.90,
+            "retrieval_cases_evaluated": 12,
         },
     }
     report["metrics"][metric] = value
@@ -31,7 +42,15 @@ def test_cli_fails_when_an_acceptance_metric_is_below_spec(monkeypatch, capsys, 
 def test_cli_accepts_exact_thresholds(monkeypatch, capsys):
     report = {
         "total_cases": 13,
-        "metrics": {"routing_accuracy": 1.0, "mean_tool_recall": 1.0, "mean_groundedness_score": 0.90},
+        "metrics": {
+            "routing_accuracy": 1.0,
+            "mean_tool_recall": 1.0,
+            "mean_groundedness_score": 0.90,
+            "hit_at_3": 0.90,
+            "hit_at_5": 0.90,
+            "mrr_at_5": 0.90,
+            "retrieval_cases_evaluated": 12,
+        },
     }
     monkeypatch.setattr(eval_module.evaluator, "run_suite", lambda: report)
     assert eval_module.main() == 0

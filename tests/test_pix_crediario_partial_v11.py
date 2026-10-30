@@ -139,7 +139,10 @@ def test_partial_brazil_facts_survive_unsupported_norway_without_replan(monkeypa
     assert [(row["unit_id"], row["state"]) for row in out.request_coverage] == [
         (brazil["unit_id"], "fulfilled"), (norway["unit_id"], "unresolved")]
     assert [citation.chunk_id for citation in out.citations] == ["getnet_crediario_s1_9ea682"]
-    assert len(calls) == 3
+    assert len(calls) == 2
+    assert all(P06 in str(call["contents"]) for call in calls)
+    assert [step.details["phase"] for step in out.trace if step.agent == "GEMINI_PROVIDER"] == [
+        "semantic_analysis", "semantic_verification"]
     assert out.tools_called == ["search_getnet_knowledge"]
     assert out.evidence
     assert provider.span["quote"] in out.response

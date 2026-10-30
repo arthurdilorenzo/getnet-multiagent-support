@@ -82,6 +82,7 @@ class KnowledgeAgent:
         tracer: Optional[SystemTracer] = None,
         request_message: Optional[str] = None,
         delegation_scope: Optional[Dict[str, Any]] = None,
+        documentary_dispatch: bool = False,
     ) -> SpecialistOutput:
         tracer = tracer or SystemTracer(session_id=session_id,user_id=security_context.authenticated_user_id)
         trace_id = tracer.trace_id
@@ -105,7 +106,22 @@ class KnowledgeAgent:
                                self._enrich_query_with_memory(assigned_text, conversation_context))
         try:
             planning_context=dict(conversation_context or {}, original_request=original_request, delegation_scope=scope, request_units=request_units(original_request))
-            planned_calls = self._plan_tool_calls(message=authoritative_query,is_web_search=is_web_search,tracer=tracer,conversation_context=planning_context)
+            if (documentary_dispatch and settings.GEMINI_API_KEY and self.client is not None
+                    and delegation_scope is not None and not is_web_search and assigned_text
+                    and not asks_explicit_external_evidence(original_request)
+                    and all(not is_independent_private_state(unit['text'])
+                            for unit in request_units(original_request)
+                            if unit['unit_id'] in scope['assigned_unit_ids'])):
+                # The native Router already selected the documentary read.
+                # Execute that bounded capability without another LLM selection;
+                # source/scope binding, registry and both semantic passes remain.
+                planned_calls = [ToolCallSpec(tool_name='search_getnet_knowledge',
+                    arguments={'query': authoritative_query, 'top_k': settings.RAG_TOP_K},
+                    rationale='Leitura documental delegada pelo Router nativo.')]
+                tracer.add_step(agent='KNOWLEDGE_AGENT', action='documentary_dispatch_from_router',
+                    details={'tool': 'search_getnet_knowledge', 'unit_count': len(scope['assigned_unit_ids'])})
+            else:
+                planned_calls = self._plan_tool_calls(message=authoritative_query,is_web_search=is_web_search,tracer=tracer,conversation_context=planning_context)
             scoped_calls = self._bind_documentary_scopes(
                 planned_calls, original_request, scope, authoritative_query)
             # The same tool may serve independent canonical questions. Only an
@@ -183,16 +199,19 @@ class KnowledgeAgent:
             tool_results.append(res)
 
             if tracer:
+                trace_details = {
+                    "arguments": call_spec.arguments,
+                    "success": res.success,
+                    "error_code": res.error_code,
+                    "execution_ms": res.execution_ms,
+                }
+                if isinstance(res.data, dict) and "retrieval_mode" in res.data:
+                    trace_details["retrieval_mode"] = res.data["retrieval_mode"]
                 tracer.add_step(
                     agent="KNOWLEDGE_AGENT_TOOL",
                     action=f"call:{call_spec.tool_name}",
                     status="success" if res.success else "error",
-                    details={
-                        "arguments": call_spec.arguments,
-                        "success": res.success,
-                        "error_code": res.error_code,
-                        "execution_ms": res.execution_ms,
-                    },
+                    details=trace_details,
                 )
 
             if res.success and isinstance(res.data, dict):
@@ -263,12 +282,21 @@ class KnowledgeAgent:
         ):
             max_rel = float(primary_res.data.get("max_relevance_score", 0.0))
             reason = str(primary_res.data.get("abstention_reason", "Cobertura insuficiente na base Getnet."))
-            return SpecialistOutput(
-                agent_name="KNOWLEDGE_AGENT",
-                response=(
+            semantic_err = primary_res.data.get("semantic_error") or {}
+            err_code = str(semantic_err.get("code") or "")
+            if err_code in {"PROVIDER_ERROR", "RATE_LIMIT", "CIRCUIT_BREAKER_OPEN"} or "provedor" in reason.lower() or "provider" in reason.lower():
+                resp_text = (
+                    "No momento não foi possível validar a resposta pelo provedor de inteligência artificial "
+                    "devido a uma indisponibilidade temporária. Por favor, tente novamente em alguns instantes."
+                )
+            else:
+                resp_text = (
                     "Não encontrei informações suficientes sobre esse tema na documentação oficial da Getnet "
                     "para responder com segurança e precisão."
-                ),
+                )
+            return SpecialistOutput(
+                agent_name="KNOWLEDGE_AGENT",
+                response=resp_text,
                 confidence=max_rel,
                 abstained=True,
                 abstention_reason=reason,semantic_mode=semantic_mode,answer_status='abstained',

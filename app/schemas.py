@@ -182,12 +182,18 @@ class HitlTicketModel(BaseModel):
     conversation_history: List[Dict[str, Any]] = Field(default_factory=list)
     created_at: str
     updated_at: str
+    sla_minutes: int = 60
+    sla_deadline_at: Optional[str] = None
+    is_overdue: bool = False
+    agent_resumption_response: Optional[str] = None
+    resumed_turn: Optional[Dict[str, Any]] = None
 
 
 class HitlOperatorReplyRequest(BaseModel):
     operator_id: str = Field(..., min_length=2, max_length=64)
     reply_message: str = Field(..., min_length=2, max_length=4000)
     resolve_ticket: bool = True
+    resume_agent: bool = False
 
 
 class ActionConfirmationRequest(BaseModel):

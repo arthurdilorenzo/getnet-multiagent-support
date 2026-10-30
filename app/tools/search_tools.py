@@ -1,10 +1,11 @@
+import time
 from html.parser import HTMLParser
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse, parse_qs, urljoin
 import httpx
 from pydantic import BaseModel, Field
 from app.agents.guardrails import GuardrailManager
@@ -110,18 +111,42 @@ def _today_local() -> date:
 # ==============================================================================
 def search_getnet_knowledge(query: str, top_k: int = 3) -> Dict[str, Any]:
     """Return raw candidates separately; only the specialist authorizes evidence."""
-    candidates = retriever.retrieve_candidates(query=query)
+    start_time = time.monotonic()
+    total_budget_sec = float(min(settings.TOOL_TIMEOUT_SECONDS, settings.LLM_TIMEOUT_SECONDS))
+    deadline = start_time + total_budget_sec
+    remaining_sec = max(0.0, deadline - time.monotonic())
+    resolved_ctx = retriever.resolve_query_vector(query, timeout_sec=remaining_sec, deadline=deadline)
+
+    candidates = retriever.retrieve_candidates(query=query, resolved_context=resolved_ctx)
+    retrieval_mode = candidates.get("retrieval_mode", "sparse_only")
+    retrieval_method = candidates.get("retrieval_method", "bm25_sparse_only_candidates")
+
     if settings.GEMINI_API_KEY:
         # Native semantics must see raw evidence even when the legacy grammar
         # would abstain. Candidates themselves never count as approved facts.
-        return {**candidates,'abstained':True,'abstention_reason':'Native semantic authorization pending',
-                'max_relevance_score':max((c.get('relevance_score',0.0) for c in candidates['candidate_chunks']),default=0.0),
-                'chunks_found':0,'chunks':[],'citations':[],'answerability':{'answerable':False,'method':'pending_native_semantics'}}
-    outcome = retriever.retrieve_hybrid(query=query, top_k=top_k)
-    return {**candidates,
-        "abstained": outcome["abstained"], "abstention_reason": outcome["abstention_reason"],
-        "max_relevance_score": outcome["max_relevance_score"], "chunks_found": len(outcome["results"]),
-        "chunks": outcome["results"], "citations": [c.model_dump() for c in outcome["citations"]],
+        return {
+            **candidates,
+            'abstained': True,
+            'abstention_reason': 'Native semantic authorization pending',
+            'max_relevance_score': max((c.get('relevance_score', 0.0) for c in candidates['candidate_chunks']), default=0.0),
+            'chunks_found': 0,
+            'chunks': [],
+            'citations': [],
+            'retrieval_mode': retrieval_mode,
+            'retrieval_method': retrieval_method,
+            'answerability': {'answerable': False, 'method': 'pending_native_semantics'},
+        }
+    outcome = retriever.retrieve_hybrid(query=query, top_k=top_k, resolved_context=resolved_ctx)
+    return {
+        **candidates,
+        "abstained": outcome["abstained"],
+        "abstention_reason": outcome["abstention_reason"],
+        "max_relevance_score": outcome["max_relevance_score"],
+        "chunks_found": len(outcome["results"]),
+        "chunks": outcome["results"],
+        "citations": [c.model_dump() for c in outcome["citations"]],
+        "retrieval_mode": outcome.get("retrieval_mode", retrieval_mode),
+        "retrieval_method": retrieval_method,
         "answerability": outcome.get("answerability", {}),
     }
 
@@ -311,11 +336,17 @@ class _DDGResultParser(HTMLParser):
         super().__init__()
         self.in_snippet = False
         self.snippets: List[str] = []
+        self.urls: List[str] = []
+        self._result_url = ""
         self._buf: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
         attr_dict = dict(attrs)
         cls_name = attr_dict.get("class", "")
+        if tag == "a" and ("result__a" in cls_name or "result__snippet" in cls_name):
+            href = urljoin("https://html.duckduckgo.com", attr_dict.get("href", ""))
+            target = parse_qs(urlparse(href).query).get("uddg", [href])[0]
+            self._result_url = target if urlparse(target).scheme in {"http", "https"} else ""
         if "result__snippet" in cls_name:
             self.in_snippet = True
             self._buf = []
@@ -325,6 +356,7 @@ class _DDGResultParser(HTMLParser):
             text = re.sub(r"\s+", " ", "".join(self._buf)).strip()
             if text:
                 self.snippets.append(text)
+                self.urls.append(self._result_url)
             self.in_snippet = False
             self._buf = []
 
@@ -390,7 +422,7 @@ def general_web_search(query: str, max_results: int = 3) -> Dict[str, Any]:
                         {
                             "title": f"Resultado Web #{idx}",
                             "snippet": sanitized_snip,
-                            "url": ddg_url,
+                            "url": parser.urls[idx - 1] or ddg_url,
                         }
                     )
 

@@ -260,12 +260,17 @@ def test_supported_if_benefits_lookup_requires_exact_positive_read(monkeypatch, 
     ("search_getnet_knowledge", "Name the account types accepted for Pix in Brazil"),
     ("web_search_general", "Find current external rules for Pix account eligibility in Brazil"),
 ])
-def test_actual_registry_query_excludes_blocked_condition_even_when_native_query_repeats_it(monkeypatch, tmp_path, tool_name, independent):
+@pytest.mark.parametrize("documentary_dispatch", [False, True])
+def test_actual_registry_query_excludes_blocked_condition_even_when_native_query_repeats_it(monkeypatch, tmp_path, tool_name, independent, documentary_dispatch):
     from google.genai import types
     from app.tools import registry as registry_module
     message = independent + "; " + MESSAGE
     orch = make_orchestrator(monkeypatch, tmp_path, message)
     monkeypatch.setattr(orch, "_observe_and_replan", lambda **kwargs: False)
+    run = orch.knowledge_agent.run
+    def dispatch(**kwargs):
+        return run(**dict(kwargs, documentary_dispatch=documentary_dispatch))
+    monkeypatch.setattr(orch.knowledge_agent, "run", dispatch)
     planning = []
     class Provider:
         def __init__(self): self.models = self
@@ -288,7 +293,11 @@ def test_actual_registry_query_excludes_blocked_condition_even_when_native_query
     assert executed[0]["query"] == independent
     assert all("Crediário" not in row["query"] and "firmware" not in row["query"] and TARGET not in row["query"]
                for row in executed)
-    assert planning and message in str(planning[0]["contents"]), "authorization must keep the immutable full request"
+    if documentary_dispatch and tool_name == "search_getnet_knowledge":
+        assert not planning
+        assert "documentary_dispatch_from_router" in [row.action for row in out.trace]
+    else:
+        assert planning and message in str(planning[0]["contents"]), "authorization must keep the immutable full request"
     assert "conditional_lookup_blocked" in [row.action for row in out.trace]
     assert all(row["state"] == "unresolved" for row in out.request_coverage[1:])
 

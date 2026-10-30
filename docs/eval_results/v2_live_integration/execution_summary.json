@@ -1,0 +1,15 @@
+{
+  "status": "COMPLETED",
+  "cases_executed": 6,
+  "total_generations": 12,
+  "total_embeddings": 0,
+  "total_cost_usd": 0.0,
+  "cases": [
+    "blind_01",
+    "blind_07",
+    "blind_13",
+    "pilot_hitl_01",
+    "public_tools_01",
+    "terminal_action_01"
+  ]
+}

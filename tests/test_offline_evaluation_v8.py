@@ -61,7 +61,8 @@ def test_configured_native_cli_does_not_use_synthetic_transport(monkeypatch,caps
     def evaluate():
         assert search_tools.httpx is httpx
         return {'total_cases':1,'metrics':{'routing_accuracy':1.,'mean_tool_recall':1.,
-            'mean_groundedness_score':1.,'overall_pass_rate':1.}}
+            'mean_groundedness_score':1.,'overall_pass_rate':1.,
+            'hit_at_3': 1.0, 'hit_at_5': 1.0, 'mrr_at_5': 1.0, 'retrieval_cases_evaluated': 1}}
     monkeypatch.setattr(module.evaluator,'run_suite',evaluate)
     assert module.main()==0
     assert 'live_external_services' in capsys.readouterr().out

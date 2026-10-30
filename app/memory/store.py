@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import unicodedata
+import uuid
 from typing import Any, Dict, List, Optional
 from app.config import settings
 from app.observability.logger import logger
@@ -102,6 +103,17 @@ class StateStore:
                     user_id TEXT NOT NULL,
                     response_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS hitl_resumptions (
+                    ticket_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    reservation_id TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'unknown')),
+                    response_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 );
                 """
             )
@@ -393,6 +405,95 @@ class StateStore:
     # =========================================================================
     # Idempotency & Write Tool Persistence
     # =========================================================================
+    def reserve_hitl_resumption(self, session_id: str, user_id: str, ticket_id: str) -> Dict[str, Any]:
+        """Claim once across connections/processes; never reclaim an uncertain run.
+
+        The transaction ends before the caller performs any diagnostic or network
+        work. Persisted ownership, rather than caller-supplied IDs, binds the claim.
+        """
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            session = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(session, user_id)
+            ticket = conn.execute("SELECT * FROM escalation_tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+            self._assert_owner(ticket, user_id)
+            if ticket['session_id'] != session_id:
+                raise CrossTenantAccessError('O protocolo não pertence à sessão solicitada.')
+            pending = conn.execute(
+                "SELECT 1 FROM escalation_tickets WHERE session_id = ? AND user_id = ? "
+                "AND ticket_id != ? AND status IN ('OPEN', 'CLAIMED', 'RESPONDED') LIMIT 1",
+                (session_id, user_id, ticket_id),
+            ).fetchone()
+            if pending:
+                self.set_session_status(session_id, 'waiting_human', user_id, connection=conn)
+                return {'acquired': False, 'status': 'pending'}
+            existing = conn.execute("SELECT * FROM hitl_resumptions WHERE ticket_id = ?", (ticket_id,)).fetchone()
+            if existing:
+                if existing['session_id'] != session_id or existing['user_id'] != user_id:
+                    raise CrossTenantAccessError('Reserva HITL vinculada a outra sessão ou usuário.')
+                return {'acquired': False, 'status': existing['status'],
+                        'result': json.loads(existing['response_json']) if existing['response_json'] else None}
+            # Upgrade old resumptions conservatively: their existence forbids
+            # re-execution even when the historical record lacks some metadata.
+            legacy = json.loads(session['session_facts_json'] or '{}').get(f'hitl_resumed_{ticket_id}')
+            now = self._now_iso()
+            reservation_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO hitl_resumptions "
+                "(ticket_id, session_id, user_id, reservation_id, status, response_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (ticket_id, session_id, user_id, reservation_id, 'completed' if legacy is not None else 'running',
+                 json.dumps(legacy, ensure_ascii=False) if legacy is not None else None, now, now),
+            )
+            return {'acquired': legacy is None, 'status': 'completed' if legacy is not None else 'running',
+                    'reservation_id': reservation_id, 'result': legacy, 'ticket': dict(ticket)}
+
+    def finish_hitl_resumption(self, session_id: str, user_id: str, ticket_id: str,
+                               reservation_id: str, result: Dict[str, Any], category: str,
+                               operator_id: str, status: str = 'completed') -> None:
+        """Publish the assistant message, replay result and compatibility facts atomically."""
+        if status not in {'completed', 'failed', 'unknown'}:
+            raise ValueError('Estado final HITL inválido.')
+        serialized = json.dumps(result, ensure_ascii=False)
+        now = self._now_iso()
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            session = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            self._assert_owner(session, user_id)
+            claim = conn.execute("SELECT * FROM hitl_resumptions WHERE ticket_id = ?", (ticket_id,)).fetchone()
+            if (not claim or claim['session_id'] != session_id or claim['user_id'] != user_id
+                    or claim['reservation_id'] != reservation_id or claim['status'] != 'running'):
+                raise ValueError('Reserva HITL ausente ou não finalizável.')
+            self.append_message(session_id=session_id, user_id=user_id, role='assistant',
+                content=result['response'], agent_used=result['agent_used'],
+                tools_called=result['tools_called'], sources=result['sources'], active_topic=category,
+                connection=conn)
+            conn.execute(
+                "UPDATE hitl_resumptions SET status = ?, response_json = ?, updated_at = ? WHERE ticket_id = ?",
+                (status, serialized, now, ticket_id),
+            )
+            facts = json.loads(session['session_facts_json'] or '{}')
+            facts[f'hitl_resumed_{ticket_id}'] = {**result, 'resumed_at': now, 'operator_id': operator_id}
+            conn.execute("UPDATE sessions SET session_facts_json = ?, updated_at = ? WHERE session_id = ?",
+                         (json.dumps(facts, ensure_ascii=False), now, session_id))
+            pending = conn.execute(
+                "SELECT 1 FROM escalation_tickets WHERE session_id = ? AND user_id = ? "
+                "AND status IN ('OPEN', 'CLAIMED', 'RESPONDED') LIMIT 1", (session_id, user_id),
+            ).fetchone()
+            self.set_session_status(session_id, 'waiting_human' if pending else 'active', user_id, connection=conn)
+
+    def fail_hitl_resumption(self, ticket_id: str, reservation_id: str, status: str) -> None:
+        """Retain a tombstone after interruption; absence of a result is not retry consent."""
+        if status not in {'failed', 'unknown'}:
+            raise ValueError('Estado de interrupção HITL inválido.')
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE hitl_resumptions SET status = ?, updated_at = ? "
+                "WHERE ticket_id = ? AND reservation_id = ? AND status = 'running'",
+                (status, self._now_iso(), ticket_id, reservation_id),
+            )
+
     def get_idempotent_result(self, idempotency_key: str, user_id: str) -> Optional[Dict[str, Any]]:
         if not idempotency_key:
             return None

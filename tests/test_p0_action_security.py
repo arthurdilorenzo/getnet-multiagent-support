@@ -305,21 +305,42 @@ def test_support_emits_actual_tool_fields_as_factual_evidence(store):
     assert '1,840.50' in out.response and '1,415.80' in out.response
 
 
-def test_pii_redaction_at_trace_log_and_tool_error_boundaries(store):
+@pytest.mark.parametrize('microseconds', [123456, 678000], ids=['ordinary-time', 'cvv-in-time'])
+def test_pii_redaction_at_trace_log_and_tool_error_boundaries(store, monkeypatch, microseconds):
     import logging
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    import app.observability.logger as logger_module
     from app.observability.logger import StructuredJsonFormatter
     from app.observability.tracer import SystemTracer
+    fixed_time = datetime(2026, 10, 28, 19, 59, 34, microseconds, tzinfo=timezone.utc)
+    monkeypatch.setattr(logger_module, 'datetime', SimpleNamespace(now=lambda tz: fixed_time))
     message = 'CPF é 12345678901; senha é Abacaxi987; CVV é 678.'
     tracer = SystemTracer()
     tracer.add_step('probe', 'pii', {'message': message})
     record = logging.LogRecord('probe', logging.INFO, '', 0, message, (), None)
     record.structured_data = {'input': message}
     rendered_log = StructuredJsonFormatter().format(record)
-    rendered_trace = json.dumps([s.model_dump() for s in tracer.get_steps()])
     invalid = tool_registry.execute('get_sales_settlement', {'payment_modality': message}, principal())
-    destinations = [rendered_log, rendered_trace, invalid.model_dump_json()]
-    for destination in destinations:
-        assert all(secret not in destination for secret in ['12345678901', 'Abacaxi987', '678'])
+    log_payload = json.loads(rendered_log)
+    # Inspect every field derived from the submitted input, rather than random
+    # timestamps, IDs or durations where a three-digit CVV can occur by chance.
+    assert log_payload['timestamp'] == fixed_time.isoformat()
+    assert ('678' in log_payload['timestamp']) == (microseconds == 678000)
+    assert not invalid.success and invalid.error_code
+    destinations = {
+        'log.message': log_payload['message'],
+        'log.input': log_payload['input'],
+        'trace.details': json.dumps([s.details for s in tracer.get_steps()]),
+        'tool.error_message': invalid.error_message or '',
+        'tool.data': json.dumps(invalid.data),
+    }
+    for name, destination in destinations.items():
+        for secret in ['12345678901', 'Abacaxi987', '678']:
+            assert secret not in destination, f'{name} retained sensitive input'
+    for field in ('message', 'input'):
+        assert '[REDACTED]' in log_payload[field]
+    assert tracer.get_steps()[0].details['message'] != message
 
 
 def test_non_ascii_hash_is_a_controlled_confirmation_rejection(store):

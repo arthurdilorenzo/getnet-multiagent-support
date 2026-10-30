@@ -2,7 +2,7 @@ name: Getnet Multi-Agent CI & Evaluation Pipeline
 
 on:
   push:
-    branches: [ main, master, 'codex/**' ]
+    branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -32,9 +32,9 @@ jobs:
 
       - name: Run Unit, Security, Resilience, Memory & Scenario Tests
         run: |
-          pytest -v
+          python scripts/run_offline_tests.py -v
 
-      - name: Run Automated Multi-Agent Evaluation Suite (Routing, Tool Recall & Groundedness)
+      - name: Historical component evaluator (not integrated semantic quality)
         run: |
           python -m app.evals.evaluator
 

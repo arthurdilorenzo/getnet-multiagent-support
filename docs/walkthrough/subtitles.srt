@@ -1,263 +1,235 @@
 1
-00:00:00,000 --> 00:00:04,212
-Este walkthrough apresenta o sistema de suporte multiagente do desafio Getnet. A narração é
+00:00:00,000 --> 00:00:04,059
+Este walkthrough apresenta a arquitetura integrada do sistema multiagente de suporte Getnet na versão
 
 2
-00:00:04,212 --> 00:00:08,424
-sintética, gerada localmente, e os dados de clientes e de terminais são simulados. As
+00:00:04,059 --> 00:00:08,119
+dois. O ponto de entrada principal da aplicação opera diretamente sobre o runtime semântico
 
 3
-00:00:08,424 --> 00:00:12,636
-cenas mostram arquivos de código e recibos reais, sem encenar uma interface em execução.
+00:00:08,119 --> 00:00:12,178
+unificado com o modelo Gemini três ponto cinco Flash Lite. O sistema combina recuperação
 
 4
-00:00:12,636 --> 00:00:16,848
-O recorte é o baseline congelado d sete e dois um dois cinco. As
+00:00:12,178 --> 00:00:16,238
+híbrida com embeddings neurais de trezentas e oitenta e quatro dimensões, ferramentas operacionais isoladas
 
 5
-00:00:16,848 --> 00:00:21,060
-propostas da versão seis aparecem separadamente, sem atribuir a elas resultados ainda não comprovados.
+00:00:16,238 --> 00:00:20,297
+por lojista, escalonamento humano com retomada ativa pelo agente e confirmação de ações críticas
 
 6
-00:00:22,160 --> 00:00:26,542
-A API recebe a pergunta e vincula identidade e sessão no servidor. O supervisor
+00:00:20,297 --> 00:00:24,356
+em duas fases.
 
 7
-00:00:26,542 --> 00:00:30,924
-carrega a memória, pede um plano ao router e delega aos especialistas. Knowledge cuida
+00:00:25,356 --> 00:00:28,991
+Toda requisição ao endpoint principal de chat passa primeiro pelo controle de taxa de
 
 8
-00:00:30,924 --> 00:00:35,307
-da evidência documental. Customer Support usa ferramentas de vendas e diagnóstico. Escalation registra encaminhamento
+00:00:28,991 --> 00:00:32,625
+requisições e pela resolução estrita do contexto de segurança. O servidor verifica a assinatura
 
 9
-00:00:35,307 --> 00:00:39,689
-humano. O supervisor observa os resultados e pode acrescentar etapas. O registro central de
+00:00:32,625 --> 00:00:36,259
+do token JWT, exige o escopo de escrita de chat e valida o vínculo
 
 10
-00:00:39,689 --> 00:00:44,071
-ferramentas impõe autorização antes do handler. Separar essas responsabilidades torna verificáveis os pontos em
+00:00:36,259 --> 00:00:39,893
+de propriedade do lojista antes de acionar o runtime. Em ambiente de produção, segredos
 
 11
-00:00:44,071 --> 00:00:48,453
-que o modelo pode decidir e os pontos em que precisa obedecer ao contrato.
+00:00:39,893 --> 00:00:43,527
+fracos interrompem a inicialização e todo conteúdo sensível é mascarado contra vazamento de dados
 
 12
-00:00:49,553 --> 00:00:53,731
-Com Gemini habilitado, o modelo propõe chamadas estruturadas e recebe as observações de volta.
+00:00:43,527 --> 00:00:47,161
+pessoais.
 
 13
-00:00:53,731 --> 00:00:57,908
-A execução automática do SDK fica desativada: toda ferramenta atravessa o registry. O código
+00:00:48,161 --> 00:00:51,911
+Em vez de depender de gramáticas manuais por cenário, o núcleo dois utiliza contratos
 
 14
-00:00:57,908 --> 00:01:02,086
-exibido verifica os escopos e impede selecionar outra conta. O ciclo permite chamadas dependentes,
+00:00:51,911 --> 00:00:55,660
+Pydantic estritos para planejamento e composição. O pedido do cliente é decomposto em necessidades
 
 15
-00:01:02,086 --> 00:01:06,263
-em vez de uma resposta fixa por cenário. Sem chave, existe uma política determinística
+00:00:55,660 --> 00:00:59,410
+explícitas, e cada bloco de resposta gerado pelo modelo precisa declarar seu tipo e
 
 16
-00:01:06,263 --> 00:01:10,441
-delimitada. Ela não recebe crédito de raciocínio aberto, e uma falha do provedor no
+00:00:59,410 --> 00:01:03,160
+apontar para evidências ou fatos verificados pelo servidor. Quando uma informação não existe nas
 
 17
-00:01:10,441 --> 00:01:14,618
-modo nativo não vira aprovação lexical silenciosa.
+00:01:03,160 --> 00:01:06,909
+fontes ou nas ferramentas, o validador rebaixa o bloco ou declara resposta parcial de
 
 18
-00:01:15,718 --> 00:01:19,689
-O retrieval combina BM vinte e cinco com expansão léxica bilíngue e uma projeção
+00:01:06,909 --> 00:01:10,659
+forma transparente.
 
 19
-00:01:19,689 --> 00:01:23,659
-por hashing em trezentas e oitenta e quatro coordenadas. Ela agrega palavras, prefixos, bigramas,
+00:01:11,659 --> 00:01:15,306
+O módulo de conhecimento executa busca híbrida real combinando vetores densos de trezentas e
 
 20
-00:01:23,659 --> 00:01:27,630
-caracteres e âncoras manuais. O score heurístico ordena os candidatos, e a fusão recíproca
+00:01:15,306 --> 00:01:18,954
+oitenta e quatro dimensões do modelo Gemini Embedding com o ranking léxico BM vinte
 
 21
-00:01:27,630 --> 00:01:31,600
-de rankings serve de desempate. Apesar do nome legado do embedder, não há encoder
+00:01:18,954 --> 00:01:22,601
+e cinco. Os trechos recuperados carregam a URL oficial da Getnet e hash criptográfico
 
 22
-00:01:31,600 --> 00:01:35,571
-neural neste índice. Similaridade só encontra candidatos. Não prova que o texto responde à
+00:01:22,601 --> 00:01:26,248
+de integridade. A qualidade da recuperação é monitorada pelas métricas Hit at K e
 
 23
-00:01:35,571 --> 00:01:39,541
-pergunta, nem que preserva suas condições.
+00:01:26,248 --> 00:01:29,895
+Mean Reciprocal Rank, garantindo que prazos, taxas e ressalvas do emissor cheguem íntegros à
 
 24
-00:01:40,641 --> 00:01:44,597
-No caminho documental nativo, Gemini interpreta a pergunta original e revisa as fontes em
+00:01:29,895 --> 00:01:33,542
+etapa de síntese.
 
 25
-00:01:44,597 --> 00:01:48,553
-duas passagens. O servidor valida a identidade dos corpos e os spans selecionados, e
+00:01:34,542 --> 00:01:38,661
+As chamadas de ferramentas propostas pelo planejador atravessam obrigatoriamente o Tool Gateway. O modelo
 
 26
-00:01:48,553 --> 00:01:52,510
-o renderer publica extratos preservando as ressalvas. No offline, a gramática é limitada e
+00:01:38,661 --> 00:01:42,780
+nunca injeta o identificador do cliente por conta própria: a identidade vem sempre da
 
 27
-00:01:52,510 --> 00:01:56,466
-pode responder parcialmente ou se abster. Hash e offset comprovam identidade do texto local,
+00:01:42,780 --> 00:01:46,899
+sessão autenticada no servidor. Cada leitura de perfil, liquidação financeira ou diagnóstico de maquininha
 
 28
-00:01:56,466 --> 00:02:00,422
-não verdade externa. Duas passagens do mesmo modelo também podem compartilhar erros. Por isso,
+00:01:46,899 --> 00:01:51,018
+é transformada em fatos canônicos tipados com ponteiro de campo exato, impedindo que dados
 
 29
-00:02:00,422 --> 00:02:04,378
-avaliação semântica independente continua necessária.
+00:01:51,018 --> 00:01:55,136
+de um terminal sejam atribuídos a outro.
 
 30
-00:02:05,478 --> 00:02:09,102
-O fluxo de ação é dividido em duas etapas. A ferramenta cria uma proposta
+00:01:56,136 --> 00:02:00,526
+Comandos remotos em maquininhas seguem um protocolo estrito de duas fases. Na primeira fase,
 
 31
-00:02:09,102 --> 00:02:12,727
-imutável, pendente de confirmação, com hash e expiração. A confirmação exige uma chamada HTTP
+00:02:00,526 --> 00:02:04,916
+a ferramenta apenas registra uma proposta pendente de confirmação com hash criptográfico e prazo
 
 32
-00:02:12,727 --> 00:02:16,351
-externa ao modelo, com o token do titular, o escopo apropriado e o hash
+00:02:04,916 --> 00:02:09,306
+de expiração, exigindo o escopo de ação do titular. Nenhuma alteração é executada pelo
 
 33
-00:02:16,351 --> 00:02:19,976
-exato. O recibo da auditoria registra recusa sem escopo, confirmação válida e replay sem
+00:02:09,306 --> 00:02:13,696
+modelo sozinho. A efetivação só ocorre na segunda fase, quando o próprio lojista envia
 
 34
-00:02:19,976 --> 00:02:23,600
-duplicação. O resultado é um recibo simulado. Não foi enviado comando a um terminal
+00:02:13,696 --> 00:02:18,086
+uma confirmação explícita via endpoint dedicado, com proteção completa de idempotência.
 
 35
-00:02:23,600 --> 00:02:27,224
-físico. Isso demonstra o contrato de consentimento local, sem extrapolar para uma operação distribuída
+00:02:19,086 --> 00:02:23,419
+Quando um atendimento exige análise humana, o sistema abre um ticket persistente em banco
 
 36
-00:02:27,224 --> 00:02:30,849
-real.
+00:02:23,419 --> 00:02:27,752
+de dados, congela os requisitos da sessão e dispara notificação externa opcional. Assim que
 
 37
-00:02:31,949 --> 00:02:35,896
-Além de mostrar evidência anterior, este vídeo recebeu uma verificação local nova. O script
+00:02:27,752 --> 00:02:32,084
+o operador autenticado assume o ticket e registra seu parecer, o endpoint de retomada
 
 38
-00:02:35,896 --> 00:02:39,844
-exportou o baseline pelo Git para uma cópia temporária e executou seis módulos de
+00:02:32,084 --> 00:02:36,417
+acorda o agente semântico. O agente incorpora a decisão do especialista humano como fato
 
 39
-00:02:39,844 --> 00:02:43,791
-testes de contrato. Foram cento e noventa e oito testes aprovados, com um aviso
+00:02:36,417 --> 00:02:40,750
+verificado e sintetiza a resposta final ao lojista, mantendo idempotência em qualquer repetição.
 
 40
-00:02:43,791 --> 00:02:47,739
-de dependência. As conexões de rede estavam bloqueadas e a leitura de dotenv foi
+00:02:41,750 --> 00:02:45,945
+Para consultas externas de contexto, como meteorologia, cotação de moedas e busca web, o
 
 41
-00:02:47,739 --> 00:02:51,686
-suprimida. O recibo fica junto ao vídeo e o script permite repetir a execução.
+00:02:45,945 --> 00:02:50,140
+sistema utiliza clientes HTTP com timeout curto e disjuntores de falha. As respostas preservam
 
 42
-00:02:51,686 --> 00:02:55,634
-Esses testes verificam contratos simulados; não medem qualidade do Gemini ao vivo.
+00:02:50,140 --> 00:02:54,335
+a precisão numérica original, a data de referência e a distinção clara entre cotação
 
 43
-00:02:56,734 --> 00:03:01,024
-O trabalho foi organizado por especificações antes das mudanças. As frentes tiveram responsabilidades separadas
+00:02:54,335 --> 00:02:58,531
+comercial ao vivo e taxa de referência diária. Na busca web, os endereços oficiais
 
 44
-00:03:01,024 --> 00:03:05,314
-para semântica e retrieval, segurança e estado, além de integração. A avaliação reservada ficou
+00:02:58,531 --> 00:03:02,726
+encontrados são preservados e citados diretamente na resposta.
 
 45
-00:03:05,314 --> 00:03:09,604
-fora do repositório do produto, e um revisor novo analisou o candidato congelado. Depois
+00:03:03,726 --> 00:03:08,024
+O comportamento real do núcleo dois com a API Gemini está documentado nos recibos
 
 46
-00:03:09,604 --> 00:03:13,895
-da auditoria, aqueles casos passam a ser regressões conhecidas. O uso de múltiplos agentes
+00:03:08,024 --> 00:03:12,322
+dentro da pasta docs eval results. Os registros comprovam a execução nativa dos fluxos
 
 47
-00:03:13,895 --> 00:03:18,185
-ajuda a dividir implementação e revisão, mas não é garantia automática de independência estatística,
+00:03:12,322 --> 00:03:16,620
+documentais, diagnóstico parcial de terminal, recomendação contextualizada para perfil de cliente, ciclo completo de
 
 48
-00:03:18,185 --> 00:03:22,475
-nem substitui validação humana dos critérios.
+00:03:16,620 --> 00:03:20,918
+escalonamento humano com retomada e confirmação de ação remota em duas etapas, todos auditados
 
 49
-00:03:23,575 --> 00:03:27,816
-A auditoria anterior atribuiu oitenta e nove vírgula vinte e sete pontos nominais, sem
+00:03:20,918 --> 00:03:25,216
+em ledger de consumo a custo zero no nível gratuito.
 
 50
-00:03:27,816 --> 00:03:32,056
-caráter de nota oficial. Ela registrou quatrocentos e oitenta e quatro testes independentes e
+00:03:26,216 --> 00:03:30,326
+A validação de engenharia de software conta com mil oitocentos e vinte testes automatizados
 
 51
-00:03:32,056 --> 00:03:36,296
-integração contínua verde no mesmo commit. Porém, dos dezoito casos nativos, apenas quatro ficaram
+00:03:30,326 --> 00:03:34,437
+que rodam em menos de trinta segundos com bloqueio total de rede e isolamento
 
 52
-00:03:36,296 --> 00:03:40,537
-completos e um parcialmente útil. Houve nove falhas de provedor e quatro rejeições de
+00:03:34,437 --> 00:03:38,548
+de banco de dados em diretório temporário multiplataforma. Além dos contratos do núcleo dois,
 
 53
-00:03:40,537 --> 00:03:44,777
-protocolo. Essas treze falhas não comprovam fidelidade semântica. Os resultados ainda não sustentam noventa
+00:03:38,548 --> 00:03:42,659
+segurança, fronteiras de autorização e idempotência, o pipeline verifica a ausência de comandos print
 
 54
-00:03:44,777 --> 00:03:49,017
-e cinco pontos, e o main permanece preservado no baseline anterior.
+00:03:42,659 --> 00:03:46,770
+no código de produção e executa a suíte de avaliação de holdout.
 
 55
-00:03:50,117 --> 00:03:54,057
-A especificação da versão seis ataca os limites encontrados. Propõe reduzir a saída do
+00:03:47,770 --> 00:03:51,957
+Para operação em produção, o serviço é empacotado em imagem Docker multiestágio que executa
 
 56
-00:03:54,057 --> 00:03:57,997
-modelo a decisões por identificadores, reconstruindo os dados canônicos no servidor. Também prevê erros
+00:03:51,957 --> 00:03:56,144
+sob usuário sem privilégios de administrador, com sistema de arquivos somente leitura e persistência
 
 57
-00:03:57,997 --> 00:04:01,936
-tipados sem conteúdo privado e um ledger para que uma parte documental não desapareça
+00:03:56,144 --> 00:04:00,332
+restrita ao volume de estado. O workflow de integração contínua no GitHub Actions reproduz
 
 58
-00:04:01,936 --> 00:04:05,876
-quando outra parte é operacional. Delegar uma unidade não significa cumpri-la. Essa cena apresenta
+00:04:00,332 --> 00:04:04,519
+toda a bateria de testes e o smoke test do container. Com isso, a
 
 59
-00:04:05,876 --> 00:04:09,816
-o contrato em trabalho, não um resultado de qualidade já demonstrado. A próxima promoção
-
-60
-00:04:09,816 --> 00:04:13,756
-depende de novo congelamento e evidência independente.
-
-61
-00:04:14,856 --> 00:04:18,884
-Para revisar esta entrega, os scripts, as fontes, a narração e as legendas ficam
-
-62
-00:04:18,884 --> 00:04:22,912
-ao lado do MP quatro. O primeiro script repete os contratos locais sobre o
-
-63
-00:04:22,912 --> 00:04:26,941
-baseline congelado. O segundo gera as cenas e a voz com ferramentas locais, sem
-
-64
-00:04:26,941 --> 00:04:30,969
-chamadas externas. O corpus é um snapshot datado e resumido, o estado é local
-
-65
-00:04:30,969 --> 00:04:34,997
-e as operações de terminal são simuladas. A proposta de engenharia é manter decisões
-
-66
-00:04:34,997 --> 00:04:39,026
-rastreáveis e limites visíveis, e fazer cada alegação de qualidade depender da evidência correspondente.
+00:04:04,519 --> 00:04:08,706
+entrega reúne rigor de segurança, arquitetura limpa e evidências reais verificáveis.

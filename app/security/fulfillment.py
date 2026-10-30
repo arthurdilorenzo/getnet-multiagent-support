@@ -67,7 +67,7 @@ def _at(data: dict, path: str) -> Any:
 def _useful(value: Any, path: str) -> bool:
     if path == 'recommended_troubleshooting.connectivity':
         return isinstance(value, list) and bool(value) and all(isinstance(item, str) and bool(item.strip()) for item in value)
-    if path.endswith('_brl') or path == 'terminals_count':
+    if path.endswith('_brl') or path in {'terminals_count', 'terminal.battery_percent', 'terminal.battery'}:
         return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
     if path in {'antecipacao_automatica', 'requires_hardware_replacement'}:
         return isinstance(value, bool)
@@ -85,7 +85,7 @@ def _useful(value: Any, path: str) -> bool:
 SCOPE_MODIFIER = re.compile(r'\b(?:se|if|unless|exceto|except|desde que|provided that|only when|somente quando|apenas quando|garant\w*|guarantee\w*|nao|nunca|not|never)\b')
 # A property occurrence is not proof of a relation about that property (e.g.
 # firmware security, payment equivalence or public eligibility).
-UNSUPPORTED_PREDICATE = re.compile(r'\b(?:equival\w*|igual|same as|become\w*|torna\w*|significa|means?|every|toda\w*|secure|segur\w*|encrypt\w*|criptograf\w*|certific\w*|compativ\w*|compatib\w*|eligible|elegiv\w*|permit\w*|permite\w*|suporta\w*|supports?|pode|can|necessari\w*|obrigatori\w*|mandatory|requires?|requirement|juros|interest|taxa|fees?|battery|bateria|capacity|capacidade)\b')
+UNSUPPORTED_PREDICATE = re.compile(r'\b(?:equival\w*|igual|same as|become\w*|torna\w*|significa|means?|every|toda\w*|secure|segur\w*|encrypt\w*|criptograf\w*|certific\w*|compativ\w*|compatib\w*|eligible|elegiv\w*|permit\w*|permite\w*|suporta\w*|supports?|pode|can|necessari\w*|obrigatori\w*|mandatory|requires?|requirement|juros|interest|taxa|fees?|capacity|capacidade)\b')
 
 
 CONNECTIVITY_SYMPTOM = re.compile(r"\b(?:nao conect\w*|sem (?:sinal|internet|conexao)|(?:won[’']t|will not|does not|do not|cannot|can[’']t) connect(?:ing)?)\b")
@@ -172,6 +172,7 @@ def _property_read_shape(text: str, domain: str) -> bool:
             'transacao', 'transaction', 'recusa', 'recusada', 'decline',
             'declined', 'codigo', 'code', 'erro', 'error', 'esta', 'estao',
             'apresenta', 'acontecendo', 'why', 'porque', 'motivo', 'reason', 'was', 'causa',
+            'battery', 'bateria', 'carga', 'charge', 'level', 'nivel', 'percent', 'porcentagem', 'percentual',
         },
         'profile': {
             'perfil', 'profile', 'cadastro', 'cadastral', 'cadastrado', 'registered',
@@ -250,7 +251,7 @@ def _property_read(text: str, context: dict | None) -> PropertyRead | None:
         if not paths:
             paths = ['sales_data.net_payout_scheduled_today_brl', 'sales_data.payout_status']
         return PropertyRead('get_sales_settlement', tuple(paths))
-    property_inspection = bool(set(re.findall(r'[a-z]+', norm)) & READ_VERBS) and has(r'\b(?:firmware|hardware|signal|sinal|telemetr\w*)\b')
+    property_inspection = bool(set(re.findall(r'[a-z]+', norm)) & READ_VERBS) and has(r'\b(?:firmware|hardware|signal|sinal|telemetr\w*|bateria|battery|carga|charge)\b')
     if 'diagnosis' not in intent.intents and not property_inspection:
         return None
     if not _property_read_shape(text, 'terminal'):
@@ -267,6 +268,7 @@ def _property_read(text: str, context: dict | None) -> PropertyRead | None:
         (r'\b(?:connect\w*|conect\w*|conex\w*|wifi|internet|rede|offline)\b', 'terminal.connection_type'),
         (r'\b(?:hardware|defeit\w*|falha|leitor|reader|fault|broken)\b', 'requires_hardware_replacement'),
         (r'\b(?:recus\w*|declin\w*|refus\w*|codigo|code)\b', 'last_declined_transaction.decline_code'),
+        (r'\b(?:battery|bateria|carga|charge)\b', 'terminal.battery_percent'),
     ):
         if has(pattern): paths.append(path)
     if has(r'\b(?:telemetr\w*)\b'):
