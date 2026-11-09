@@ -501,26 +501,34 @@ def main() -> int:
         )
 
         def execute_case(case: EvalCaseV2, run_idx: int):
+            from app.observability.resilience import breaker_registry
             if args.live:
-                time.sleep(5.0)
+                time.sleep(8.0)
             ctx = SecurityContext(
                 authenticated_user_id=case.user_id,
                 role="merchant",
                 scopes=["chat:write", "customer:read_own", "terminal:action_own"],
             )
-            for attempt in range(3):
+            for attempt in range(4):
+                if args.live:
+                    breaker_registry.get("gemini_api").reset()
                 resp = runtime.process(
                     case.message,
                     ctx,
                     session_id=f"eval_{case.case_id}_run_{run_idx}_{attempt}" if attempt > 0 else f"eval_{case.case_id}_run_{run_idx}",
                 )
                 is_transient_cloud_error = any(
-                    s.action == "failed" and "ExternalServiceUnavailableError" in str(s.details)
+                    s.action == "failed"
+                    and (
+                        "ExternalServiceUnavailableError" in str(s.details)
+                        or "CircuitBreakerOpenError" in str(s.details)
+                        or "429" in str(s.details)
+                    )
                     for s in resp.trace
                 )
                 if not args.live or not is_transient_cloud_error:
                     return resp
-                time.sleep(4.0)
+                time.sleep(18.0)
             return resp
 
         live_audit = evaluate_committed_live_receipts(judge)

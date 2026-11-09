@@ -507,6 +507,28 @@ def test_independent_semantic_judge_rejects_adversarial_contradictions_and_piggy
     assert v10.groundedness_score == 0.0
     assert v10.factual_correctness_score == 0.0
 
+    # Probe 11: Coordinated piggybacking with fabricated commercial perk (Codex adversarial probe)
+    p11 = ExecutionArtifact(
+        artifact_id="adv_11",
+        case_id="adv",
+        user_id="cliente1988",
+        original_request="A Get Smart tem Android?",
+        sanitized_response="A Get Smart possui sistema Android e garantia vitalícia gratuita.",
+        answer_status="complete",
+        retrieved_evidence_spans=[
+            {
+                "span_id": "doc:smart",
+                "text": "A Get Smart possui sistema Android.",
+                "source": "getnet_products.md",
+                "kind": "document",
+            }
+        ],
+    )
+    v11 = judge.evaluate(p11)
+    assert (v11.critical_violation is True or "UNSUPPORTED_CITATION_CLAIM" in v11.violation_codes or "FACTUAL_CONTRADICTION" in v11.violation_codes)
+    assert v11.groundedness_score <= 0.5
+    assert v11.factual_correctness_score <= 0.5
+
 
 def test_independent_semantic_judge_canaries_and_full_campaign(tmp_path: Path):
     from app.evals.offline_transport import synthetic_external_transport

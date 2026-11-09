@@ -1,7 +1,7 @@
 {
-  "campaign_id": "camp_v2_d4527f59d1",
+  "campaign_id": "camp_v2_6ba097125e",
   "runtime_version": "v2.1-live",
-  "git_commit": "af83ac9",
+  "git_commit": "4b991e4",
   "git_dirty": true,
   "dataset_hash": "63a4dd40d536d53a",
   "runs_per_case": 1,
@@ -122,7 +122,7 @@
       "artifact_id": "art_v2_rag_pos_comparison_r1",
       "case_id": "v2_rag_pos_comparison",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -133,12 +133,20 @@
       "violation_codes": [],
       "claims": [
         {
-          "claim_text": "A Get Clássica possui teclado físico, enquanto a Get Smart reúne recursos adicionais de gestão, incluindo a Get Store com aplicativos de estoque e gestão comercial, câmera, leitor de códigos, impressão fiscal e integração de aplicativos utilizando o sistema operacional Android.",
+          "claim_text": "A Get Clássica possui teclado físico, conforme o manual de uso.",
           "verdict": "entailed",
           "supporting_ids": [
             "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
+        },
+        {
+          "claim_text": "Já a Get Smart reúne recursos adicionais de gestão, contando com a Get Store para baixar aplicativos de estoque e gestão comercial, além de câmera, leitor de códigos, impressão fiscal e integração de aplicativos utilizando o sistema operacional Android.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16"
+          ],
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -147,7 +155,7 @@
       "artifact_id": "art_v2_operational_settlement_r1",
       "case_id": "v2_operational_settlement",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -161,10 +169,9 @@
           "claim_text": "O saldo disponível para liquidação da conta cliente1988 é de R$ 1.415,80.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_15ef57e1a83a"
+            "fact_c1698d03e3dc"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: synthetic_historical_snapshot | 2026-10-20 | Snapshot histórico; não confirma liquidação atual.",
@@ -181,7 +188,7 @@
       "artifact_id": "art_v2_terminal_diagnosis_adaptive_r1",
       "case_id": "v2_terminal_diagnosis_adaptive",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -195,34 +202,17 @@
           "claim_text": "A consulta técnica indica que o terminal TERM_001 encontra-se offline.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
-            "fact_a747447b1058"
+            "fact_04c3e4f4a179"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
-          "claim_text": "A conectividade configurada no terminal TERM_001 é 3G/Wi-Fi.",
-          "verdict": "entailed",
-          "supporting_ids": [
-            "fact_10c59b44e83e"
-          ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
-        },
-        {
-          "claim_text": "O chip Algar é multioperadora.",
+          "claim_text": "Para solucionar falhas de conexão relacionadas ao chip, com a máquina desligada, coloque o chip no compartimento SIM1 ou SIM2, com a parte metálica para baixo.",
           "verdict": "entailed",
           "supporting_ids": [
             "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
-        },
-        {
-          "claim_text": "Com a máquina desligada, coloque o chip no compartimento SIM1 ou SIM2, com a parte metálica para baixo.",
-          "verdict": "entailed",
-          "supporting_ids": [
-            "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
-          ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         },
         {
           "claim_text": "Feche, ligue e aguarde a conexão.",
@@ -230,7 +220,7 @@
           "supporting_ids": [
             "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         },
         {
           "claim_text": "Para verificar a conectividade, execute o teste de comunicação no menu de manutenção.",
@@ -238,7 +228,7 @@
           "supporting_ids": [
             "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -247,7 +237,7 @@
       "artifact_id": "art_v2_two_phase_remote_action_r1",
       "case_id": "v2_two_phase_remote_action",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -266,7 +256,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-ABF92A231C03478EA406462DAB10038B para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-926BA160022349D3B0FA5DA4F7FD52F2 para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -288,7 +278,7 @@
       "artifact_id": "art_v2_unavailable_field_abstention_r1",
       "case_id": "v2_unavailable_field_abstention",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -299,7 +289,7 @@
       "violation_codes": [],
       "claims": [
         {
-          "claim_text": "Não consta registro disponível para o último erro de transação do terminal POS-9941",
+          "claim_text": "Não há dado disponível para ultimo erro transacao no recurso POS-9941",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -313,7 +303,7 @@
       "artifact_id": "art_v2_currency_exchange_r1",
       "case_id": "v2_currency_exchange",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -324,16 +314,15 @@
       "violation_codes": [],
       "claims": [
         {
-          "claim_text": "A cotação consultada para EUR/BRL é 6.1873.",
+          "claim_text": "A cotação consultada para EUR/BRL é 6.1828.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:825f02f5d15394e0c84eb00fb763cb99d7c529884d89107886898031e5a37bf6",
-            "fact_f8418164adda"
+            "fact_e75eda7d899a"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
-          "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 19:01:34 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
+          "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 19:21:34 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"

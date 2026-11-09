@@ -1,8 +1,8 @@
 {
-  "campaign_id": "camp_v2_d5b4dfaac5",
+  "campaign_id": "camp_v2_5e00acdf91",
   "runtime_version": "v2.1",
-  "git_commit": "af83ac9",
-  "git_dirty": false,
+  "git_commit": "4b991e4",
+  "git_dirty": true,
   "dataset_hash": "63a4dd40d536d53a",
   "runs_per_case": 3,
   "total_cases": 6,
@@ -122,7 +122,7 @@
       "artifact_id": "art_v2_rag_pos_comparison_r1",
       "case_id": "v2_rag_pos_comparison",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -138,7 +138,7 @@
           "supporting_ids": [
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -147,7 +147,7 @@
       "artifact_id": "art_v2_rag_pos_comparison_r2",
       "case_id": "v2_rag_pos_comparison",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -163,7 +163,7 @@
           "supporting_ids": [
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -172,7 +172,7 @@
       "artifact_id": "art_v2_rag_pos_comparison_r3",
       "case_id": "v2_rag_pos_comparison",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -188,7 +188,7 @@
           "supporting_ids": [
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -197,7 +197,7 @@
       "artifact_id": "art_v2_operational_settlement_r1",
       "case_id": "v2_operational_settlement",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -211,10 +211,9 @@
           "claim_text": "O saldo disponível para liquidação da conta cliente1988 é de R$ 1.415,80.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_247f37d2ee31"
+            "fact_d29cdf419147"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: synthetic_historical_snapshot | 2026-10-20 | Snapshot histórico; não confirma liquidação atual.",
@@ -231,7 +230,7 @@
       "artifact_id": "art_v2_operational_settlement_r2",
       "case_id": "v2_operational_settlement",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -245,10 +244,9 @@
           "claim_text": "O saldo disponível para liquidação da conta cliente1988 é de R$ 1.415,80.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_702b326486d8"
+            "fact_d4527ce36e30"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: synthetic_historical_snapshot | 2026-10-20 | Snapshot histórico; não confirma liquidação atual.",
@@ -265,7 +263,7 @@
       "artifact_id": "art_v2_operational_settlement_r3",
       "case_id": "v2_operational_settlement",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -279,10 +277,9 @@
           "claim_text": "O saldo disponível para liquidação da conta cliente1988 é de R$ 1.415,80.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_648361a45e8e"
+            "fact_4b7ba50c4d86"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: synthetic_historical_snapshot | 2026-10-20 | Snapshot histórico; não confirma liquidação atual.",
@@ -299,7 +296,7 @@
       "artifact_id": "art_v2_terminal_diagnosis_adaptive_r1",
       "case_id": "v2_terminal_diagnosis_adaptive",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -313,11 +310,9 @@
           "claim_text": "A consulta técnica indica que o terminal TERM_001 encontra-se offline.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
-            "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383",
-            "fact_cc9d13965045"
+            "fact_59640dd69662"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Para o terminal offline com erro de conectividade, oriente verificar o sinal do chip e a conexão Wi-Fi antes de solicitar nova tentativa.",
@@ -325,7 +320,7 @@
           "supporting_ids": [
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -334,7 +329,7 @@
       "artifact_id": "art_v2_terminal_diagnosis_adaptive_r2",
       "case_id": "v2_terminal_diagnosis_adaptive",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -348,11 +343,9 @@
           "claim_text": "A consulta técnica indica que o terminal TERM_001 encontra-se offline.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
-            "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383",
-            "fact_63da292a1d4d"
+            "fact_4a44c3e92269"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Para o terminal offline com erro de conectividade, oriente verificar o sinal do chip e a conexão Wi-Fi antes de solicitar nova tentativa.",
@@ -360,7 +353,7 @@
           "supporting_ids": [
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -369,7 +362,7 @@
       "artifact_id": "art_v2_terminal_diagnosis_adaptive_r3",
       "case_id": "v2_terminal_diagnosis_adaptive",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -383,11 +376,9 @@
           "claim_text": "A consulta técnica indica que o terminal TERM_001 encontra-se offline.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
-            "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383",
-            "fact_105cc7c9164b"
+            "fact_8e3d585b5d35"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Para o terminal offline com erro de conectividade, oriente verificar o sinal do chip e a conexão Wi-Fi antes de solicitar nova tentativa.",
@@ -395,7 +386,7 @@
           "supporting_ids": [
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos spans documentais verificados."
         }
       ],
       "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
@@ -404,7 +395,7 @@
       "artifact_id": "art_v2_two_phase_remote_action_r1",
       "case_id": "v2_two_phase_remote_action",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -423,7 +414,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-C44F1FCDCFCF45BD9D15FFA25005CE69 para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-62E123FD4AB147C58DD951619F37E9F6 para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -445,7 +436,7 @@
       "artifact_id": "art_v2_two_phase_remote_action_r2",
       "case_id": "v2_two_phase_remote_action",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -464,7 +455,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-474C89B43FA34B999B271A37413A9EF8 para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-193694AC79654CD192A45AB4CC110306 para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -486,7 +477,7 @@
       "artifact_id": "art_v2_two_phase_remote_action_r3",
       "case_id": "v2_two_phase_remote_action",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -505,7 +496,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-583BC98387F147FE8193E60B03DAB2AA para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-96F54A5D10A0466BAAF33425CC04EA73 para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -527,7 +518,7 @@
       "artifact_id": "art_v2_unavailable_field_abstention_r1",
       "case_id": "v2_unavailable_field_abstention",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -552,7 +543,7 @@
       "artifact_id": "art_v2_unavailable_field_abstention_r2",
       "case_id": "v2_unavailable_field_abstention",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -577,7 +568,7 @@
       "artifact_id": "art_v2_unavailable_field_abstention_r3",
       "case_id": "v2_unavailable_field_abstention",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -602,7 +593,7 @@
       "artifact_id": "art_v2_currency_exchange_r1",
       "case_id": "v2_currency_exchange",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -616,10 +607,9 @@
           "claim_text": "A cotação consultada para EUR/BRL é 6.1234.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:4dc6732a880c8226b8c5243b27f9c5a7e53b7758438294e489317c8925b83948",
-            "fact_53db21c1ddfc"
+            "fact_153e87ae7491"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 12:00:00 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
@@ -636,7 +626,7 @@
       "artifact_id": "art_v2_currency_exchange_r2",
       "case_id": "v2_currency_exchange",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -650,10 +640,9 @@
           "claim_text": "A cotação consultada para EUR/BRL é 6.1234.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:3a114bdb8f3bd99362addadbe96ff3f7735d494cdb3c45b30783f57ad63d1d87",
-            "fact_714217281e1d"
+            "fact_4439a4c721a5"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 12:00:00 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
@@ -670,7 +659,7 @@
       "artifact_id": "art_v2_currency_exchange_r3",
       "case_id": "v2_currency_exchange",
       "judge_id": "independent-entailment-judge-v2",
-      "judge_family": "cross-family-calibrated",
+      "judge_family": "rule-and-entailment-deterministic",
       "independent_evaluation": true,
       "groundedness_score": 1.0,
       "factual_correctness_score": 1.0,
@@ -684,10 +673,9 @@
           "claim_text": "A cotação consultada para EUR/BRL é 6.1234.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:e7d9016ccdb837fcdb34effad209d437cf0bcb56b107c979c12d839606c92f77",
-            "fact_b49618a4b9af"
+            "fact_e676d8f0fec1"
           ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+          "rationale": "Sustentado diretamente pelos fatos operacionais verificados pelo servidor."
         },
         {
           "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 12:00:00 | AwesomeAPI (cotação informada pelo provedor) | market_quote",

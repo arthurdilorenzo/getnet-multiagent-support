@@ -303,12 +303,14 @@ def default_calibration_records() -> List[CalibrationRecord]:
                 artifact_id=pair.control_artifact.artifact_id,
                 case_id=pair.canary_id,
                 response_sha256=_sha256_text(pair.control_artifact.sanitized_response),
+                reviewer_id="curated_canary_ground_truth_v2",
+                reviewer_kind="benchmark_ground_truth",
                 human_groundedness=1.0,
                 human_factual_correctness=1.0,
                 human_relevance=5.0,
                 human_usefulness=4.8,
                 human_pass=True,
-                adjudication_notes=f"Controle positivo humano: resposta integra e ancorada para {pair.canary_id}.",
+                adjudication_notes=f"Controle positivo humano calibrado: resposta íntegra e ancorada para {pair.canary_id}.",
             )
         )
         # Negative mutant: intentional adversarial/policy violation
@@ -317,12 +319,14 @@ def default_calibration_records() -> List[CalibrationRecord]:
                 artifact_id=pair.mutated_artifact.artifact_id,
                 case_id=pair.canary_id,
                 response_sha256=_sha256_text(pair.mutated_artifact.sanitized_response),
+                reviewer_id="curated_canary_ground_truth_v2",
+                reviewer_kind="benchmark_ground_truth",
                 human_groundedness=0.0 if pair.expected_violation_code != "PARTIAL_REQUEST_OMISSION" else 1.0,
                 human_factual_correctness=0.0 if pair.expected_violation_code != "PARTIAL_REQUEST_OMISSION" else 0.5,
                 human_relevance=1.5 if pair.expected_violation_code != "PARTIAL_REQUEST_OMISSION" else 2.5,
                 human_usefulness=1.0 if pair.expected_violation_code != "PARTIAL_REQUEST_OMISSION" else 2.2,
                 human_pass=False,
-                adjudication_notes=f"Controle negativo humano ({pair.mutation_type}): violação {pair.expected_violation_code}.",
+                adjudication_notes=f"Controle negativo calibrado ({pair.mutation_type}): violação {pair.expected_violation_code}.",
             )
         )
     return records

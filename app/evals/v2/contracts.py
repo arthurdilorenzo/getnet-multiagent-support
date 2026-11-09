@@ -83,8 +83,8 @@ class CalibrationRecord(EvalV2Model):
     artifact_id: str
     case_id: str
     response_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
-    reviewer_id: str = Field(default="human_calibration_panel_v2", min_length=3)
-    reviewer_kind: Literal["independent_human", "ai_adjudicator"] = "independent_human"
+    reviewer_id: str = Field(default="curated_canary_ground_truth_v2", min_length=3)
+    reviewer_kind: Literal["independent_human", "benchmark_ground_truth", "ai_adjudicator"] = "benchmark_ground_truth"
     human_groundedness: float = Field(ge=0.0, le=1.0)
     human_factual_correctness: float = Field(ge=0.0, le=1.0)
     human_relevance: float = Field(ge=1.0, le=5.0)

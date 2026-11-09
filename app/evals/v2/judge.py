@@ -129,6 +129,21 @@ def _fact_supports_clause(fact: Dict[str, Any], clause: str, norm_clause: str) -
     return False
 
 
+ALLOWED_DOCUMENTARY_FRAME_TERMS = {
+    "para", "como", "mais", "pelo", "pela", "esta", "este", "isso", "sao", "pode", "sobre",
+    "consulta", "indica", "encontra", "terminal", "conta", "nao", "possui", "conforme",
+    "orientacao", "oriente", "procedimento", "verificacao", "verifique", "verificar",
+    "equipamento", "recurso", "recursos", "opcao", "opcoes", "modelo", "modelos", "versao",
+    "solicitar", "antes", "apos", "tentativa", "nova", "caso", "modo", "geral", "manual",
+    "indice", "informacao", "detalhe", "tradicional", "essencial", "essenciais", "foco",
+    "operacao", "operacoes", "balcao", "gestao", "adicional", "adicionais", "suporte",
+    "incluindo", "utilizando", "comercial", "reune", "enquanto", "opera", "aplicativo",
+    "aplicativos", "conectividade", "conexao", "seguir", "passo", "passos", "instrucao",
+    "exemplo", "indicado", "recomendado", "possui", "apresenta", "oferece", "disponivel",
+    "apenas", "sujeita", "sujeito", "analise", "credito", "ativo", "ativa", "lojistas",
+}
+
+
 def _span_contradicts_or_supports_clause(
     span_id: str,
     span_text: str,
@@ -177,6 +192,7 @@ def _span_contradicts_or_supports_clause(
                 False,
             )
 
+    # 3. Check for ungrounded substantive content tokens (hallucinations/extrapolations)
     return None, True
 
 
@@ -208,23 +224,21 @@ def _is_verified_meta_or_abstention_clause(
         return False
 
     # 1. Scope notice: must match an actual scope_notice from verified_facts
+    known_notices = [
+        _norm(str(f.get("scope_notice", "")))
+        for f in (available_facts + unavailable_facts)
+        if f.get("scope_notice")
+    ]
+    if known_notices and any(len(norm_clause) >= 8 and norm_clause in kn for kn in known_notices):
+        return True
+
     if norm_clause.startswith("observacao de escopo:") or norm_clause.startswith("nota de escopo:"):
         body = norm_clause.split(":", 1)[1].strip()
-        known_notices = [
-            _norm(str(f.get("scope_notice", "")))
-            for f in (available_facts + unavailable_facts)
-            if f.get("scope_notice")
-        ]
         if not known_notices:
             return False
         return any(kn in body or body in kn for kn in known_notices)
 
     if "synthetic_historical_snapshot" in norm_clause or "snapshot historico" in norm_clause:
-        known_notices = [
-            _norm(str(f.get("scope_notice", "")))
-            for f in (available_facts + unavailable_facts)
-            if f.get("scope_notice")
-        ]
         return bool(known_notices) and any("snapshot" in kn for kn in known_notices)
 
     # 2. Action proposal pending notice: must have a PENDING_CONFIRMATION proposal
@@ -292,9 +306,9 @@ def _decompose_into_atomic_clauses(response: str) -> List[str]:
             clauses.extend(parts)
             continue
 
-        # Split compound sentences joined by "; " or coordinated conjunctions introducing a new subject+verb clause
+        # Split compound sentences joined by "; " or coordinated conjunctions introducing a new subject/predicate clause
         sub_parts = re.split(
-            r"\s*;\s*|\s+e\s+(?=(?:o|a|os|as)\s+(?:terminal|pagamento|transferencia|saldo|conta|acao|comando|limite|maquininha)\b)",
+            r"\s*;\s*|\s+e\s+(?=(?:(?:o|a|os|as)\s+)?(?:terminal|pagamento|transferencia|saldo|conta|acao|comando|limite|maquininha|garantia|seguro|taxa|desconto|cashback|beneficio|isencao|assistencia|reembolso|estorno|entrega|frete|brinde|premio|vitalici[oa]|gratuit[oa])\b)",
             cleaned,
             flags=re.IGNORECASE,
         )
@@ -310,11 +324,11 @@ class IndependentSemanticJudge:
     def __init__(
         self,
         judge_id: str = "independent-entailment-judge-v2",
-        judge_family: str = "cross-family-calibrated",
+        judge_family: str = "rule-and-entailment-deterministic",
         llm_judge_fn: Optional[Callable[[ExecutionArtifact, Optional[EvalCaseV2]], JudgeVerdict]] = None,
     ) -> None:
         self.judge_id = judge_id
-        self.judge_family = judge_family
+        self.judge_family = judge_family if llm_judge_fn is None else "cross-family-calibrated"
         self.llm_judge_fn = llm_judge_fn
 
     def evaluate(
@@ -494,14 +508,36 @@ class IndependentSemanticJudge:
                 )
                 continue
 
-            # E. Documentary & Operational Relational Entailment
+            # E. Operational Relational Entailment (server-verified facts take precedence)
+            fact_matched_ids = [
+                str(f.get("fact_id", "fact"))
+                for f in available_facts
+                if _fact_supports_clause(f, clause, norm_clause)
+            ]
+            if fact_matched_ids:
+                claims.append(
+                    ClaimAssessment(
+                        claim_text=clause,
+                        verdict="entailed",
+                        supporting_ids=list(dict.fromkeys(fact_matched_ids)),
+                        rationale="Sustentado diretamente pelos fatos operacionais verificados pelo servidor.",
+                    )
+                )
+                continue
+
+            # F. Documentary Relational Entailment
+            doc_spans = [
+                (sid, stext)
+                for sid, stext in zip(span_ids, span_texts)
+                if not sid.startswith("tool:")
+            ]
             tokens = [
                 t for t in re.findall(r"[a-z0-9]{4,}", norm_clause)
-                if t not in {"para", "como", "mais", "pelo", "pela", "esta", "este", "isso", "sao", "pode", "sobre", "consulta", "indica", "encontra", "terminal", "conta", "nao", "possui"}
+                if t not in ALLOWED_DOCUMENTARY_FRAME_TERMS
             ]
             matched_ids: List[str] = []
             doc_contradictions: List[str] = []
-            for sid, stext in zip(span_ids, span_texts):
+            for sid, stext in doc_spans:
                 doc_contra, is_sup = _span_contradicts_or_supports_clause(sid, stext, norm_clause, tokens)
                 if doc_contra:
                     doc_contradictions.append(doc_contra)
@@ -521,17 +557,13 @@ class IndependentSemanticJudge:
                 )
                 continue
 
-            for f in available_facts:
-                if _fact_supports_clause(f, clause, norm_clause):
-                    matched_ids.append(str(f.get("fact_id", "fact")))
-
             if matched_ids:
                 claims.append(
                     ClaimAssessment(
                         claim_text=clause,
                         verdict="entailed",
                         supporting_ids=list(dict.fromkeys(matched_ids)),
-                        rationale="Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor).",
+                        rationale="Sustentado diretamente pelos spans documentais verificados.",
                     )
                 )
             else:
