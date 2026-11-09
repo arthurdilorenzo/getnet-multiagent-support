@@ -37,7 +37,7 @@ def _signed_token(config, *, header=None, claims=None):
     now = int(time.time())
     payload = {
         "sub": "merchant-a", "role": "merchant", "scopes": ["chat:write"],
-        "iss": "getnet-multiagent-auth", "iat": now - 1, "exp": now + 600,
+        "iss": "getnet-multiagent-auth", "iat": now - 1, "exp": now + 600, "jti": "jti-test-1",
     }
     if claims:
         payload.update(claims)
@@ -279,3 +279,77 @@ def test_production_requires_independent_auth_and_signing_keys():
     key = "V5w7dzAl_F9Sx4h-M2iRQK26PO0JbN8eC3trYukG1Ha"
     with pytest.raises(ValidationError):
         Settings(_env_file=None, APP_ENV="production", JWT_SECRET=key, AUTH_API_KEY=key)
+
+
+def test_jwt_revocation_persists_in_sqlite_across_memory_reset_and_replicas(local_security):
+    from app.security.revocations import RevocationStore
+
+    _, store, _, client = local_security
+    revoked_token = AuthManager.create_jwt_token("merchant-a")
+    active_token = AuthManager.create_jwt_token("merchant-a")
+
+    revoke_res = client.post(
+        "/api/auth/revoke",
+        headers={"Authorization": f"Bearer {revoked_token}"},
+    )
+    assert revoke_res.status_code == 200
+    assert revoke_res.json()["revoked"] is True
+
+    # Simulate process restart / fresh worker replica with empty in-memory cache
+    AuthManager.REVOKED_JTIS.clear()
+    replica_store = RevocationStore(db_path=store.db_path)
+    revoked_claims = AuthManager.verify_jwt_token(revoked_token, check_revocation=False)
+    assert replica_store.is_revoked(revoked_claims["iss"], revoked_claims["jti"]) is True
+
+    with pytest.raises(HTTPException) as exc:
+        AuthManager.verify_jwt_token(revoked_token)
+    assert exc.value.status_code == 401
+
+    # Other valid tokens for the same merchant remain accepted
+    valid_claims = AuthManager.verify_jwt_token(active_token)
+    assert valid_claims["sub"] == "merchant-a"
+
+
+def test_chat_endpoint_rejects_admin_api_key_and_operator_jwt(local_security):
+    config, _, _, client = local_security
+    api_key_res = client.post(
+        "/api/chat",
+        headers={"X-API-Key": config.AUTH_API_KEY},
+        json={"user_id": "merchant-a", "message": "Qual o status do meu terminal?"},
+    )
+    assert api_key_res.status_code == 403
+
+    operator_token = AuthManager.create_jwt_token("operator-alice", role="operator")
+    op_res = client.post(
+        "/api/chat",
+        headers={"Authorization": f"Bearer {operator_token}"},
+        json={"user_id": "operator-alice", "message": "Qual o status do meu terminal?"},
+    )
+    assert op_res.status_code == 403
+
+
+def test_revocation_store_failure_returns_503_unavailable(local_security, monkeypatch):
+    config, _, _, client = local_security
+
+    class BrokenRevocationStore:
+        def is_revoked(self, issuer, jti, now=None):
+            raise sqlite3.OperationalError("database is locked")
+
+        def revoke(self, issuer, jti, expires_at, revoked_at=None):
+            raise sqlite3.OperationalError("database is locked")
+
+    token = AuthManager.create_jwt_token("merchant-a")
+    AuthManager.REVOKED_JTIS.clear()
+    monkeypatch.setattr(AuthManager, "REVOCATION_STORE", BrokenRevocationStore())
+    with pytest.raises(HTTPException) as exc:
+        AuthManager.verify_jwt_token(token)
+    assert exc.value.status_code == 503
+
+    revoke_res = client.post("/api/auth/revoke", headers={"Authorization": f"Bearer {token}"})
+    assert revoke_res.status_code == 503
+
+    # Signed token without JTI must always be rejected with 401
+    with pytest.raises(HTTPException) as no_jti_exc:
+        AuthManager.verify_jwt_token(_signed_token(config, claims={"jti": None}))
+    assert no_jti_exc.value.status_code == 401
+

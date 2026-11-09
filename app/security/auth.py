@@ -6,9 +6,12 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+import sys
+from pathlib import Path
 from typing import List, Optional, Set
 from fastapi import Header, HTTPException, status
 from app.config import settings
+from app.security.revocations import RevocationStore
 
 
 class CrossTenantAccessError(PermissionError):
@@ -44,6 +47,30 @@ class AuthManager:
     """
 
     REVOKED_JTIS: Set[str] = set()
+    REVOCATION_STORE: Optional[RevocationStore] = None
+    _STORE_BY_PATH: dict[str, RevocationStore] = {}
+
+    @classmethod
+    def _get_revocation_store(cls) -> RevocationStore:
+        if cls.REVOCATION_STORE is not None:
+            return cls.REVOCATION_STORE
+        db_path: Path | str = settings.SQLITE_DB_PATH
+        main_mod = sys.modules.get("app.main")
+        if main_mod is not None:
+            active_fn = getattr(main_mod, "active_store", None)
+            if callable(active_fn):
+                try:
+                    active = active_fn()
+                    if getattr(active, "db_path", None) is not None:
+                        db_path = active.db_path
+                except Exception:
+                    pass
+        key = str(Path(db_path))
+        store = cls._STORE_BY_PATH.get(key)
+        if store is None:
+            store = RevocationStore(db_path=key)
+            cls._STORE_BY_PATH[key] = store
+        return store
 
     @staticmethod
     def _b64url_encode(data: bytes) -> str:
@@ -96,16 +123,42 @@ class AuthManager:
 
     @classmethod
     def revoke_token(cls, token: str) -> bool:
-        """Adiciona o JTI do token à denylist de revogação."""
+        """Adiciona o JTI do token à denylist de revogação persistida em SQLite e cache em memória."""
         try:
             payload = cls.verify_jwt_token(token, check_revocation=False)
-            token_jti = payload.get("jti")
-            if token_jti:
-                cls.REVOKED_JTIS.add(token_jti)
-                return True
         except Exception:
-            pass
-        return False
+            return False
+        token_jti = payload.get("jti")
+        issuer = payload.get("iss", "getnet-multiagent-auth")
+        exp = int(payload.get("exp") or (int(time.time()) + 3600))
+        if not isinstance(token_jti, str) or not token_jti.strip():
+            return False
+        try:
+            cls._get_revocation_store().revoke(issuer=issuer, jti=token_jti, expires_at=exp)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Serviço de persistência de revogação indisponível.",
+            ) from exc
+        cls.REVOKED_JTIS.add(token_jti)
+        return True
+
+    @classmethod
+    def is_jti_revoked(cls, jti: str, issuer: str = "getnet-multiagent-auth", now: Optional[int] = None) -> bool:
+        if not jti:
+            return False
+        if jti in cls.REVOKED_JTIS:
+            return True
+        try:
+            revoked = cls._get_revocation_store().is_revoked(issuer=issuer, jti=jti, now=now)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Serviço de verificação de revogação de credenciais indisponível.",
+            ) from exc
+        if revoked:
+            cls.REVOKED_JTIS.add(jti)
+        return revoked
 
     @classmethod
     def verify_jwt_token(cls, token: str, check_revocation: bool = True) -> dict:
@@ -142,8 +195,12 @@ class AuthManager:
             if "nbf" in payload and (type(payload["nbf"]) is not int or payload["nbf"] > now):
                 raise ValueError("JWT is not active")
             token_jti = payload.get("jti")
-            if check_revocation and token_jti and token_jti in cls.REVOKED_JTIS:
+            if not isinstance(token_jti, str) or not token_jti.strip() or len(token_jti) > 256:
+                raise ValueError("Missing or invalid JWT JTI")
+            if check_revocation and cls.is_jti_revoked(token_jti, issuer=payload.get("iss", "getnet-multiagent-auth"), now=now):
                 raise ValueError("Token JTI has been revoked")
+        except HTTPException:
+            raise
         except (ValueError, TypeError, UnicodeError) as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token JWT inválido ou expirado.") from exc
         settings.AUTH_ENFORCE_STRICT = True

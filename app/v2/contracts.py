@@ -64,6 +64,34 @@ class ResumePlan(Contract):
     steps: list[StepProposal] = Field(default_factory=list, max_length=8)
 
 
+class ObservationSummary(Contract):
+    observation_id: str
+    step_kind: Literal["tool", "knowledge", "human"]
+    source_name: str
+    outcome_state: str
+    available_fact_ids: list[str] = Field(default_factory=list)
+    missing_binding_ids: list[str] = Field(default_factory=list)
+    diagnostic_codes: list[str] = Field(default_factory=list)
+    evidence_fingerprint: str = ""
+    confidence_score: float = 1.0
+
+
+class ExecutionBudget(Contract):
+    max_steps: int = 8
+    max_replans: int = 2
+    token_limit: int = 16000
+    cost_limit_usd: float = 0.05
+    confidence_threshold: float = 0.55
+
+
+class ReplanProposal(Contract):
+    action: Literal["continue", "replace_remaining", "append_steps", "compose", "human"] = "continue"
+    steps: list[StepProposal] = Field(default_factory=list, max_length=6)
+    reason_code: str = ""
+    trigger_observation_ids: list[str] = Field(default_factory=list)
+    addressed_requirement_ids: list[str] = Field(default_factory=list)
+
+
 # --- Canonical Server Structures (assigned/bound by server) ---
 
 class Binding(Contract):

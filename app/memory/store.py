@@ -115,6 +115,17 @@ class StateStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS jwt_revocations (
+                    issuer TEXT NOT NULL,
+                    jti TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    revoked_at INTEGER NOT NULL,
+                    PRIMARY KEY (issuer, jti)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_jwt_revocations_expires_at
+                ON jwt_revocations(expires_at);
                 """
             )
             # Additive migration: existing conversations remain readable after restart.

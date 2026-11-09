@@ -155,6 +155,16 @@ async def chat_endpoint(
         x_api_key=x_api_key,
         authorization=authorization,
     )
+    if sec_ctx.auth_method == "api_key":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Atendimento de chat exige token JWT vinculado ao titular; X-API-Key administrativa não pode personificar lojistas.",
+        )
+    if sec_ctx.auth_method == "jwt_bearer" and sec_ctx.role != "merchant":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este endpoint exige credencial de lojista.",
+        )
     require_scope(sec_ctx, "chat:write")
     sec_ctx.assert_tenant_access(request.user_id)
 
@@ -193,6 +203,10 @@ async def v2_chat_endpoint(
         raise HTTPException(status_code=401, detail="JWT do lojista obrigatório.")
     try:
         claims = AuthManager.verify_jwt_token(authorization[7:])
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+            raise
+        raise HTTPException(status_code=401, detail="Credencial inválida.") from None
     except Exception:
         raise HTTPException(status_code=401, detail="Credencial inválida.") from None
     if claims.get("role") != "merchant":
@@ -464,6 +478,31 @@ async def health_check():
 async def get_operational_metrics(_operator: SecurityContext = Depends(require_operator_auth)):
     require_scope(_operator, "metrics:read")
     return metrics_collector.snapshot()
+
+
+@app.get("/api/traces")
+async def list_persisted_traces(
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    limit: int = 50,
+    _operator: SecurityContext = Depends(require_operator_auth),
+):
+    from app.observability.trace_store import TraceRepository
+    require_scope(_operator, "metrics:read")
+    return {"traces": TraceRepository.default().list_traces(user_id=user_id, session_id=session_id, limit=limit)}
+
+
+@app.get("/api/traces/{trace_id}")
+async def get_persisted_trace(
+    trace_id: str,
+    _operator: SecurityContext = Depends(require_operator_auth),
+):
+    from app.observability.trace_store import TraceRepository
+    require_scope(_operator, "metrics:read")
+    trace = TraceRepository.default().get_trace(trace_id)
+    if trace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trace não encontrado.")
+    return trace
 
 
 @app.get("/api/evals/run")

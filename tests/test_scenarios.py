@@ -8,6 +8,7 @@ from tests.legacy_runtime_adapter import bind_legacy_runtime
 from app.config import settings
 from app.evals.evaluator import SystemEvaluator
 from app.evals.offline_transport import synthetic_external_transport
+from app.security.auth import AuthManager
 
 client = TestClient(app)
 
@@ -24,10 +25,11 @@ def historical_scenario_runtime(monkeypatch):
 
 
 def _post_chat(message: str, user_id: str = "cliente1988", session_id: str = "test_e2e_sess") -> dict:
+    token = AuthManager.create_jwt_token(user_id=user_id, role="merchant")
     response = client.post(
         "/api/chat",
         json={"message": message, "user_id": user_id, "session_id": session_id},
-        headers={"X-API-Key": settings.AUTH_API_KEY},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200, f"Unexpected status {response.status_code}: {response.text}"
     data = response.json()

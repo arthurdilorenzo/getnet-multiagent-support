@@ -25,6 +25,13 @@ from app.v2.contracts import (
 )
 
 
+from app.v2.presentation import (
+    format_canonical_fact_value,
+    format_semantic_fact,
+    render_operational_block,
+)
+
+
 class EvidenceError(ValueError):
     def __init__(self, code_or_msg: str, message: str | None = None):
         if message is not None:
@@ -38,32 +45,12 @@ class EvidenceError(ValueError):
 
 
 def format_fact(fact: Fact) -> str:
-    value = _format_fact_value(fact)
-    return value + ("\n" + fact.scope_notice if fact.scope_notice else "")
+    return format_semantic_fact(fact)
 
 
 def _format_fact_value(fact: Fact) -> str:
     """Server-side deterministic presentation of verified facts."""
-    field_name = fact.field_pointer.strip("/").split("/")[-1]
-    if fact.availability != "available":
-        return f"{field_name} ({fact.resource_id}): Informação indisponível."
-
-    if fact.resource_type == "currency":
-        # An exchange rate is a ratio; currency-money rounding would change it.
-        return f"{field_name} ({fact.resource_id}): {fact.value} {fact.unit or ''}".rstrip()
-
-    if fact.unit == "BRL":
-        try:
-            val_num = float(fact.value)
-            formatted = f"{val_num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            return f"{field_name} ({fact.resource_id}): BRL {formatted}"
-        except (ValueError, TypeError):
-            return f"{field_name} ({fact.resource_id}): BRL {fact.value}"
-
-    if fact.unit:
-        return f"{field_name} ({fact.resource_id}): {fact.value} {fact.unit}"
-
-    return f"{field_name} ({fact.resource_id}): {fact.value}"
+    return format_canonical_fact_value(fact)
 
 
 def render_final_answer(
@@ -90,13 +77,9 @@ def render_final_answer(
                     rendered_sections.append(f"Fonte: {span.source_url}")
 
         elif isinstance(block, OperationalBlock):
-            presented_lines = []
-            for fid in block.fact_ids:
-                fact = facts_by_id.get(fid)
-                if fact:
-                    presented_lines.append(format_fact(fact))
-            if presented_lines:
-                rendered_sections.append("\n".join(presented_lines))
+            section = render_operational_block(block, facts_by_id)
+            if section:
+                rendered_sections.append(section)
 
         elif isinstance(block, ContextBlock):
             rendered_sections.append(f"[Contexto informado pelo lojista] {resolve_user_context(block.context_ref, context)}")

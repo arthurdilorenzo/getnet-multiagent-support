@@ -13,6 +13,10 @@ def create_app(runtime):
             raise HTTPException(401, "JWT do lojista obrigatório.")
         try:
             claims = AuthManager.verify_jwt_token(authorization[7:])
+        except HTTPException as exc:
+            if exc.status_code == 503:
+                raise
+            raise HTTPException(401, "Credencial inválida.") from None
         except Exception:
             raise HTTPException(401, "Credencial inválida.") from None
         if claims["role"] != "merchant":

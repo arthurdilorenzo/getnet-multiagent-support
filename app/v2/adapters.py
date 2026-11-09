@@ -277,6 +277,10 @@ class ToolGateway:
         # Public geocoding canonicalizes only the city actually requested by this call.
         if resource_type == "weather" and resource_id == arguments.get("city") and data.get("city"):
             return data["city"]
+        if resource_type == "currency":
+            pair = data.get("currency_pair") or data.get("pair")
+            if pair:
+                return pair
         return resource_id
 
     def _customer(self, user_id):

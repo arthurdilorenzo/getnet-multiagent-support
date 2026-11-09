@@ -1,0 +1,341 @@
+{
+  "campaign_id": "camp_v2_59e4e0b655",
+  "runtime_version": "v2.1-live",
+  "git_commit": "1a52f81",
+  "git_dirty": true,
+  "dataset_hash": "63a4dd40d536d53a",
+  "runs_per_case": 1,
+  "total_cases": 6,
+  "total_runs": 6,
+  "mean_groundedness": 1.0,
+  "mean_factual_correctness": 1.0,
+  "mean_relevance": 5.0,
+  "mean_usefulness": 4.8,
+  "mean_abstention_quality": 1.0,
+  "critical_violations_count": 0,
+  "canary_sensitivity": 1.0,
+  "canary_false_positive_rate": 0.0,
+  "human_judge_agreement_rate": 1.0,
+  "gates_passed": true,
+  "category_breakdown": {
+    "rag_documentary": {
+      "runs": 1.0,
+      "groundedness": 1.0,
+      "factual_correctness": 1.0,
+      "relevance": 5.0,
+      "usefulness": 4.8
+    },
+    "operational_settlement": {
+      "runs": 1.0,
+      "groundedness": 1.0,
+      "factual_correctness": 1.0,
+      "relevance": 5.0,
+      "usefulness": 4.8
+    },
+    "adaptive_orchestration": {
+      "runs": 1.0,
+      "groundedness": 1.0,
+      "factual_correctness": 1.0,
+      "relevance": 5.0,
+      "usefulness": 4.8
+    },
+    "two_phase_action": {
+      "runs": 1.0,
+      "groundedness": 1.0,
+      "factual_correctness": 1.0,
+      "relevance": 5.0,
+      "usefulness": 4.8
+    },
+    "partial_or_abstained": {
+      "runs": 1.0,
+      "groundedness": 1.0,
+      "factual_correctness": 1.0,
+      "relevance": 5.0,
+      "usefulness": 4.8
+    },
+    "public_tool": {
+      "runs": 1.0,
+      "groundedness": 1.0,
+      "factual_correctness": 1.0,
+      "relevance": 5.0,
+      "usefulness": 4.8
+    }
+  },
+  "baseline_deltas": {
+    "groundedness_delta": 0.08,
+    "factual_correctness_delta": 0.08,
+    "relevance_delta": 0.8,
+    "usefulness_delta": 1.0
+  },
+  "live_receipt_audit": {
+    "source_receipt": "archive_audits/getnet_final_new_questions_2026-10-29/receipts/http.jsonl",
+    "adjudication_provenance": "prior_ai_adjudication_not_independent_human",
+    "evaluated": 4,
+    "agreement_rate": 1.0,
+    "cases": [
+      {
+        "case_id": "N01_recommendation",
+        "prior_adjudicator_verdict": "PASS",
+        "prior_adjudicator_reviewer": "Codex local; implementation participant, not independent human",
+        "judge_pass": true,
+        "agreed": true,
+        "violations": [],
+        "groundedness": 1.0,
+        "factual_correctness": 1.0
+      },
+      {
+        "case_id": "N02_missing_diagnostic",
+        "prior_adjudicator_verdict": "EXPECTED_PARTIAL",
+        "prior_adjudicator_reviewer": "Codex local; implementation participant, not independent human",
+        "judge_pass": true,
+        "agreed": true,
+        "violations": [],
+        "groundedness": 1.0,
+        "factual_correctness": 1.0
+      },
+      {
+        "case_id": "N03_snapshot_zero",
+        "prior_adjudicator_verdict": "EXPECTED_PARTIAL",
+        "prior_adjudicator_reviewer": "Codex local; implementation participant, not independent human",
+        "judge_pass": true,
+        "agreed": true,
+        "violations": [],
+        "groundedness": 1.0,
+        "factual_correctness": 1.0
+      },
+      {
+        "case_id": "N04_public_pair",
+        "prior_adjudicator_verdict": "FAIL",
+        "prior_adjudicator_reviewer": "Codex local; implementation participant, not independent human",
+        "judge_pass": false,
+        "agreed": true,
+        "violations": [
+          "PARTIAL_REQUEST_OMISSION"
+        ],
+        "groundedness": 1.0,
+        "factual_correctness": 0.5
+      }
+    ]
+  },
+  "verdicts": [
+    {
+      "artifact_id": "art_v2_rag_pos_comparison_r1",
+      "case_id": "v2_rag_pos_comparison",
+      "judge_id": "independent-entailment-judge-v2",
+      "judge_family": "cross-family-calibrated",
+      "independent_evaluation": true,
+      "groundedness_score": 1.0,
+      "factual_correctness_score": 1.0,
+      "relevance_score": 5.0,
+      "usefulness_score": 4.8,
+      "abstention_quality_score": 1.0,
+      "critical_violation": false,
+      "violation_codes": [],
+      "claims": [
+        {
+          "claim_text": "A Get Clássica possui teclado físico, conforme o manual de uso.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16",
+            "doc:cec1ec966c5a889143a0c91091f7d57f52ddd51fb598a5adf981ea18914c8336"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Já a Get Smart reúne recursos adicionais de gestão, incluindo a Get Store com aplicativos de estoque e gestão comercial, câmera, leitor de códigos e impressão fiscal, utilizando sistema Android.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16",
+            "doc:d7dc01d318fd496084f75eedcad5d2d45d0a8c4aeb167752684313d2df442ab5"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        }
+      ],
+      "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
+    },
+    {
+      "artifact_id": "art_v2_operational_settlement_r1",
+      "case_id": "v2_operational_settlement",
+      "judge_id": "independent-entailment-judge-v2",
+      "judge_family": "cross-family-calibrated",
+      "independent_evaluation": true,
+      "groundedness_score": 1.0,
+      "factual_correctness_score": 1.0,
+      "relevance_score": 5.0,
+      "usefulness_score": 4.8,
+      "abstention_quality_score": 1.0,
+      "critical_violation": false,
+      "violation_codes": [],
+      "claims": [
+        {
+          "claim_text": "O saldo disponível para liquidação da conta cliente1988 é de R$ 1.415,80.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
+            "fact_33d522afdb22"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Nota de escopo: synthetic_historical_snapshot | 2026-10-20 | Snapshot histórico; não confirma liquidação atual.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "server:meta_notice"
+          ],
+          "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
+        }
+      ],
+      "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
+    },
+    {
+      "artifact_id": "art_v2_terminal_diagnosis_adaptive_r1",
+      "case_id": "v2_terminal_diagnosis_adaptive",
+      "judge_id": "independent-entailment-judge-v2",
+      "judge_family": "cross-family-calibrated",
+      "independent_evaluation": true,
+      "groundedness_score": 1.0,
+      "factual_correctness_score": 1.0,
+      "relevance_score": 5.0,
+      "usefulness_score": 4.8,
+      "abstention_quality_score": 1.0,
+      "critical_violation": false,
+      "violation_codes": [],
+      "claims": [
+        {
+          "claim_text": "A consulta técnica indica que o terminal TERM_001 encontra-se offline.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
+            "fact_203334e88796"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Para solucionar falhas de conectividade e o erro de sinal no chip, certifique-se de que o chip esteja corretamente inserido no compartimento SIM1 ou SIM2 com a parte metálica para baixo com a máquina desligada.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Feche o compartimento, ligue a maquininha e aguarde a conexão.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Para verificar a conectividade, execute o teste de comunicação no menu de manutenção.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        }
+      ],
+      "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
+    },
+    {
+      "artifact_id": "art_v2_two_phase_remote_action_r1",
+      "case_id": "v2_two_phase_remote_action",
+      "judge_id": "independent-entailment-judge-v2",
+      "judge_family": "cross-family-calibrated",
+      "independent_evaluation": true,
+      "groundedness_score": 1.0,
+      "factual_correctness_score": 1.0,
+      "relevance_score": 5.0,
+      "usefulness_score": 4.8,
+      "abstention_quality_score": 1.0,
+      "critical_violation": false,
+      "violation_codes": [],
+      "claims": [
+        {
+          "claim_text": "O estado atual da proposta para o terminal TERM_001 é aguardando confirmação explícita do titular.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "server:meta_notice"
+          ],
+          "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
+        },
+        {
+          "claim_text": "Proposta PROP-EF4923A39C8F4D8E8C0F5A603264B8DC para TERM_001: aguardando confirmação explícita do titular.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "server:meta_notice"
+          ],
+          "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
+        },
+        {
+          "claim_text": "A ação ainda não foi executada.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "server:meta_notice"
+          ],
+          "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
+        }
+      ],
+      "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
+    },
+    {
+      "artifact_id": "art_v2_unavailable_field_abstention_r1",
+      "case_id": "v2_unavailable_field_abstention",
+      "judge_id": "independent-entailment-judge-v2",
+      "judge_family": "cross-family-calibrated",
+      "independent_evaluation": true,
+      "groundedness_score": 1.0,
+      "factual_correctness_score": 1.0,
+      "relevance_score": 5.0,
+      "usefulness_score": 4.8,
+      "abstention_quality_score": 1.0,
+      "critical_violation": false,
+      "violation_codes": [],
+      "claims": [
+        {
+          "claim_text": "Não consta registro disponível para o último erro de transação do terminal POS-9941",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "server:meta_notice"
+          ],
+          "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
+        }
+      ],
+      "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
+    },
+    {
+      "artifact_id": "art_v2_currency_exchange_r1",
+      "case_id": "v2_currency_exchange",
+      "judge_id": "independent-entailment-judge-v2",
+      "judge_family": "cross-family-calibrated",
+      "independent_evaluation": true,
+      "groundedness_score": 1.0,
+      "factual_correctness_score": 1.0,
+      "relevance_score": 5.0,
+      "usefulness_score": 4.8,
+      "abstention_quality_score": 1.0,
+      "critical_violation": false,
+      "violation_codes": [],
+      "claims": [
+        {
+          "claim_text": "A cotação consultada para EUR/BRL é 6.1818.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "tool:dc55fe264770d169ba404a8165dd44aa7dda2d0019cc69e552b5c8b8ea795f62",
+            "fact_3661c5509826"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 18:56:34 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "server:meta_notice"
+          ],
+          "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
+        }
+      ],
+      "summary_rationale": "Resposta íntegra e semanticamente sustentada pelas evidências."
+    }
+  ]
+}

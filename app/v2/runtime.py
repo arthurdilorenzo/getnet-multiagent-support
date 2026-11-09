@@ -13,8 +13,11 @@ from app.v2.contracts import (
     AnswerDocument,
     Binding,
     EvidenceSpan,
+    ExecutionBudget,
     Fact,
+    ObservationSummary,
     PlanProposal,
+    ReplanProposal,
     ResumePlan,
     Requirement,
     StepProposal,
@@ -24,13 +27,38 @@ from app.v2.contracts import (
 from app.v2.knowledge import EvidenceError, human_span, tool_span
 
 
+def _step_signature(step: StepProposal, user_id: str) -> str:
+    canonical = {
+        "user": user_id,
+        "kind": step.kind,
+        "tool_name": step.tool_name or "",
+        "arguments": step.arguments or {},
+        "query": " ".join((step.query or "").strip().lower().split()),
+        "requirement_indexes": sorted(step.requirement_indexes or []),
+    }
+    raw = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _validate_steps_against_requirements(steps: list[StepProposal], planned_requirements: list[Requirement]) -> None:
+    for step in steps:
+        indices = step.requirement_indexes
+        if not indices:
+            raise ValueError("Etapa sem referência de requisito.")
+        if len(indices) != len(set(indices)):
+            raise ValueError("Etapa possui índices de requisitos duplicados.")
+        if any(index < 0 or index >= len(planned_requirements) for index in indices):
+            raise ValueError("Etapa referencia índice de requisito inválido.")
+
+
 class Runtime:
-    def __init__(self, model, knowledge, state, gateway, queue):
+    def __init__(self, model, knowledge, state, gateway, queue, budget: ExecutionBudget | None = None):
         self.model = model
         self.knowledge = knowledge
         self.state = state
         self.gateway = gateway
         self.queue = queue
+        self.budget = budget or ExecutionBudget(max_steps=settings.MAX_ORCHESTRATION_ITERATIONS)
 
     def process(self, message: str, security_context: SecurityContext, session_id: str | None = None) -> ChatResponse:
         if "chat:write" not in security_context.scopes and "admin:all" not in security_context.scopes:
@@ -48,6 +76,11 @@ class Runtime:
             response.escalated = True
         else:
             response = self._drive(PIIRedactor.mask_text(message), security_context, session_id, tracer)
+        tracer.finish(
+            status="completed" if not response.abstained else "abstained",
+            answer_status=response.answer_status,
+            metadata={"escalated": response.escalated, "tools_called": response.tools_called},
+        )
         self.state.append(session_id, user, "assistant", response.response, response.tools_called, response.sources)
         return response
 
@@ -106,19 +139,13 @@ class Runtime:
                 planned_requirements, steps = canonicalize_plan(plan_proposal)
                 entities = {**context["v2"].get("entities", {}), **plan_proposal.entities.model_dump(exclude_none=True)}
 
-            if len(steps) > settings.MAX_ORCHESTRATION_ITERATIONS:
+            max_steps = min(self.budget.max_steps, settings.MAX_ORCHESTRATION_ITERATIONS)
+            if len(steps) > max_steps:
                 raise ValueError("Plano excede orçamento de etapas.")
 
             # The resumed steps still refer to the original frozen requirements.
             # Validate before dispatch, just as canonicalize_plan does initially.
-            for step in steps:
-                indices = step.requirement_indexes
-                if not indices:
-                    raise ValueError("Etapa sem referência de requisito.")
-                if len(indices) != len(set(indices)):
-                    raise ValueError("Etapa possui índices de requisitos duplicados.")
-                if any(index < 0 or index >= len(planned_requirements) for index in indices):
-                    raise ValueError("Etapa referencia índice de requisito inválido.")
+            _validate_steps_against_requirements(steps, planned_requirements)
 
             all_bindings = [b for r in planned_requirements for b in r.bindings]
 
@@ -136,7 +163,40 @@ class Runtime:
             if human_guidance and prior_ticket and not satisfied_human_ids:
                 satisfied_human_ids = {r.requirement_id for r in planned_requirements if r.kind == "human"}
 
-            for step in steps:
+            step_queue: list[StepProposal] = list(steps)
+            executed_signatures: set[str] = set()
+            seen_retrieval_fingerprints: set[str] = set()
+            observation_summaries: list[ObservationSummary] = []
+            executed_steps = 0
+            replans_used = 0
+
+            while step_queue:
+                # Enforce hop and cost budgets before dispatching next step
+                if executed_steps >= max_steps:
+                    tracer.add_step(
+                        agent="V2_SUPERVISOR",
+                        action="budget_gate_stopped",
+                        details={"reason": "hop_budget_exhausted", "executed_steps": executed_steps, "max_steps": max_steps},
+                    )
+                    break
+                if self._budget_exhausted(tracer):
+                    break
+
+                step = step_queue.pop(0)
+
+                if step.kind != "human":
+                    sig = _step_signature(step, user)
+                    if sig in executed_signatures:
+                        tracer.add_step(
+                            agent="V2_SUPERVISOR",
+                            action="loop_detected",
+                            details={"signature": sig, "kind": step.kind, "tool_name": step.tool_name, "query": step.query},
+                        )
+                        continue
+                    executed_signatures.add(sig)
+
+                executed_steps += 1
+
                 if step.kind == "human":
                     remaining = [i for i in step.requirement_indexes
                                  if planned_requirements[i].requirement_id not in satisfied_human_ids]
@@ -181,6 +241,59 @@ class Runtime:
                     spans.extend(retrieved)
                     modes.append(mode)
                     tools.append("search_getnet_knowledge")
+                    fp = hashlib.sha256(
+                        "|".join(sorted(s.span_id for s in retrieved)).encode("utf-8")
+                    ).hexdigest()[:16]
+                    if fp in seen_retrieval_fingerprints:
+                        tracer.add_step(
+                            agent="V2_SUPERVISOR",
+                            action="loop_detected",
+                            details={
+                                "reason": "duplicate_retrieval_evidence",
+                                "evidence_fingerprint": fp,
+                                "query": step.query or original,
+                            },
+                        )
+                    seen_retrieval_fingerprints.add(fp)
+                    conf = 0.9 if len(retrieved) >= 2 else (0.65 if len(retrieved) == 1 else 0.2)
+                    obs_summary = ObservationSummary(
+                        observation_id=f"obs_{executed_steps:04d}",
+                        step_kind="knowledge",
+                        source_name="search_getnet_knowledge",
+                        outcome_state="completed" if retrieved else "empty",
+                        evidence_fingerprint=fp,
+                        confidence_score=conf,
+                    )
+                    observation_summaries.append(obs_summary)
+                    tracer.add_step(
+                        agent="V2_SUPERVISOR",
+                        action="observe",
+                        details={
+                            "observation_id": obs_summary.observation_id,
+                            "step_kind": "knowledge",
+                            "spans_retrieved": len(retrieved),
+                            "retrieval_mode": mode,
+                            "confidence_score": conf,
+                            "confidence_gate_passed": conf >= self.budget.confidence_threshold,
+                        },
+                    )
+                    if conf < self.budget.confidence_threshold and replans_used < self.budget.max_replans and executed_steps < max_steps:
+                        if not self._budget_exhausted(tracer):
+                            replanned, consumed = self._maybe_replan(
+                                original=original,
+                                context=context,
+                                planned_requirements=planned_requirements,
+                                step_queue=step_queue,
+                                observation_summary=obs_summary,
+                                all_observations=observations,
+                                executed_signatures=executed_signatures,
+                                user=user,
+                                tracer=tracer,
+                            )
+                            if consumed:
+                                replans_used += 1
+                            if replanned is not None:
+                                step_queue = replanned
 
                 else:
                     result = self.gateway.execute(step.tool_name, step.arguments, security_context, session_id, tracer.trace_id)
@@ -205,7 +318,11 @@ class Runtime:
                     # Resolve only explicit symbolic aliases through authenticated
                     # server data. Concrete target mismatches stay mismatches.
                     for binding in all_bindings:
-                        if binding.tool_name == step.tool_name:
+                        if binding.tool_name == step.tool_name or (
+                            step.tool_name == "get_currency_exchange_rate"
+                            and binding.tool_name in ("get_currency_exchange_rate", "get_exchange_rate")
+                        ):
+                            binding.tool_name = step.tool_name
                             binding.resource_id = self.gateway.resolve_resource_id(
                                 binding.resource_type, binding.resource_id, user,
                                 arguments=step.arguments, result=result,
@@ -252,6 +369,57 @@ class Runtime:
                     span = tool_span(result)
                     if span:
                         spans.append(span)
+
+                    obs_summary = self._summarize_tool_observation(
+                        step=step,
+                        result=result,
+                        extracted_facts=extracted_facts,
+                        step_num=executed_steps,
+                    )
+                    observation_summaries.append(obs_summary)
+                    tracer.add_step(
+                        agent="V2_SUPERVISOR",
+                        action="observe",
+                        details={
+                            "observation_id": obs_summary.observation_id,
+                            "step_kind": "tool",
+                            "tool_name": step.tool_name,
+                            "available_facts": len(obs_summary.available_fact_ids),
+                            "missing_bindings": len(obs_summary.missing_binding_ids),
+                            "diagnostic_codes": obs_summary.diagnostic_codes,
+                            "confidence_score": obs_summary.confidence_score,
+                        },
+                    )
+
+                    # Adaptive Observe -> Replan loop (bounded by max_replans and hop_budget)
+                    if replans_used < self.budget.max_replans and executed_steps < max_steps:
+                        if not self._budget_exhausted(tracer):
+                            replanned, consumed = self._maybe_replan(
+                                original=original,
+                                context=context,
+                                planned_requirements=planned_requirements,
+                                step_queue=step_queue,
+                                observation_summary=obs_summary,
+                                all_observations=observations,
+                                executed_signatures=executed_signatures,
+                                user=user,
+                                tracer=tracer,
+                            )
+                            if consumed:
+                                replans_used += 1
+                            if replanned is not None:
+                                step_queue = replanned
+
+            if self._budget_exhausted(tracer, log_event=False):
+                response = self._empty(
+                    session_id,
+                    user,
+                    "Orçamento de execução excedido antes da síntese final.",
+                    tracer,
+                )
+                response.tools_called = tools
+                response.action_proposals = action_proposals
+                return response
 
             compose_context = {
                 **context,
@@ -350,6 +518,169 @@ class Runtime:
             return response
 
     @staticmethod
+    def _summarize_tool_observation(
+        *,
+        step: StepProposal,
+        result,
+        extracted_facts: list[Fact],
+        step_num: int,
+    ) -> ObservationSummary:
+        data = result.data or {}
+        available = [f.fact_id for f in extracted_facts if f.availability == "available"]
+        missing = [f.binding_id for f in extracted_facts if f.availability != "available" and f.binding_id]
+        diag_codes: list[str] = []
+        if isinstance(data, dict):
+            if data.get("error_code"):
+                diag_codes.append(str(data["error_code"]))
+            if data.get("ultimo_erro_transacao"):
+                diag_codes.append(str(data["ultimo_erro_transacao"]))
+            if data.get("chip_algar_status") and str(data["chip_algar_status"]).upper() not in {"ACTIVE", "ATIVO", "OK"}:
+                diag_codes.append("CHIP:" + str(data["chip_algar_status"]))
+            term = data.get("terminal")
+            if isinstance(term, dict):
+                if term.get("status") and str(term["status"]).upper() != "ONLINE":
+                    diag_codes.append("STATUS:" + str(term["status"]))
+                if term.get("model"):
+                    diag_codes.append("MODEL:" + str(term["model"]))
+        found_flag = data.get("found", True) if isinstance(data, dict) else True
+        conf = 1.0 if (found_flag and available) else (0.7 if found_flag else 0.25)
+        raw_fp = json.dumps({"tool": step.tool_name, "available": available, "diag": diag_codes}, sort_keys=True)
+        return ObservationSummary(
+            observation_id=f"obs_{step_num:04d}",
+            step_kind="tool",
+            source_name=step.tool_name,
+            outcome_state="completed" if found_flag else "not_found",
+            available_fact_ids=available,
+            missing_binding_ids=missing,
+            diagnostic_codes=diag_codes,
+            evidence_fingerprint=hashlib.sha256(raw_fp.encode("utf-8")).hexdigest()[:16],
+            confidence_score=conf,
+        )
+
+    def _budget_exhausted(self, tracer: SystemTracer, *, log_event: bool = True) -> bool:
+        usage = tracer.get_token_usage()
+        if usage.total_tokens > self.budget.token_limit or usage.estimated_cost_usd > self.budget.cost_limit_usd:
+            if log_event:
+                tracer.add_step(
+                    agent="V2_SUPERVISOR",
+                    action="budget_gate_stopped",
+                    details={
+                        "reason": "cost_or_token_budget_exhausted",
+                        "total_tokens": usage.total_tokens,
+                        "estimated_cost_usd": usage.estimated_cost_usd,
+                    },
+                )
+            return True
+        return False
+
+    def _maybe_replan(
+        self,
+        *,
+        original: str,
+        context: dict,
+        planned_requirements: list[Requirement],
+        step_queue: list[StepProposal],
+        observation_summary: ObservationSummary,
+        all_observations: list[dict],
+        executed_signatures: set[str],
+        user: str,
+        tracer: SystemTracer,
+    ) -> tuple[list[StepProposal] | None, bool]:
+        has_trigger = (
+            bool(observation_summary.diagnostic_codes)
+            or observation_summary.outcome_state in {"not_found", "empty"}
+            or observation_summary.confidence_score < self.budget.confidence_threshold
+        )
+        explicit_replan = bool(getattr(self.model, "supports_replan", False))
+        if not has_trigger and not explicit_replan:
+            return None, False
+
+        if explicit_replan:
+            replan_payload = {
+                "original_request": original,
+                "context": context,
+                "planned_requirements": [r.model_dump() for r in planned_requirements],
+                "remaining_steps": [s.model_dump() for s in step_queue],
+                "latest_observation": observation_summary.model_dump(),
+                "observations": all_observations,
+                "available_tools": self.gateway.declarations(),
+            }
+            proposal = self.model.generate(ReplanProposal, replan_payload, phase="replan", tracer=tracer)
+            if proposal.action == "continue":
+                return None, True
+            if proposal.action == "compose":
+                tracer.add_step(
+                    agent="V2_SUPERVISOR",
+                    action="adaptive_replan",
+                    details={"action": "compose", "reason_code": proposal.reason_code},
+                )
+                return [], True
+            if proposal.action == "human":
+                human_indices = [i for i, r in enumerate(planned_requirements) if r.kind == "human"] or [0]
+                new_steps = [StepProposal(kind="human", reason=proposal.reason_code or "Escalonamento adaptativo pós-observação", requirement_indexes=human_indices)]
+            elif proposal.action == "replace_remaining":
+                _validate_steps_against_requirements(proposal.steps, planned_requirements)
+                new_steps = list(proposal.steps)
+            else:
+                _validate_steps_against_requirements(proposal.steps, planned_requirements)
+                new_steps = list(step_queue) + list(proposal.steps)
+            filtered: list[StepProposal] = []
+            for s in new_steps:
+                if s.kind == "human":
+                    filtered.append(s)
+                    continue
+                sig = _step_signature(s, user)
+                if sig in executed_signatures:
+                    tracer.add_step(
+                        agent="V2_SUPERVISOR",
+                        action="loop_detected",
+                        details={"signature": sig, "kind": s.kind, "tool_name": s.tool_name, "query": s.query},
+                    )
+                else:
+                    filtered.append(s)
+            tracer.add_step(
+                agent="V2_SUPERVISOR",
+                action="adaptive_replan",
+                details={
+                    "action": proposal.action,
+                    "reason_code": proposal.reason_code or "model_replan",
+                    "trigger_observation_id": observation_summary.observation_id,
+                    "queued_steps": len(filtered),
+                },
+            )
+            return filtered, True
+
+        # Deterministic observation-driven enrichment: if terminal diagnosis surfaces
+        # concrete error/model codes and a documentary requirement exists without a
+        # query covering those observed codes, append a targeted knowledge lookup.
+        doc_req_indices = [i for i, r in enumerate(planned_requirements) if r.kind == "documentary"]
+        if observation_summary.source_name == "diagnose_terminal_issue" and observation_summary.diagnostic_codes and doc_req_indices:
+            diag_terms = " ".join(
+                c.split(":", 1)[-1] for c in observation_summary.diagnostic_codes
+            )
+            existing_queries = " ".join(s.query for s in step_queue if s.kind == "knowledge").lower()
+            if diag_terms.lower() not in existing_queries:
+                adaptive_step = StepProposal(
+                    kind="knowledge",
+                    query=f"{original} {diag_terms}".strip(),
+                    reason="adaptive_diagnostic_knowledge_enrichment",
+                    requirement_indexes=doc_req_indices,
+                )
+                if _step_signature(adaptive_step, user) not in executed_signatures:
+                    tracer.add_step(
+                        agent="V2_SUPERVISOR",
+                        action="adaptive_replan",
+                        details={
+                            "action": "append_steps",
+                            "reason_code": "observed_diagnostic_codes",
+                            "diagnostic_codes": observation_summary.diagnostic_codes,
+                            "trigger_observation_id": observation_summary.observation_id,
+                        },
+                    )
+                    return list(step_queue) + [adaptive_step], True
+        return None, False
+
+    @staticmethod
     def _empty(session_id: str, user: str, message: str, tracer: SystemTracer) -> ChatResponse:
         return ChatResponse(
             response=message,
@@ -427,6 +758,11 @@ class Runtime:
                 prior_ticket=ticket,
             )
             response.ticket_id = ticket_id
+            tracer.finish(
+                status="completed" if response.answer_status == "complete" else "abstained",
+                answer_status=response.answer_status,
+                metadata={"resumed_ticket_id": ticket_id, "tools_called": response.tools_called},
+            )
             self.state.finish_resumption(
                 ticket.session_id,
                 ticket.user_id,
@@ -436,6 +772,7 @@ class Runtime:
                 "completed" if response.answer_status == "complete" else "failed",
             )
             return response
-        except BaseException:
+        except BaseException as exc:
+            tracer.finish(status="failed", answer_status="abstained", metadata={"error": type(exc).__name__})
             self.state.store.fail_hitl_resumption(ticket_id, claim["reservation_id"], "unknown")
             raise
