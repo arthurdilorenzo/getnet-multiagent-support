@@ -1,8 +1,8 @@
 {
-  "campaign_id": "camp_v2_2a48a88b85",
+  "campaign_id": "camp_v2_d5b4dfaac5",
   "runtime_version": "v2.1",
-  "git_commit": "1a52f81",
-  "git_dirty": true,
+  "git_commit": "af83ac9",
+  "git_dirty": false,
   "dataset_hash": "63a4dd40d536d53a",
   "runs_per_case": 3,
   "total_cases": 6,
@@ -212,7 +212,7 @@
           "verdict": "entailed",
           "supporting_ids": [
             "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_c35a18029b42"
+            "fact_247f37d2ee31"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -246,7 +246,7 @@
           "verdict": "entailed",
           "supporting_ids": [
             "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_8f09c4065526"
+            "fact_702b326486d8"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -280,7 +280,7 @@
           "verdict": "entailed",
           "supporting_ids": [
             "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_822c12a563f0"
+            "fact_648361a45e8e"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -315,7 +315,7 @@
           "supporting_ids": [
             "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383",
-            "fact_f987e8a3e578"
+            "fact_cc9d13965045"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -350,7 +350,7 @@
           "supporting_ids": [
             "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383",
-            "fact_6254440954a1"
+            "fact_63da292a1d4d"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -385,7 +385,7 @@
           "supporting_ids": [
             "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
             "doc:dfd8c360a5385eb8bd06ee8cc6ad97a14f0ca7778694a335502b4b0f6c011383",
-            "fact_547cd4d4a522"
+            "fact_105cc7c9164b"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -423,7 +423,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-FAFFDFA433ED4377AEA4927867B15D86 para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-C44F1FCDCFCF45BD9D15FFA25005CE69 para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -464,7 +464,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-C685B1D6EBA44DF7B6456785634037A3 para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-474C89B43FA34B999B271A37413A9EF8 para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -505,7 +505,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-72314333C6DA45C9A0F67BE47F732128 para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-583BC98387F147FE8193E60B03DAB2AA para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -616,8 +616,8 @@
           "claim_text": "A cotação consultada para EUR/BRL é 6.1234.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:23bbd2ce0ea9e3e28e2a716e98bc9abd57cc8adc002c4423af0e885ca0ea72a8",
-            "fact_b5c4353a97c9"
+            "tool:4dc6732a880c8226b8c5243b27f9c5a7e53b7758438294e489317c8925b83948",
+            "fact_53db21c1ddfc"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -650,8 +650,8 @@
           "claim_text": "A cotação consultada para EUR/BRL é 6.1234.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:f71bf66f57040010b0221695b494d99928cddc324e230bf66de65376155db464",
-            "fact_56486f86344d"
+            "tool:3a114bdb8f3bd99362addadbe96ff3f7735d494cdb3c45b30783f57ad63d1d87",
+            "fact_714217281e1d"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -684,8 +684,8 @@
           "claim_text": "A cotação consultada para EUR/BRL é 6.1234.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:9d6d4ddcf902bbb27d69e3c59fe316add4ef95a68f5534fae9697390417d31fc",
-            "fact_a523ca577fe6"
+            "tool:e7d9016ccdb837fcdb34effad209d437cf0bcb56b107c979c12d839606c92f77",
+            "fact_b49618a4b9af"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },

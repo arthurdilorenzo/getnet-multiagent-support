@@ -1,7 +1,7 @@
 {
-  "campaign_id": "camp_v2_59e4e0b655",
+  "campaign_id": "camp_v2_d4527f59d1",
   "runtime_version": "v2.1-live",
-  "git_commit": "1a52f81",
+  "git_commit": "af83ac9",
   "git_dirty": true,
   "dataset_hash": "63a4dd40d536d53a",
   "runs_per_case": 1,
@@ -133,20 +133,10 @@
       "violation_codes": [],
       "claims": [
         {
-          "claim_text": "A Get Clássica possui teclado físico, conforme o manual de uso.",
+          "claim_text": "A Get Clássica possui teclado físico, enquanto a Get Smart reúne recursos adicionais de gestão, incluindo a Get Store com aplicativos de estoque e gestão comercial, câmera, leitor de códigos, impressão fiscal e integração de aplicativos utilizando o sistema operacional Android.",
           "verdict": "entailed",
           "supporting_ids": [
-            "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16",
-            "doc:cec1ec966c5a889143a0c91091f7d57f52ddd51fb598a5adf981ea18914c8336"
-          ],
-          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
-        },
-        {
-          "claim_text": "Já a Get Smart reúne recursos adicionais de gestão, incluindo a Get Store com aplicativos de estoque e gestão comercial, câmera, leitor de códigos e impressão fiscal, utilizando sistema Android.",
-          "verdict": "entailed",
-          "supporting_ids": [
-            "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16",
-            "doc:d7dc01d318fd496084f75eedcad5d2d45d0a8c4aeb167752684313d2df442ab5"
+            "doc:9be63a36224d1719529f4217570fe0ae3fa1a30a71f69a021ab054e4f5aa9b16"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         }
@@ -172,7 +162,7 @@
           "verdict": "entailed",
           "supporting_ids": [
             "tool:32fec78a361821a3e13e85799e88ed27cc0c937e516cf939fb3ba0cfe2530252",
-            "fact_33d522afdb22"
+            "fact_15ef57e1a83a"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
@@ -206,12 +196,20 @@
           "verdict": "entailed",
           "supporting_ids": [
             "tool:9ae3b03e31f67a9c51ce6212033028105682a2dc45af2b8059bf00d9462baa56",
-            "fact_203334e88796"
+            "fact_a747447b1058"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
         {
-          "claim_text": "Para solucionar falhas de conectividade e o erro de sinal no chip, certifique-se de que o chip esteja corretamente inserido no compartimento SIM1 ou SIM2 com a parte metálica para baixo com a máquina desligada.",
+          "claim_text": "A conectividade configurada no terminal TERM_001 é 3G/Wi-Fi.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "fact_10c59b44e83e"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "O chip Algar é multioperadora.",
           "verdict": "entailed",
           "supporting_ids": [
             "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
@@ -219,7 +217,15 @@
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
         {
-          "claim_text": "Feche o compartimento, ligue a maquininha e aguarde a conexão.",
+          "claim_text": "Com a máquina desligada, coloque o chip no compartimento SIM1 ou SIM2, com a parte metálica para baixo.",
+          "verdict": "entailed",
+          "supporting_ids": [
+            "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
+          ],
+          "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
+        },
+        {
+          "claim_text": "Feche, ligue e aguarde a conexão.",
           "verdict": "entailed",
           "supporting_ids": [
             "doc:1610f419143ea28595fa3df43021b371e243e160eb91ed01c57bca066c620bbc"
@@ -260,7 +266,7 @@
           "rationale": "Declaração controlada de estado operacional ou abstenção verificada no servidor."
         },
         {
-          "claim_text": "Proposta PROP-EF4923A39C8F4D8E8C0F5A603264B8DC para TERM_001: aguardando confirmação explícita do titular.",
+          "claim_text": "Proposta PROP-ABF92A231C03478EA406462DAB10038B para TERM_001: aguardando confirmação explícita do titular.",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
@@ -318,16 +324,16 @@
       "violation_codes": [],
       "claims": [
         {
-          "claim_text": "A cotação consultada para EUR/BRL é 6.1818.",
+          "claim_text": "A cotação consultada para EUR/BRL é 6.1873.",
           "verdict": "entailed",
           "supporting_ids": [
-            "tool:dc55fe264770d169ba404a8165dd44aa7dda2d0019cc69e552b5c8b8ea795f62",
-            "fact_3661c5509826"
+            "tool:825f02f5d15394e0c84eb00fb763cb99d7c529884d89107886898031e5a37bf6",
+            "fact_f8418164adda"
           ],
           "rationale": "Sustentado diretamente pelos spans/fatos verificados (recurso + propriedade + valor)."
         },
         {
-          "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 18:56:34 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
+          "claim_text": "Nota de escopo: EUR/BRL | 2026-11-09 19:01:34 | AwesomeAPI (cotação informada pelo provedor) | market_quote",
           "verdict": "entailed",
           "supporting_ids": [
             "server:meta_notice"
